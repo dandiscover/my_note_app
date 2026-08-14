@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'database_service.dart';
-import 'pages/inspiration_page.dart';
-import 'pages/reading_page.dart';
-import 'pages/knowledge_page.dart';
+import 'pages/collection_page.dart';
+import 'pages/wisdom_page.dart';
+import 'pages/insight_page.dart';
 import 'pages/creation_page.dart';
-import 'pages/review_page.dart';
-import 'pages/library_page.dart';  // ✅ 新增导入
+import 'pages/profile_page.dart';
 import 'models/note.dart';
 
 void main() {
@@ -18,10 +17,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Notebook',
+      title: '云脑计划',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color.fromARGB(255, 238, 241, 242)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color.fromARGB(255, 238, 241, 242),
+        ),
         useMaterial3: true,
         scaffoldBackgroundColor: const Color.fromARGB(255, 155, 194, 236),
       ),
@@ -38,7 +39,7 @@ class NotebookPage extends StatefulWidget {
 }
 
 class _NotebookPageState extends State<NotebookPage> {
-  int _currentIndex = 0; // 0=灵感, 1=阅读, 2=知识, 3=图书馆, 4=创作, 5=回顾
+  int _currentIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -64,17 +65,16 @@ class _NotebookPageState extends State<NotebookPage> {
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: const [
-          InspirationPage(),
-          ReadingPage(),
-          KnowledgePage(),
-          LibraryPage(),     // ✅ 独立标签
-          CreationPage(),
-          ReviewPage(),
-        ],
-      ),
+     body: IndexedStack(
+  index: _currentIndex,
+  children: <Widget>[
+    const CollectionPage(),
+    const WisdomPage(),
+    const InsightPage(),
+    const CreationPage(),
+    const ProfilePage(),
+  ],
+),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -85,28 +85,24 @@ class _NotebookPageState extends State<NotebookPage> {
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.lightbulb_outline),
-            label: '灵感',
+            icon: Icon(Icons.cloud_upload_outlined),
+            label: '采集',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.menu_book),
-            label: '阅读',
+            icon: Icon(Icons.auto_stories),
+            label: '智库',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.note),
-            label: '知识',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.library_books),
-            label: '图书馆',
+            icon: Icon(Icons.insights),
+            label: '洞察',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.create),
             label: '创作',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.autorenew),
-            label: '回顾',
+            icon: Icon(Icons.person_outline),
+            label: '我的',
           ),
         ],
       ),

@@ -1,7 +1,3 @@
-// lib/database_service.dart
-// 双引擎数据服务：Web 端用 shared_preferences (localStorage)，原生端用 SQLite
-// 支持笔记、书籍、封面图片、PDF 关联、PDF 标注、标注转笔记
-
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart';
@@ -9,22 +5,21 @@ import 'package:path/path.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DatabaseService {
-  // ---------- 单例模式 ----------
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
   DatabaseService._internal();
 
-  // ---------- 环境判断 ----------
   bool get _isWeb => kIsWeb;
 
-  // ============================================================
-  // 笔记相关操作 (CRUD)
-  // ============================================================
+  // ========== 笔记 CRUD ==========
 
   Future<void> insertNote(Map<String, dynamic> noteMap) async {
+    if (!noteMap.containsKey('status')) {
+      noteMap['status'] = 'raw';
+    }
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
-      final notes = await getAllNotes();
+      final notes = await _getAllNotesInternal(includeDeleted: false);
       notes.insert(0, noteMap);
       await prefs.setString('notes_data', jsonEncode(notes));
     } else {
@@ -33,49 +28,121 @@ class DatabaseService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAllNotes() async {
+  Future<List<Map<String, dynamic>>> getAllNotes({bool includeDeleted = false}) async {
+    return _getAllNotesInternal(includeDeleted: includeDeleted);
+  }
+
+  Future<List<Map<String, dynamic>>> _getAllNotesInternal({bool includeDeleted = false}) async {
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
       final String? data = prefs.getString('notes_data');
       if (data == null || data.isEmpty) return [];
       final List<dynamic> list = jsonDecode(data);
-      return list.map((e) => Map<String, dynamic>.from(e)).toList();
+      final allNotes = list.map((e) => Map<String, dynamic>.from(e)).toList();
+      if (includeDeleted) return allNotes;
+      return allNotes.where((n) => n['status'] != 'deleted').toList();
     } else {
       final db = await _getDatabase();
-      return await db.query('notes', orderBy: 'updatedAt DESC');
+      final allNotes = await db.query('notes', orderBy: 'updatedAt DESC');
+      if (includeDeleted) return allNotes;
+      return allNotes.where((n) => n['status'] != 'deleted').toList();
     }
+  }
+
+  // 获取原始笔记（status = 'raw'）
+  Future<List<Map<String, dynamic>>> getRawNotes() async {
+    final all = await _getAllNotesInternal(includeDeleted: false);
+    return all.where((n) => n['status'] == 'raw').toList();
+  }
+
+  // 获取未归档笔记（status = 'active'）
+  Future<List<Map<String, dynamic>>> getActiveNotes() async {
+    final all = await _getAllNotesInternal(includeDeleted: false);
+    return all.where((n) => n['status'] == 'active').toList();
+  }
+
+  // 获取已归档笔记（status = 'archived'）
+  Future<List<Map<String, dynamic>>> getArchivedNotes() async {
+    final all = await _getAllNotesInternal(includeDeleted: false);
+    return all.where((n) => n['status'] == 'archived').toList();
+  }
+
+  // 获取任务（status = 'task'）
+  Future<List<Map<String, dynamic>>> getTasks() async {
+    final all = await _getAllNotesInternal(includeDeleted: false);
+    return all.where((n) => n['status'] == 'task').toList();
+  }
+
+  // 收入智库（raw → active）
+  Future<void> sendToWisdom(String id) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final index = notes.indexWhere((n) => n['id'] == id);
+    if (index != -1) {
+      notes[index]['status'] = 'active';
+      notes[index]['updatedAt'] = DateTime.now().toIso8601String();
+      await _saveNotes(notes);
+    }
+  }
+
+  // 归档（active → archived）
+  Future<void> archiveNote(String id) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final index = notes.indexWhere((n) => n['id'] == id);
+    if (index != -1) {
+      notes[index]['status'] = 'archived';
+      await _saveNotes(notes);
+    }
+  }
+
+  // 取消归档（archived → active）
+  Future<void> unarchiveNote(String id) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final index = notes.indexWhere((n) => n['id'] == id);
+    if (index != -1) {
+      notes[index]['status'] = 'active';
+      await _saveNotes(notes);
+    }
+  }
+
+  // 软删除（任意状态 → deleted）
+  Future<void> deleteNote(String id) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final index = notes.indexWhere((n) => n['id'] == id);
+    if (index != -1) {
+      notes[index]['status'] = 'deleted';
+      await _saveNotes(notes);
+    }
+  }
+
+  // 物理删除
+  Future<void> hardDeleteNote(String id) async {
+    final notes = await _getAllNotesInternal(includeDeleted: true);
+    notes.removeWhere((n) => n['id'] == id);
+    await _saveNotes(notes);
   }
 
   Future<void> updateNote(Map<String, dynamic> noteMap) async {
-    if (_isWeb) {
-      final notes = await getAllNotes();
-      final index = notes.indexWhere((n) => n['id'] == noteMap['id']);
-      if (index != -1) {
-        notes[index] = noteMap;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('notes_data', jsonEncode(notes));
-      }
-    } else {
-      final db = await _getDatabase();
-      await db.update('notes', noteMap, where: 'id = ?', whereArgs: [noteMap['id']]);
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final index = notes.indexWhere((n) => n['id'] == noteMap['id']);
+    if (index != -1) {
+      notes[index] = noteMap;
+      await _saveNotes(notes);
     }
   }
 
-  Future<void> deleteNote(String id) async {
+  Future<void> _saveNotes(List<Map<String, dynamic>> notes) async {
     if (_isWeb) {
-      final notes = await getAllNotes();
-      notes.removeWhere((n) => n['id'] == id);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('notes_data', jsonEncode(notes));
     } else {
       final db = await _getDatabase();
-      await db.delete('notes', where: 'id = ?', whereArgs: [id]);
+      for (var note in notes) {
+        await db.update('notes', note, where: 'id = ?', whereArgs: [note['id']]);
+      }
     }
   }
 
-  // ============================================================
-  // 书籍相关操作 (CRUD) — 升级版，支持封面和PDF
-  // ============================================================
+  // ========== 书籍 CRUD ==========
 
   Future<void> insertBook(Map<String, dynamic> bookMap) async {
     if (_isWeb) {
@@ -145,64 +212,14 @@ class DatabaseService {
     }
   }
 
-  // ============================================================
-  // PDF 标注相关操作
-  // ============================================================
+  // ========== 标注 CRUD（占位） ==========
 
-  Future<void> insertAnnotation(Map<String, dynamic> annotationMap) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final annotations = await getAllAnnotationsForBook(annotationMap['book_id'] ?? '');
-      annotations.add(annotationMap);
-      // 按书籍 ID 分组存储
-      await prefs.setString(
-        'annotations_${annotationMap['book_id']}',
-        jsonEncode(annotations),
-      );
-    } else {
-      final db = await _getDatabase();
-      await db.insert('book_annotations', annotationMap,
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-  }
-
+  Future<void> insertAnnotation(Map<String, dynamic> annotationMap) async {}
   Future<List<Map<String, dynamic>>> getAllAnnotationsForBook(String bookId) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString('annotations_$bookId');
-      if (data == null || data.isEmpty) return [];
-      final List<dynamic> list = jsonDecode(data);
-      return list.map((e) => Map<String, dynamic>.from(e)).toList();
-    } else {
-      final db = await _getDatabase();
-      return await db.query(
-        'book_annotations',
-        where: 'book_id = ?',
-        whereArgs: [bookId],
-        orderBy: 'page_number ASC, created_at ASC',
-      );
-    }
+    return [];
   }
 
-  Future<void> deleteAnnotation(String annotationId, String bookId) async {
-    if (_isWeb) {
-      final annotations = await getAllAnnotationsForBook(bookId);
-      annotations.removeWhere((a) => a['id'] == annotationId);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('annotations_$bookId', jsonEncode(annotations));
-    } else {
-      final db = await _getDatabase();
-      await db.delete(
-        'book_annotations',
-        where: 'id = ?',
-        whereArgs: [annotationId],
-      );
-    }
-  }
-
-  // ============================================================
-  // 原生 SQLite 支持 (仅在非 Web 环境使用)
-  // ============================================================
+  // ========== 原生 SQLite 支持 ==========
 
   static Database? _database;
 
@@ -211,67 +228,38 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'notebook.db');
     _database = await openDatabase(
       path,
-      version: 4, // 版本升级到 3，支持新字段
+      version: 3,
       onCreate: _onCreate,
-      onUpgrade: _onUpgrade, // 新增升级回调
+      onUpgrade: _onUpgrade,
     );
     return _database!;
   }
 
-  // ---------- 首次创建 ----------
   Future<void> _onCreate(Database db, int version) async {
     await _createTables(db);
   }
 
-  // ---------- 升级数据库 ----------
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 3) {
-      // 从版本 2 升级到 3：新增字段
       await db.execute('ALTER TABLE books ADD COLUMN cover_image TEXT');
       await db.execute('ALTER TABLE books ADD COLUMN pdf_path TEXT');
       await db.execute('ALTER TABLE books ADD COLUMN file_type TEXT DEFAULT "none"');
-      // 重建 book_annotations 表（因为原表结构不完整，需要重新创建）
-      // 先重命名旧表
-      await db.execute('ALTER TABLE book_annotations RENAME TO book_annotations_old');
-      // 创建新表
-      await db.execute('''
-        CREATE TABLE book_annotations(
-          id TEXT PRIMARY KEY,
-          book_id TEXT,
-          page_number INTEGER,
-          quote TEXT,
-          note TEXT,
-          color TEXT,
-          created_at TEXT,
-          FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-        )
-      ''');
-      // 迁移旧数据（如果有）
-      await db.execute('''
-        INSERT INTO book_annotations (id, book_id, page_number, quote, note, color, created_at)
-        SELECT id, book_id, 0, quote, note, '#FFD700', created_at
-        FROM book_annotations_old
-      ''');
-      // 删除旧表
-      await db.execute('DROP TABLE book_annotations_old');
+    }
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT "raw"');
     }
   }
 
-  // ---------- 建表 ----------
   Future<void> _createTables(Database db) async {
-    // 笔记表
     await db.execute('''
       CREATE TABLE notes(
         id TEXT PRIMARY KEY,
         title TEXT,
         content TEXT,
         updatedAt TEXT,
-        source_type TEXT,
-        source_id TEXT
+        status TEXT DEFAULT 'raw'
       )
     ''');
-
-    // 书籍表（含封面和PDF字段）
     await db.execute('''
       CREATE TABLE books(
         id TEXT PRIMARY KEY,
@@ -287,8 +275,6 @@ class DatabaseService {
         created_at TEXT
       )
     ''');
-
-    // 标注表（完整版）
     await db.execute('''
       CREATE TABLE book_annotations(
         id TEXT PRIMARY KEY,

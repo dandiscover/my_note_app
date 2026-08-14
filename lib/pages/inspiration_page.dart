@@ -29,15 +29,20 @@ class _InspirationPageState extends State<InspirationPage> {
   }
 
   Future<void> _loadRecent() async {
-    final maps = await _db.getAllBooks();
-    setState(() {
-      _recentBooks = maps.map((map) => Book.fromMap(map)).toList();
-    });
+    if (!mounted) return;
+    try {
+      final maps = await _db.getAllBooks();
+      if (!mounted) return;
+      setState(() {
+        _recentBooks = maps.map((map) => Book.fromMap(map)).toList();
+      });
+    } catch (e) {
+      // 忽略错误，避免页面崩溃
+    }
   }
 
   // ---- 快速捕获入口 ----
   void _quickNote() {
-    // TODO: 打开快速笔记编辑器
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('快速笔记功能开发中...')),
     );
@@ -61,16 +66,14 @@ class _InspirationPageState extends State<InspirationPage> {
     );
   }
 
-  // ---- 图书导入（复用图书馆页面的逻辑） ----
+  // ---- 图书导入 ----
   Future<void> _importFile() async {
-    // TODO: 从图书馆页面复用导入逻辑
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('导入功能开发中...')),
     );
   }
 
   Future<void> _scanISBN() async {
-    // TODO: 复用扫码逻辑
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('扫码功能开发中...')),
     );
@@ -126,7 +129,6 @@ class _InspirationPageState extends State<InspirationPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ---- 快速捕获卡片 ----
             const Text(
               '快速捕获',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -160,10 +162,7 @@ class _InspirationPageState extends State<InspirationPage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 24),
-
-            // ---- 最近采集 ----
             const Text(
               '最近采集',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
