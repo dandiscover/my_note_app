@@ -49,31 +49,27 @@ class DatabaseService {
     }
   }
 
-  // 获取原始笔记（status = 'raw'）
   Future<List<Map<String, dynamic>>> getRawNotes() async {
     final all = await _getAllNotesInternal(includeDeleted: false);
     return all.where((n) => n['status'] == 'raw').toList();
   }
 
-  // 获取未归档笔记（status = 'active'）
   Future<List<Map<String, dynamic>>> getActiveNotes() async {
     final all = await _getAllNotesInternal(includeDeleted: false);
     return all.where((n) => n['status'] == 'active').toList();
   }
 
-  // 获取已归档笔记（status = 'archived'）
   Future<List<Map<String, dynamic>>> getArchivedNotes() async {
     final all = await _getAllNotesInternal(includeDeleted: false);
     return all.where((n) => n['status'] == 'archived').toList();
   }
 
-  // 获取任务（status = 'task'）
+  // 👇 getTasks 方法已加入
   Future<List<Map<String, dynamic>>> getTasks() async {
     final all = await _getAllNotesInternal(includeDeleted: false);
     return all.where((n) => n['status'] == 'task').toList();
   }
 
-  // 收入智库（raw → active）
   Future<void> sendToWisdom(String id) async {
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final index = notes.indexWhere((n) => n['id'] == id);
@@ -84,7 +80,6 @@ class DatabaseService {
     }
   }
 
-  // 归档（active → archived）
   Future<void> archiveNote(String id) async {
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final index = notes.indexWhere((n) => n['id'] == id);
@@ -94,7 +89,6 @@ class DatabaseService {
     }
   }
 
-  // 取消归档（archived → active）
   Future<void> unarchiveNote(String id) async {
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final index = notes.indexWhere((n) => n['id'] == id);
@@ -104,7 +98,6 @@ class DatabaseService {
     }
   }
 
-  // 软删除（任意状态 → deleted）
   Future<void> deleteNote(String id) async {
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final index = notes.indexWhere((n) => n['id'] == id);
@@ -114,7 +107,6 @@ class DatabaseService {
     }
   }
 
-  // 物理删除
   Future<void> hardDeleteNote(String id) async {
     final notes = await _getAllNotesInternal(includeDeleted: true);
     notes.removeWhere((n) => n['id'] == id);
