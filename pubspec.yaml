@@ -36,8 +36,10 @@ dependencies:
   sqflite: ^2.3.0
   path: ^1.9.0
   file_picker: ^8.0.0
-  # pdfx: ^2.9.2  # 可以移除或注释掉
-  pdfrx: ^2.4.7   # 建议使用最新版本[reference:2]
+  http: ^1.6.0
+  # PDF 阅读器（不依赖 pdfrx）
+  printing: ^5.11.0
+  pdf: ^3.10.0
   # Web 端 localStorage 存储
   shared_preferences: ^2.2.0
 

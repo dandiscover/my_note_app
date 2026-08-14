@@ -1,14 +1,7 @@
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/book.dart';
-import 'dart:convert';
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:file_picker/file_picker.dart';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
-import 'pdf_reader_page.dart';
-
+import 'pdf_reader_page_pdfrx.dart';
 class BookDetailPage extends StatefulWidget {
   final String bookId;
   const BookDetailPage({super.key, required this.bookId});
@@ -113,116 +106,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
         Navigator.pop(context, true);
       }
     }
-  }
-
-  Future<void> _importFile() async {
-    if (_book == null) return;
-
-    try {
-      if (kIsWeb) {
-        // ---- Web 端 ----
-        final input = html.FileUploadInputElement();
-        input.accept = '.pdf,.epub,.mobi,.azw3,.cbr,.cbz';
-        input.click();
-
-        await input.onChange.first;
-        if (input.files!.isEmpty) return;
-        final file = input.files!.first;
-        final reader = html.FileReader();
-        reader.readAsArrayBuffer(file);
-        await reader.onLoadEnd.first;
-
-        final bytes = reader.result as Uint8List;
-        final fileName = file.name;
-        final fileType = _getFileType(fileName);
-        final base64String = base64Encode(bytes);
-
-        final updatedBook = Book(
-          id: _book!.id,
-          title: _book!.title,
-          author: _book!.author,
-          isbn: _book!.isbn,
-          coverUrl: _book!.coverUrl,
-          filePath: base64String,
-          fileType: fileType,
-          fileSize: bytes.length,
-          fileName: fileName,
-          status: _book!.status,
-          readingProgress: _book!.readingProgress,
-          totalPages: _book!.totalPages,
-          createdAt: _book!.createdAt,
-        );
-        await _db.updateBook(updatedBook.toMap());
-        setState(() => _book = updatedBook);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已导入《${_book!.title}》')),
-          );
-        }
-      } else {
-        // ---- 原生端 ----
-        final result = await FilePicker.platform.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: ['pdf', 'epub', 'mobi', 'azw3', 'cbr', 'cbz'],
-        );
-        if (result == null) return;
-
-        final file = result.files.first;
-        final path = file.path;
-        final fileName = file.name;
-        final fileType = _getFileType(fileName);
-
-        if (path == null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('无法获取文件路径')),
-            );
-          }
-          return;
-        }
-
-        final updatedBook = Book(
-          id: _book!.id,
-          title: _book!.title,
-          author: _book!.author,
-          isbn: _book!.isbn,
-          coverUrl: _book!.coverUrl,
-          filePath: path,
-          fileType: fileType,
-          fileSize: file.size,
-          fileName: fileName,
-          status: _book!.status,
-          readingProgress: _book!.readingProgress,
-          totalPages: _book!.totalPages,
-          createdAt: _book!.createdAt,
-        );
-        await _db.updateBook(updatedBook.toMap());
-        setState(() => _book = updatedBook);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已导入《${_book!.title}》')),
-          );
-        }
-      }
-    } catch (e) {
-      print('导入失败: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('导入失败，请重试')),
-        );
-      }
-    }
-  }
-
-  String _getFileType(String fileName) {
-    final ext = fileName.toLowerCase();
-    if (ext.endsWith('.pdf')) return 'pdf';
-    if (ext.endsWith('.epub')) return 'epub';
-    if (ext.endsWith('.mobi')) return 'mobi';
-    if (ext.endsWith('.azw3')) return 'azw3';
-    if (ext.endsWith('.cbr')) return 'cbr';
-    if (ext.endsWith('.cbz')) return 'cbz';
-    return 'none';
   }
 
   @override
@@ -405,54 +288,39 @@ class _BookDetailPageState extends State<BookDetailPage> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _importFile,
-                  icon: const Icon(Icons.upload_file),
-                  label: const Text('导入电子版'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('扫码功能开发中...')),
-                    );
-                  },
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('扫ISBN'),
-                ),
-                if (book.hasEbook)
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      if (book.fileType == 'pdf') {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PDFReaderPage(bookId: book.id),
-                          ),
-                        );
-                      } else if (book.fileType == 'epub') {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('EPUB阅读器开发中...')),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('暂不支持 ${book.fileType} 格式')),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.menu_book),
-                    label: const Text('继续阅读'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-              ],
-            ),
-
+           Wrap(
+  spacing: 8,
+  runSpacing: 8,
+  children: [
+    if (book.hasEbook)
+      ElevatedButton.icon(
+        onPressed: () {
+          if (book.fileType == 'pdf') {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PDFReaderPagePdfrx(bookId: book.id),
+              ),
+            );
+          } else if (book.fileType == 'epub') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('EPUB阅读器暂不可用，正在开发中')),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('暂不支持 ${book.fileType} 格式')),
+            );
+          }
+        },
+        icon: const Icon(Icons.menu_book),
+        label: const Text('继续阅读'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green.shade700,
+          foregroundColor: Colors.white,
+        ),
+      ),
+  ],
+),
             const SizedBox(height: 24),
 
             // ---- 关联笔记 ----
