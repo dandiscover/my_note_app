@@ -4,7 +4,9 @@ class NotebookEntry {
     required this.title,
     required this.content,
     required this.updatedAt,
-    this.status = 'raw', // 'raw' | 'active' | 'archived' | 'task'
+    this.status = 'raw',
+    this.editorMode = 'plain',
+    this.tags = const [], // ✅ 新增
   });
 
   final String id;
@@ -12,6 +14,8 @@ class NotebookEntry {
   String content;
   DateTime updatedAt;
   String status;
+  String editorMode;
+  List<String> tags; // ✅ 新增
 
   Map<String, dynamic> toMap() {
     return {
@@ -20,6 +24,8 @@ class NotebookEntry {
       'content': content,
       'updatedAt': updatedAt.toIso8601String(),
       'status': status,
+      'editorMode': editorMode,
+      'tags': tags.join(','), // ✅ 存为逗号分隔字符串
     };
   }
 
@@ -30,6 +36,8 @@ class NotebookEntry {
       content: map['content'] ?? '',
       updatedAt: DateTime.parse(map['updatedAt']),
       status: map['status'] ?? 'raw',
+      editorMode: map['editorMode'] ?? 'plain',
+      tags: (map['tags'] ?? '').toString().split(',').where((t) => t.isNotEmpty).toList(), // ✅ 从字符串解析
     );
   }
 }

@@ -1,27 +1,29 @@
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/note.dart';
+import '../widgets/fullscreen_editor.dart';
 
 class CreationPage extends StatefulWidget {
   const CreationPage({super.key});
 
   @override
-  State<CreationPage> createState() => _CreationPageState();
+  State<CreationPage> createState() => CreationPageState();
 }
 
-class _CreationPageState extends State<CreationPage>
+// ✅ 公开 State 类，供 main.dart 调用
+class CreationPageState extends State<CreationPage>
     with SingleTickerProviderStateMixin {
   final DatabaseService _db = DatabaseService();
   late TabController _tabController;
 
   List<NotebookEntry> _tasks = [];
   bool _isLoading = true;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // 监听 Tab 切换，切换到任务Tab时刷新
     _tabController.addListener(() {
       if (_tabController.index == 1 && !_tabController.indexIsChanging) {
         _loadTasks();
@@ -49,7 +51,12 @@ class _CreationPageState extends State<CreationPage>
     }
   }
 
-  // ---- 标记任务完成 ----
+  // ✅ 公开方法：切换到任务 Tab
+  void switchToTaskTab() {
+    _tabController.animateTo(1);
+    _loadTasks();
+  }
+
   Future<void> _completeTask(NotebookEntry task) async {
     final updated = NotebookEntry(
       id: task.id,
@@ -57,6 +64,7 @@ class _CreationPageState extends State<CreationPage>
       content: task.content,
       updatedAt: DateTime.now(),
       status: 'deleted',
+      tags: task.tags,
     );
     await _db.updateNote(updated.toMap());
     if (mounted) {
@@ -67,7 +75,6 @@ class _CreationPageState extends State<CreationPage>
     }
   }
 
-  // ---- 恢复任务 ----
   Future<void> _restoreTask(NotebookEntry task) async {
     final updated = NotebookEntry(
       id: task.id,
@@ -75,6 +82,7 @@ class _CreationPageState extends State<CreationPage>
       content: task.content,
       updatedAt: DateTime.now(),
       status: 'task',
+      tags: task.tags,
     );
     await _db.updateNote(updated.toMap());
     if (mounted) {
@@ -85,7 +93,6 @@ class _CreationPageState extends State<CreationPage>
     }
   }
 
-  // ---- 永久删除任务 ----
   Future<void> _deleteTaskPermanently(NotebookEntry task) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -116,164 +123,115 @@ class _CreationPageState extends State<CreationPage>
     }
   }
 
-  // ---- 写作模式 ----
-  void _openWritingMode({NotebookEntry? entry}) {
-    final titleController = TextEditingController(text: entry?.title ?? '');
-    final contentController = TextEditingController(text: entry?.content ?? '');
-    final isEditing = entry != null;
+  Future<bool> _saveNote(
+    NotebookEntry entry,
+    String title,
+    String content,
+    String editorMode,
+    List<String> tags,
+  ) async {
+    if (_isSaving) return false;
+    setState(() => _isSaving = true);
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Dialog(
-              insetPadding: const EdgeInsets.all(16),
-              child: Container(
-                width: double.infinity,
-                height: double.infinity,
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          isEditing ? '编辑笔记' : '✍️ 写作模式',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                          tooltip: '关闭',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: '标题',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: contentController,
-                        maxLines: null,
-                        expands: true,
-                        decoration: const InputDecoration(
-                          hintText: '开始写作...',
-                          border: OutlineInputBorder(),
-                          alignLabelWithHint: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text(
-                          '字数: ${contentController.text.length}',
-                          style: const TextStyle(color: Colors.grey, fontSize: 12),
-                        ),
-                        const SizedBox(width: 16),
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('取消'),
-                        ),
-                        FilledButton(
-                          onPressed: () async {
-                            final title = titleController.text.trim();
-                            final content = contentController.text.trim();
-                            if (title.isEmpty && content.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('标题和内容不能都为空')),
-                              );
-                              return;
-                            }
+    try {
+      final allNotes = await _db.getAllNotes(includeDeleted: true);
+      final exists = allNotes.any((n) => n['id'] == entry.id);
 
-                            if (isEditing && entry != null) {
-                              final updated = NotebookEntry(
-                                id: entry.id,
-                                title: title.isEmpty ? '无标题' : title,
-                                content: content.isEmpty ? '暂无内容' : content,
-                                updatedAt: DateTime.now(),
-                                status: entry.status,
-                              );
-                              await _db.updateNote(updated.toMap());
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('✅ 已更新')),
-                                );
-                                Navigator.pop(context);
-                                await _loadTasks();
-                              }
-                            } else {
-                              final newEntry = NotebookEntry(
-                                id: DateTime.now().millisecondsSinceEpoch.toString(),
-                                title: title.isEmpty ? '无标题' : title,
-                                content: content.isEmpty ? '暂无内容' : content,
-                                updatedAt: DateTime.now(),
-                                status: 'active',
-                              );
-                              await _db.insertNote(newEntry.toMap());
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('✅ 已存入智库')),
-                                );
-                                Navigator.pop(context);
-                                await _loadTasks();
-                              }
-                            }
-                          },
-                          child: const Text('保存'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+      final updated = NotebookEntry(
+        id: entry.id,
+        title: title.isEmpty ? '无标题' : title,
+        content: content.isEmpty ? '暂无内容' : content,
+        updatedAt: DateTime.now(),
+        status: entry.status,
+        editorMode: editorMode,
+        tags: tags,
+      );
+
+      if (exists) {
+        await _db.updateNote(updated.toMap());
+      } else {
+        await _db.insertNote(updated.toMap());
+      }
+
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ 已保存')),
         );
-      },
-    );
+        await _loadTasks();
+      }
+      return true;
+    } catch (e) {
+      print('保存失败: $e');
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
   }
 
-  // ---- 写作Tab ----
+  void _openWritingMode({NotebookEntry? entry}) {
+    final targetEntry = entry ?? NotebookEntry(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: '',
+      content: '',
+      updatedAt: DateTime.now(),
+      status: 'active',
+      editorMode: 'plain',
+      tags: [],
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FullscreenEditor(
+          entry: targetEntry,
+          isFromCollection: false,
+          onSave: _saveNote,
+          isSaving: _isSaving,
+        ),
+      ),
+    ).then((result) {
+      if (result == true) {
+        _loadTasks();
+      }
+    });
+  }
+
   Widget _buildWritingTab() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.edit_note, size: 64, color: Colors.grey),
-            const SizedBox(height: 16),
+            const Icon(Icons.edit_note, size: 56, color: Colors.grey),
+            const SizedBox(height: 14),
             const Text(
               '专注写作模式',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             const Text(
-              '点击下方按钮进入全屏无干扰写作',
+              '支持 Markdown 语法，可切换预览',
               style: TextStyle(color: Colors.grey),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: () => _openWritingMode(),
               icon: const Icon(Icons.create),
               label: const Text('开始写作'),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             TextButton.icon(
               onPressed: () async {
                 final notes = await _db.getActiveNotes();
@@ -329,30 +287,28 @@ class _CreationPageState extends State<CreationPage>
     );
   }
 
-  // ---- 任务Tab ----
   Widget _buildTaskTab() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // 过滤出未完成的任务（status == 'task'）
     final activeTasks = _tasks.where((t) => t.status == 'task').toList();
     final completedTasks = _tasks.where((t) => t.status == 'deleted').toList();
 
     if (activeTasks.isEmpty && completedTasks.isEmpty) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.checklist, size: 64, color: Colors.grey),
-              const SizedBox(height: 16),
+              const Icon(Icons.checklist, size: 56, color: Colors.grey),
+              const SizedBox(height: 14),
               const Text(
                 '暂无任务',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Text(
                 '在「采集」页面的快速笔记中勾选「转为任务」',
                 textAlign: TextAlign.center,
@@ -376,85 +332,95 @@ class _CreationPageState extends State<CreationPage>
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        if (activeTasks.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text('📋 待办', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          ...activeTasks.map((task) => Card(
-            child: ListTile(
-              title: Text(task.title),
-              subtitle: Text(
-                task.content.length > 50 ? '${task.content.substring(0, 50)}...' : task.content,
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: IconButton(
-                icon: const Icon(Icons.check_circle_outline, color: Colors.green),
-                onPressed: () => _completeTask(task),
-                tooltip: '标记完成',
-              ),
-              onTap: () => _openWritingMode(entry: task),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        children: [
+          if (activeTasks.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text('📋 待办', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             ),
-          )),
-        ],
-        const SizedBox(height: 16),
-        if (completedTasks.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text('✅ 已完成', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          ...completedTasks.map((task) => Card(
-            color: Colors.grey.shade50,
-            child: ListTile(
-              title: Text(
-                task.title,
-                style: const TextStyle(decoration: TextDecoration.lineThrough),
+            ...activeTasks.map((task) => Card(
+              child: ListTile(
+                title: Text(task.title),
+                subtitle: Text(
+                  task.content.length > 50 ? '${task.content.substring(0, 50)}...' : task.content,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                  onPressed: () => _completeTask(task),
+                  tooltip: '标记完成',
+                ),
+                onTap: () => _openWritingMode(entry: task),
               ),
-              subtitle: Text(
-                task.content.length > 50 ? '${task.content.substring(0, 50)}...' : task.content,
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.restore, size: 20, color: Colors.blue),
-                    onPressed: () => _restoreTask(task),
-                    tooltip: '恢复',
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                    onPressed: () => _deleteTaskPermanently(task),
-                    tooltip: '永久删除',
-                  ),
-                ],
-              ),
+            )),
+          ],
+          const SizedBox(height: 16),
+          if (completedTasks.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text('✅ 已完成', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             ),
-          )),
-        ],
-        const SizedBox(height: 16),
-        Center(
-          child: TextButton.icon(
-            onPressed: () => _openWritingMode(),
-            icon: const Icon(Icons.add),
-            label: const Text('新建任务'),
+            ...completedTasks.map((task) => Card(
+              color: Colors.grey.shade50,
+              child: ListTile(
+                title: Text(
+                  task.title,
+                  style: const TextStyle(decoration: TextDecoration.lineThrough),
+                ),
+                subtitle: Text(
+                  task.content.length > 50 ? '${task.content.substring(0, 50)}...' : task.content,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.restore, size: 20, color: Colors.blue),
+                      onPressed: () => _restoreTask(task),
+                      tooltip: '恢复',
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                      onPressed: () => _deleteTaskPermanently(task),
+                      tooltip: '永久删除',
+                    ),
+                  ],
+                ),
+              ),
+            )),
+          ],
+          const SizedBox(height: 16),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => _openWritingMode(),
+              icon: const Icon(Icons.add),
+              label: const Text('新建任务'),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: const Text('✍️ 创作'),
         centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
         bottom: TabBar(
           controller: _tabController,
+          labelColor: Colors.black87,
+          unselectedLabelColor: Colors.grey.shade500,
+          indicatorColor: Colors.blue,
           tabs: const [
             Tab(icon: Icon(Icons.edit), text: '写作'),
             Tab(icon: Icon(Icons.list_alt), text: '任务'),

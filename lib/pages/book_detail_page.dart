@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/book.dart';
-import 'pdf_reader_page_pdfrx.dart';
+import '../widgets/file_tree_panel.dart';
+import 'note_detail_page.dart';
+
 class BookDetailPage extends StatefulWidget {
   final String bookId;
-  const BookDetailPage({super.key, required this.bookId});
+  final String? nodeId;
+  final String? currentNodeId;
+
+  const BookDetailPage({
+    super.key,
+    required this.bookId,
+    this.nodeId,
+    this.currentNodeId,
+  });
 
   @override
   State<BookDetailPage> createState() => _BookDetailPageState();
@@ -37,21 +47,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   Future<void> _updateStatus(String newStatus) async {
     if (_book == null) return;
-    final updatedBook = Book(
-      id: _book!.id,
-      title: _book!.title,
-      author: _book!.author,
-      isbn: _book!.isbn,
-      coverUrl: _book!.coverUrl,
-      filePath: _book!.filePath,
-      fileType: _book!.fileType,
-      fileSize: _book!.fileSize,
-      fileName: _book!.fileName,
-      status: newStatus,
-      readingProgress: _book!.readingProgress,
-      totalPages: _book!.totalPages,
-      createdAt: _book!.createdAt,
-    );
+    final updatedBook = _book!.copyWith(status: newStatus);
     await _db.updateBook(updatedBook.toMap());
     setState(() {
       _book = updatedBook;
@@ -60,21 +56,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   Future<void> _updateProgress(int newProgress) async {
     if (_book == null) return;
-    final updatedBook = Book(
-      id: _book!.id,
-      title: _book!.title,
-      author: _book!.author,
-      isbn: _book!.isbn,
-      coverUrl: _book!.coverUrl,
-      filePath: _book!.filePath,
-      fileType: _book!.fileType,
-      fileSize: _book!.fileSize,
-      fileName: _book!.fileName,
-      status: _book!.status,
-      readingProgress: newProgress,
-      totalPages: _book!.totalPages,
-      createdAt: _book!.createdAt,
-    );
+    final updatedBook = _book!.copyWith(readingProgress: newProgress);
     await _db.updateBook(updatedBook.toMap());
     setState(() {
       _book = updatedBook;
@@ -102,284 +84,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
     if (confirm == true && _book != null) {
       await _db.deleteBook(_book!.id);
+      if (widget.nodeId != null) {
+        await _db.deleteNode(widget.nodeId!);
+      }
       if (mounted) {
         Navigator.pop(context, true);
       }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('图书详情')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_book == null) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('图书详情'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        body: const Center(child: Text('书籍不存在或已被删除')),
-      );
-    }
-
-    final book = _book!;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(book.title),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () => _showEditDialog(),
-            tooltip: '编辑',
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _deleteBook,
-            tooltip: '删除',
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ---- 封面 + 基本信息 ----
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 120,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(8),
-                    image: book.coverUrl.isNotEmpty
-                        ? DecorationImage(
-                            image: NetworkImage(book.coverUrl),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
-                  ),
-                  child: book.coverUrl.isEmpty
-                      ? const Icon(Icons.book, size: 48, color: Colors.grey)
-                      : null,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        book.title,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        book.author.isNotEmpty ? book.author : '未知作者',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      if (book.isbn.isNotEmpty)
-                        Text(
-                          'ISBN: ${book.isbn}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(book.status).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _getStatusLabel(book.status),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _getStatusColor(book.status),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // ---- 阅读状态切换 ----
-            const Text(
-              '阅读状态',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _buildStatusChip('想读', 'want', book.status),
-                const SizedBox(width: 8),
-                _buildStatusChip('在读', 'reading', book.status),
-                const SizedBox(width: 8),
-                _buildStatusChip('读完', 'read', book.status),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // ---- 阅读进度 ----
-            Row(
-              children: [
-                const Text(
-                  '阅读进度',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-                const Spacer(),
-                Text(
-                  '${book.readingProgress}%',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue.shade700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Slider(
-              value: book.readingProgress.toDouble(),
-              min: 0,
-              max: 100,
-              divisions: 20,
-              label: '${book.readingProgress}%',
-              onChanged: (value) => _updateProgress(value.round()),
-            ),
-
-            const SizedBox(height: 24),
-
-            // ---- 操作按钮 ----
-            const Text(
-              '操作',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-           Wrap(
-  spacing: 8,
-  runSpacing: 8,
-  children: [
-    if (book.hasEbook)
-      ElevatedButton.icon(
-        onPressed: () {
-          if (book.fileType == 'pdf') {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PDFReaderPagePdfrx(bookId: book.id),
-              ),
-            );
-          } else if (book.fileType == 'epub') {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('EPUB阅读器暂不可用，正在开发中')),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('暂不支持 ${book.fileType} 格式')),
-            );
-          }
-        },
-        icon: const Icon(Icons.menu_book),
-        label: const Text('继续阅读'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.green.shade700,
-          foregroundColor: Colors.white,
-        ),
-      ),
-  ],
-),
-            const SizedBox(height: 24),
-
-            // ---- 关联笔记 ----
-            const Text(
-              '关联笔记',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: const Center(
-                child: Text(
-                  '暂无关联笔记\n阅读并标注后会自动生成',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusChip(String label, String value, String current) {
-    final isSelected = current == value;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) => _updateStatus(value),
-      selectedColor: _getStatusColor(value).withOpacity(0.3),
-      backgroundColor: Colors.grey.shade100,
-      labelStyle: TextStyle(
-        color: isSelected ? _getStatusColor(value) : Colors.grey.shade700,
-        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-      ),
-    );
-  }
-
-  String _getStatusLabel(String status) {
-    switch (status) {
-      case 'want': return '想读';
-      case 'reading': return '在读';
-      case 'read': return '读完';
-      default: return status;
-    }
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'want': return Colors.orange;
-      case 'reading': return Colors.blue;
-      case 'read': return Colors.green;
-      default: return Colors.grey;
     }
   }
 
@@ -423,22 +133,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
 
     if (result == true && _book != null) {
-      final updatedBook = Book(
-        id: _book!.id,
+      final updatedBook = _book!.copyWith(
         title: titleController.text.trim().isNotEmpty
             ? titleController.text.trim()
             : _book!.title,
         author: authorController.text.trim(),
         isbn: isbnController.text.trim(),
-        coverUrl: _book!.coverUrl,
-        filePath: _book!.filePath,
-        fileType: _book!.fileType,
-        fileSize: _book!.fileSize,
-        fileName: _book!.fileName,
-        status: _book!.status,
-        readingProgress: _book!.readingProgress,
-        totalPages: _book!.totalPages,
-        createdAt: _book!.createdAt,
       );
       await _db.updateBook(updatedBook.toMap());
       setState(() {
@@ -449,6 +149,325 @@ class _BookDetailPageState extends State<BookDetailPage> {
           const SnackBar(content: Text('已更新')),
         );
       }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        appBar: AppBar(
+          title: const Text('图书详情'),
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_book == null) {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        appBar: AppBar(
+          title: const Text('图书详情'),
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black87),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        body: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: const Center(child: Text('书籍不存在或已被删除')),
+        ),
+      );
+    }
+
+    final book = _book!;
+
+    return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        title: Text(book.title),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.folder_open, color: Colors.black87),
+            onPressed: () => _toggleFileTree(context),
+            tooltip: '文件树',
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit, color: Colors.black87),
+            onPressed: _showEditDialog,
+            tooltip: '编辑',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            onPressed: _deleteBook,
+            tooltip: '删除',
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 100,
+                    height: 140,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(6),
+                      image: book.coverUrl.isNotEmpty
+                          ? DecorationImage(
+                              image: NetworkImage(book.coverUrl),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    child: book.coverUrl.isEmpty
+                        ? const Icon(Icons.book, size: 36, color: Colors.grey)
+                        : null,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          book.title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          book.author.isNotEmpty ? book.author : '未知作者',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        if (book.isbn.isNotEmpty)
+                          Text(
+                            'ISBN: ${book.isbn}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(book.status).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            book.statusLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _getStatusColor(book.status),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '阅读状态',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  _buildStatusChip('想读', 'want', book.status),
+                  const SizedBox(width: 6),
+                  _buildStatusChip('在读', 'reading', book.status),
+                  const SizedBox(width: 6),
+                  _buildStatusChip('读完', 'read', book.status),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Text(
+                    '阅读进度',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${book.readingProgress}%',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Slider(
+                value: book.readingProgress.toDouble(),
+                min: 0,
+                max: 100,
+                divisions: 20,
+                label: '${book.readingProgress}%',
+                onChanged: (value) => _updateProgress(value.round()),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '关联笔记',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: const Center(
+                  child: Text(
+                    '暂无关联笔记\n阅读并标注后会自动生成',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusChip(String label, String value, String current) {
+    final isSelected = current == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) => _updateStatus(value),
+      selectedColor: _getStatusColor(value).withOpacity(0.3),
+      backgroundColor: Colors.grey.shade100,
+      labelStyle: TextStyle(
+        color: isSelected ? _getStatusColor(value) : Colors.grey.shade700,
+        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+        fontSize: 12,
+      ),
+    );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'want':
+        return Colors.orange;
+      case 'reading':
+        return Colors.blue;
+      case 'read':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  void _toggleFileTree(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (context) => Dialog(
+        insetPadding: EdgeInsets.zero,
+        backgroundColor: Colors.transparent,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: MediaQuery.of(context).size.width / 3,
+              child: FileTreePanel(
+                currentNodeId: widget.nodeId,
+                currentNodeName: _book?.title,
+                currentFolderId: widget.currentNodeId,
+                onNodeTap: (targetNodeId, nodeType) {
+                  Navigator.pop(context);
+                  if (nodeType == 'note') {
+                    _openNote(context, targetNodeId);
+                  } else if (nodeType == 'book') {
+                    _openBook(context, targetNodeId);
+                  }
+                },
+              ),
+            ),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(color: Colors.transparent),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openNote(BuildContext context, String targetNodeId) async {
+    final note = await _db.getNoteByNodeId(targetNodeId);
+    if (note != null) {
+      Navigator.pop(context);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NoteDetailPage(
+            entry: note,
+            isFromCollection: false,
+            nodeId: targetNodeId,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openBook(BuildContext context, String targetNodeId) async {
+    final node = await _db.getNode(targetNodeId);
+    if (node != null && node.targetId != null) {
+      Navigator.pop(context);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BookDetailPage(
+            bookId: node.targetId!,
+            nodeId: targetNodeId,
+          ),
+        ),
+      );
     }
   }
 }

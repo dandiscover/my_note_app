@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/note.dart';
+import 'library_page.dart';
 
 class KnowledgePage extends StatefulWidget {
   const KnowledgePage({super.key});
@@ -12,6 +13,9 @@ class KnowledgePage extends StatefulWidget {
 class _KnowledgePageState extends State<KnowledgePage> {
   final DatabaseService _db = DatabaseService();
   final List<NotebookEntry> _entries = [];
+  int _currentTab = 0; // 0=笔记, 1=图书馆
+
+  // ✅ 添加这个标志，用于追踪页面是否已被销毁
   bool _isDisposed = false;
 
   final List<NotebookEntry> _sampleEntries = [
@@ -43,12 +47,14 @@ class _KnowledgePageState extends State<KnowledgePage> {
 
   @override
   void dispose() {
-    _isDisposed = true;
+    _isDisposed = true; // ✅ 页面销毁时标记
     super.dispose();
   }
 
   Future<void> _loadNotes() async {
+    // ✅ 如果页面已被销毁或不再挂载，直接返回
     if (_isDisposed || !mounted) return;
+
     try {
       final maps = await _db.getAllNotes();
       if (_isDisposed || !mounted) return;
@@ -71,7 +77,12 @@ class _KnowledgePageState extends State<KnowledgePage> {
         });
       }
     } catch (e) {
-      // 忽略错误
+      // ✅ 捕获异常，避免未处理的错误
+      if (mounted && !_isDisposed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('加载笔记失败: $e')),
+        );
+      }
     }
   }
 
@@ -232,6 +243,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ 如果页面已被销毁，不渲染任何内容
     if (_isDisposed) {
       return const SizedBox.shrink();
     }
@@ -249,14 +261,29 @@ class _KnowledgePageState extends State<KnowledgePage> {
             tooltip: '搜索',
           ),
         ],
+        bottom: TabBar(
+          tabs: const [
+            Tab(text: '笔记'),
+            Tab(text: '图书馆'),
+          ],
+          onTap: (index) {
+            if (mounted && !_isDisposed) {
+              setState(() {
+                _currentTab = index;
+              });
+            }
+          },
+        ),
       ),
-      body: _buildNoteBody(),
-      floatingActionButton: FloatingActionButton(
-        key: const ValueKey('add_note_fab'),
-        onPressed: () => _openEditor(),
-        tooltip: '添加笔记',
-        child: const Icon(Icons.add),
-      ),
+      body: _currentTab == 0 ? _buildNoteBody() : const LibraryPage(),
+      floatingActionButton: _currentTab == 0
+          ? FloatingActionButton(
+              key: const ValueKey('add_note_fab'),
+              onPressed: () => _openEditor(),
+              tooltip: '添加笔记',
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 }

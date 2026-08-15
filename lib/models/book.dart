@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 class Book {
   final String id;
   String title;
@@ -8,6 +6,8 @@ class Book {
   String coverUrl;        // 对应数据库列: cover_image
   String filePath;        // 对应数据库列: pdf_path
   String fileType;        // 对应数据库列: file_type
+  int fileSize;           // 仅内存使用，不存数据库
+  String fileName;        // 仅内存使用，不存数据库
   String status;          // want / reading / read
   int readingProgress;    // 对应数据库列: reading_progress
   int totalPages;         // 对应数据库列: total_pages
@@ -21,22 +21,24 @@ class Book {
     this.coverUrl = '',
     this.filePath = '',
     this.fileType = 'none',
+    this.fileSize = 0,
+    this.fileName = '',
     this.status = 'want',
     this.readingProgress = 0,
     this.totalPages = 0,
     required this.createdAt,
   });
 
-  // 转换为数据库 Map（键名必须与表列名完全一致）
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'title': title,
       'author': author,
       'isbn': isbn,
-      'cover_image': coverUrl,      // ✅ 修复：cover_url → cover_image
-      'pdf_path': filePath,         // ✅ 修复：file_path → pdf_path
+      'cover_image': coverUrl,
+      'pdf_path': filePath,
       'file_type': fileType,
+      // fileSize 和 fileName 不写入数据库
       'status': status,
       'reading_progress': readingProgress,
       'total_pages': totalPages,
@@ -44,16 +46,17 @@ class Book {
     };
   }
 
-  // 从数据库 Map 读取（键名必须与表列名完全一致）
   factory Book.fromMap(Map<String, dynamic> map) {
     return Book(
       id: map['id'] ?? '',
       title: map['title'] ?? '',
       author: map['author'] ?? '',
       isbn: map['isbn'] ?? '',
-      coverUrl: map['cover_image'] ?? '',   // ✅ 修复：cover_url → cover_image
-      filePath: map['pdf_path'] ?? '',      // ✅ 修复：file_path → pdf_path
+      coverUrl: map['cover_image'] ?? '',
+      filePath: map['pdf_path'] ?? '',
       fileType: map['file_type'] ?? 'none',
+      fileSize: map['file_size'] ?? 0,      // 如果数据库有就读取，没有就用默认值
+      fileName: map['file_name'] ?? '',     // 同上
       status: map['status'] ?? 'want',
       readingProgress: map['reading_progress'] ?? 0,
       totalPages: map['total_pages'] ?? 0,
@@ -61,7 +64,6 @@ class Book {
     );
   }
 
-  // 方便复制的辅助方法
   Book copyWith({
     String? id,
     String? title,
@@ -70,6 +72,8 @@ class Book {
     String? coverUrl,
     String? filePath,
     String? fileType,
+    int? fileSize,
+    String? fileName,
     String? status,
     int? readingProgress,
     int? totalPages,
@@ -83,6 +87,8 @@ class Book {
       coverUrl: coverUrl ?? this.coverUrl,
       filePath: filePath ?? this.filePath,
       fileType: fileType ?? this.fileType,
+      fileSize: fileSize ?? this.fileSize,
+      fileName: fileName ?? this.fileName,
       status: status ?? this.status,
       readingProgress: readingProgress ?? this.readingProgress,
       totalPages: totalPages ?? this.totalPages,
@@ -90,7 +96,6 @@ class Book {
     );
   }
 
-  // 辅助属性（仅用于 UI，不存入数据库）
   String get statusLabel {
     switch (status) {
       case 'want':
@@ -106,8 +111,4 @@ class Book {
 
   String get progressLabel => '$readingProgress%';
   bool get hasEbook => filePath.isNotEmpty && fileType != 'none';
-
-  // JSON 序列化（用于网络传输，可选）
-  Map<String, dynamic> toJson() => toMap();
-  factory Book.fromJson(Map<String, dynamic> json) => Book.fromMap(json);
 }
