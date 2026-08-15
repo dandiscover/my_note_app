@@ -4,13 +4,11 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
-
 import '../database_service.dart';
 import '../models/book.dart';
 import '../models/note.dart';
 import 'book_detail_page.dart';
+import 'note_detail_page.dart';
 
 class CollectionPage extends StatefulWidget {
   const CollectionPage({super.key});
@@ -50,7 +48,6 @@ class _CollectionPageState extends State<CollectionPage> {
     }
   }
 
-  // ---- 快速笔记（带“转为任务”开关） ----
   void _quickNote() {
     final controller = TextEditingController();
     bool isTask = false;
@@ -138,7 +135,6 @@ class _CollectionPageState extends State<CollectionPage> {
     );
   }
 
-  // ---- 直接归档 ----
   Future<void> _quickArchive(NotebookEntry note) async {
     final updated = NotebookEntry(
       id: note.id,
@@ -154,78 +150,6 @@ class _CollectionPageState extends State<CollectionPage> {
       );
       await _loadData();
     }
-  }
-
-  // ---- 整理并收入智库 ----
-  void _editAndSendToWisdom(NotebookEntry entry) {
-    final titleController = TextEditingController(text: entry.title);
-    final contentController = TextEditingController(text: entry.content);
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('整理笔记'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: '标题',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contentController,
-                  maxLines: 8,
-                  minLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: '内容',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () async {
-                final updatedEntry = NotebookEntry(
-                  id: entry.id,
-                  title: titleController.text.trim().isEmpty
-                      ? '无标题'
-                      : titleController.text.trim(),
-                  content: contentController.text.trim().isEmpty
-                      ? '暂无内容'
-                      : contentController.text.trim(),
-                  updatedAt: DateTime.now(),
-                  status: 'active',
-                );
-                await _db.updateNote(updatedEntry.toMap());
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('✅ 已收入智库')),
-                  );
-                  Navigator.pop(context);
-                  await _loadData();
-                }
-              },
-              style: TextButton.styleFrom(foregroundColor: Colors.green),
-              child: const Text('收入智库'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   void _voiceRecord() {
@@ -380,7 +304,19 @@ class _CollectionPageState extends State<CollectionPage> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.edit_note, size: 20, color: Colors.blue),
-                              onPressed: () => _editAndSendToWisdom(note),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => NoteDetailPage(
+                                      entry: note,
+                                      isFromCollection: true,
+                                    ),
+                                  ),
+                                ).then((result) {
+                                  if (result == true) _loadData();
+                                });
+                              },
                               tooltip: '整理',
                             ),
                           ],
