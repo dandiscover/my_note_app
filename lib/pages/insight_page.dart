@@ -6,12 +6,17 @@ import '../models/note.dart';
 import '../models/book.dart';
 import '../models/review_card.dart';
 import '../models/user_settings.dart';
+import '../models/pet.dart';
 import '../services/review_service.dart';
 import '../services/settings_service.dart';
+import '../services/pet_service.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
 import 'tag_list_page.dart';
 import '../widgets/insight/knowledge_graph.dart';
+import 'insight/review_tab.dart';
+import '../services/card_service.dart';
+import '../widgets/pet_avatar.dart';
 
 class InsightPage extends StatefulWidget {
   final void Function(int tabIndex)? onTabChange;
@@ -36,6 +41,7 @@ class InsightPageState extends State<InsightPage>
   final DatabaseService _db = DatabaseService();
   final ReviewService _reviewService = ReviewService();
   final SettingsService _settingsService = SettingsService();
+  final PetService _petService = PetService();
 
   List<Node> _allNodes = [];
   List<NotebookEntry> _allNotes = [];
@@ -435,307 +441,77 @@ class InsightPageState extends State<InsightPage>
   }
 
   // ============================================================
-  // Tab 1：概览
+  // Tab 1：概览（宠物 + 热力图并排，精简卡片状态）
   // ============================================================
 
   Widget _buildOverviewTab() {
-    final contentNodes = _filteredContentNodes;
-    final isWordMode = _userSettings?.heatmapStatMode == HeatmapStatMode.words;
-    final taskRate = _taskCompletionRate;
-    final totalTasks = _totalTaskCount;
-
-    // 任务完成度文案
-    String taskMessage;
-    Color taskColor;
-    if (totalTasks == 0) {
-      taskMessage = '今天很轻松哦 🐾';
-      taskColor = Colors.grey.shade500;
-    } else if (taskRate >= 1.0) {
-      taskMessage = '🎉 全部完成！太棒了！';
-      taskColor = Colors.green.shade700;
-    } else {
-      taskMessage = '完成 ${(taskRate * 100).toInt()}%';
-      taskColor = Colors.blue.shade700;
-    }
-
-    int petHealth = (taskRate * 100).toInt();
-    if (totalTasks == 0) petHealth = 0;
-
-    if (_allNodes.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.insights, size: 48, color: Colors.grey),
-            SizedBox(height: 12),
-            Text(
-              '还没有内容',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-            ),
-            SizedBox(height: 4),
-            Text(
-              '去采集页创建一些笔记吧',
-              style: TextStyle(fontSize: 11, color: Colors.grey),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // 增加底部 padding 避免溢出
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 任务完成度 + 宠物健康值 + 热力图
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // 左侧两个盒子
-                Expanded(
-                  flex: 1,
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            widget.onSwitchToTaskTab?.call();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(8), // 减小内边距
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade200),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  '🎯 任务完成度',
-                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  totalTasks == 0 ? '-' : '${(taskRate * 100).toInt()}%',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: taskColor,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: LinearProgressIndicator(
-                                    value: totalTasks == 0 ? 0 : taskRate.clamp(0, 1),
-                                    minHeight: 5,
-                                    backgroundColor: Colors.grey.shade200,
-                                    valueColor: AlwaysStoppedAnimation<Color>(taskColor),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '$totalTasks 个任务',
-                                  style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
-                                ),
-                                const SizedBox(height: 4),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade50,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.task, size: 10, color: Colors.blue),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '👆 点击管理任务',
-                                        style: TextStyle(
-                                          fontSize: 8,
-                                          color: Colors.blue.shade700,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            widget.onSwitchToFocusMode?.call();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade200),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  '🐾 宠物健康值',
-                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  totalTasks == 0 ? '0%' : '${petHealth}%',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: petHealth > 70
-                                        ? Colors.green.shade700
-                                        : (petHealth > 30
-                                            ? Colors.orange.shade700
-                                            : Colors.red.shade700),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: LinearProgressIndicator(
-                                    value: totalTasks == 0 ? 0 : (petHealth / 100).clamp(0, 1),
-                                    minHeight: 5,
-                                    backgroundColor: Colors.grey.shade200,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      petHealth > 70
-                                          ? Colors.green
-                                          : (petHealth > 30
-                                              ? Colors.orange
-                                              : Colors.red),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.shade50,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Text('🐾', style: TextStyle(fontSize: 12)),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '👆 查看宠物',
-                                        style: TextStyle(
-                                          fontSize: 8,
-                                          color: Colors.green.shade700,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // 右侧热力图
-                Expanded(
-                  flex: 3,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade200),
+          // ─── 📊 卡片学习状态（精简版） ──────────────────────────
+          FutureBuilder<Map<String, dynamic>>(
+            future: CardService().getStats(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return Container(
+                  height: 50,
+                  alignment: Alignment.center,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
+                );
+              }
+              final stats = snapshot.data!;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.03),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        GestureDetector(
-                          onTap: () => _toggleHeatmapMode(),
-                          child: Row(
-                            children: [
-                              const Text(
-                                '📅 写作热力图',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade200,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  isWordMode ? '📄 字数' : '📝 条数',
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        _buildHeatmapHorizontal(),
-                      ],
-                    ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildCompactStat('📚', stats['total'] ?? 0, Colors.blue),
+                    _buildCompactStat('✅', stats['mastered'] ?? 0, Colors.green),
+                    _buildCompactStat('📖', stats['learning'] ?? 0, Colors.orange),
+                    _buildCompactStat('🔔', stats['due'] ?? 0, Colors.red),
+                    _buildCompactStat('📄', stats['reviewCards'] ?? 0, Colors.purple),
+                    _buildCompactStat('📚', stats['indexCards'] ?? 0, Colors.teal),
+                  ],
+                ),
+              );
+            },
           ),
-          const Divider(height: 20),
 
-          // 知识积累
-          const Text(
-            '📈 知识积累',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 6),
-          GridView.count(
-            crossAxisCount: 5,
-            crossAxisSpacing: 4,
-            mainAxisSpacing: 4,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: 1.2,
+          // ─── 统计卡片行 ──────────────────────────
+          Row(
             children: [
               _buildTotalStatCard(
-                icon: Icons.task,
+                icon: Icons.task_alt,
                 label: '任务',
                 value: _taskCount,
-                color: Colors.purple.shade100,
-                iconColor: Colors.purple.shade700,
+                color: Colors.red.shade100,
+                iconColor: Colors.red.shade700,
                 onTap: () => _onStatTap('任务'),
               ),
               _buildTotalStatCard(
-                icon: Icons.pending_actions,
+                icon: Icons.inbox,
                 label: '待整理',
                 value: _rawCount,
-                color: Colors.red.shade100,
-                iconColor: Colors.red.shade700,
+                color: Colors.orange.shade100,
+                iconColor: Colors.orange.shade700,
                 onTap: () => _onStatTap('待整理'),
               ),
               _buildTotalStatCard(
-                icon: Icons.note,
+                icon: Icons.note_alt,
                 label: '笔记',
                 value: _noteCount,
                 color: Colors.blue.shade100,
@@ -743,7 +519,7 @@ class InsightPageState extends State<InsightPage>
                 onTap: () => _onStatTap('笔记'),
               ),
               _buildTotalStatCard(
-                icon: Icons.book,
+                icon: Icons.auto_stories,
                 label: '图书',
                 value: _bookCount,
                 color: Colors.green.shade100,
@@ -760,271 +536,621 @@ class InsightPageState extends State<InsightPage>
               ),
             ],
           ),
-          const Divider(height: 20),
+          const SizedBox(height: 8),
 
-          // 知识线索
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: Text(
-                  '🧵 知识线索 (${contentNodes.length})',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-              Expanded(
-                flex: 3,
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: '🔍 搜索线索...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    isDense: true,
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear, size: 14),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                            },
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          )
-                        : null,
-                  ),
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
-              IconButton(
-                icon: Icon(
-                  _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-                  size: 16,
-                ),
-                onPressed: () {
-                  setState(() {
-                    _sortAscending = !_sortAscending;
-                  });
-                },
-                tooltip: _sortAscending ? '从旧到新' : '从新到旧',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              IconButton(
-                icon: Icon(
-                  _showOnlyWithTags ? Icons.local_offer : Icons.local_offer_outlined,
-                  size: 16,
-                ),
-                onPressed: () {
-                  setState(() {
-                    _showOnlyWithTags = !_showOnlyWithTags;
-                  });
-                },
-                tooltip: _showOnlyWithTags ? '显示全部' : '只显示有标签的',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-
-          if (contentNodes.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: Center(
-                child: Text(
-                  '还没有线索，创建笔记吧',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ),
-            )
-          else
-            ...contentNodes.take(10).map((node) {
-              final note = _allNotes.firstWhere(
-                (n) => n.id == node.targetId,
-                orElse: () => _allNotes.first,
-              );
-              final isMatch = _searchQuery.trim().isNotEmpty &&
-                  (node.title.toLowerCase().contains(_searchQuery.trim().toLowerCase()) ||
-                      node.tags.any((t) => t.toLowerCase().contains(_searchQuery.trim().toLowerCase())) ||
-                      note.content.toLowerCase().contains(_searchQuery.trim().toLowerCase()));
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 3),
-                child: ListTile(
-                  dense: true,
-                  leading: Text(node.iconEmoji, style: const TextStyle(fontSize: 16)),
-                  title: Text(
-                    node.title,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: isMatch ? FontWeight.w600 : FontWeight.normal,
-                      color: isMatch ? Colors.blue.shade700 : Colors.black87,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Row(
+          // ─── 任务完成度 ──────────────────────────
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _formatDate(note.updatedAt),
-                        style: TextStyle(fontSize: 8, color: Colors.grey.shade500),
+                        '📋 任务完成度',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                       ),
-                      if (node.tags.isNotEmpty) ...[
-                        const SizedBox(width: 4),
-                        ...node.tags.take(2).map((tag) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          margin: const EdgeInsets.only(right: 2),
-                          decoration: BoxDecoration(
-                            color: _getTagColor(tag).withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(3),
+                      GestureDetector(
+                        onTap: widget.onSwitchToTaskTab,
+                        child: Text(
+                          '查看全部 →',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.blue.shade600,
                           ),
-                          child: Text(
-                            tag,
-                            style: TextStyle(fontSize: 7, color: _getTagColor(tag)),
-                          ),
-                        )),
-                        if (node.tags.length > 2)
-                          Text(
-                            '+${node.tags.length - 2}',
-                            style: TextStyle(fontSize: 7, color: Colors.grey.shade400),
-                          ),
-                      ],
+                        ),
+                      ),
                     ],
                   ),
-                  trailing: const Icon(Icons.chevron_right, size: 14),
-                  onTap: () => _openNode(node),
-                ),
-              );
-            }),
-          if (contentNodes.length > 10)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                '还有 ${contentNodes.length - 10} 条线索...',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: _taskCompletionRate,
+                            backgroundColor: Colors.grey.shade200,
+                            color: _taskCompletionRate >= 0.7
+                                ? Colors.green.shade500
+                                : Colors.orange.shade500,
+                            minHeight: 6,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${(_taskCompletionRate * 100).toInt()}%',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '已完成 ${_completedTaskCount} / 共 $_totalTaskCount 个任务',
+                    style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                  ),
+                ],
               ),
             ),
-          const Divider(height: 20),
-
-          // 今日活跃
-          const Text(
-            '📌 今日活跃',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
-          const SizedBox(height: 4),
-          GridView.count(
-            crossAxisCount: 5,
-            crossAxisSpacing: 4,
-            mainAxisSpacing: 4,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: 1.2,
+          const SizedBox(height: 8),
+
+          // ════════════════════════════════════════════════════════════
+          // ─── 🐾 宠物 + 🔥 热力图 并排 ──────────────────────────────
+          // ════════════════════════════════════════════════════════════
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildTodayStatCard(
-                icon: Icons.task,
-                label: '任务',
-                value: _todayTaskCount,
-                color: Colors.purple.shade50,
-                iconColor: Colors.purple.shade700,
-                onTap: () => widget.onSwitchToTaskTab?.call(),
+              // ─── 左侧：宠物 ──────────────────────────
+              Expanded(
+                flex: 3,
+                child: Card(
+                  elevation: 0,
+                  margin: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: FutureBuilder<Pet?>(
+                    future: _petService.getOrCreatePet(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return Container(
+                          height: 130,
+                          alignment: Alignment.center,
+                          child: const CircularProgressIndicator(strokeWidth: 2),
+                        );
+                      }
+                      final pet = snapshot.data!;
+                      return Container(
+                        padding: const EdgeInsets.all(8),
+                        height: 130,
+                        child: Row(
+                          children: [
+                            // 宠物形象（增大到80px）
+                            SizedBox(
+                              width: 80,
+                              height: 80,
+                              child: PetAvatar(
+                                pet: pet,
+                                size: 80,
+                                onTap: () async {
+                                  await _petService.petInteraction();
+                                  setState(() {});
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('🐾 和小云互动了一下！'),
+                                      duration: Duration(seconds: 1),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            // 宠物信息
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        '☁️ ${pet.name}',
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.shade50,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          'Lv.${pet.level}',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.blue.shade700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        '❤️ ',
+                                        style: TextStyle(fontSize: 11),
+                                      ),
+                                      Expanded(
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: LinearProgressIndicator(
+                                            value: pet.happiness / pet.maxHappiness,
+                                            backgroundColor: Colors.grey.shade200,
+                                            color: pet.happiness > 60
+                                                ? Colors.green.shade400
+                                                : pet.happiness > 30
+                                                    ? Colors.orange.shade400
+                                                    : Colors.red.shade400,
+                                            minHeight: 5,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '${pet.happiness}%',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        '经验 ${pet.exp}/${pet.nextLevelExp}',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        pet.stageLabel,
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.blue.shade500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
-              _buildTodayStatCard(
-                icon: Icons.pending_actions,
-                label: '待整理',
-                value: _todayRawCount,
-                color: Colors.red.shade50,
-                iconColor: Colors.red.shade700,
-                onTap: () => widget.onTabChange?.call(0),
-              ),
-              _buildTodayStatCard(
-                icon: Icons.note,
-                label: '笔记',
-                value: _todayNoteCount,
-                color: Colors.blue.shade50,
-                iconColor: Colors.blue.shade700,
-                onTap: () => widget.onTabChange?.call(1),
-              ),
-              _buildTodayStatCard(
-                icon: Icons.book,
-                label: '图书',
-                value: _todayBookCount,
-                color: Colors.green.shade50,
-                iconColor: Colors.green.shade700,
-                onTap: () => widget.onTabChange?.call(1),
-              ),
-              _buildTodayStatCard(
-                icon: Icons.local_offer,
-                label: '标签',
-                value: _todayTagCount,
-                color: Colors.purple.shade50,
-                iconColor: Colors.purple.shade700,
-                onTap: () => _onStatTap('标签'),
+              const SizedBox(width: 8),
+              // ─── 右侧：热力图（压缩版） ──────────────────────────
+              Expanded(
+                flex: 6,
+                child: Card(
+                  elevation: 0,
+                  margin: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 热力图标题 + 切换
+                        Row(
+                          children: [
+                            const Text(
+                              '🔥 热力图',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: _toggleHeatmapMode,
+                              child: Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: _userSettings?.heatmapStatMode == HeatmapStatMode.count
+                                            ? Colors.blue.shade700
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '📝 笔记',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w500,
+                                          color: _userSettings?.heatmapStatMode == HeatmapStatMode.count
+                                              ? Colors.white
+                                              : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: _userSettings?.heatmapStatMode == HeatmapStatMode.words
+                                            ? Colors.blue.shade700
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '📄 字数',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w500,
+                                          color: _userSettings?.heatmapStatMode == HeatmapStatMode.words
+                                              ? Colors.white
+                                              : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        // 压缩热力图
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 70, maxHeight: 100),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: _buildHeatmapHorizontal(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
-          // 最近编辑
-          const Text(
-            '📌 最近编辑',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          ..._recentlyEditedNodes.map((node) {
-            final note = _allNotes.firstWhere(
-              (n) => n.id == node.targetId,
-              orElse: () => _allNotes.first,
-            );
-            return Card(
-              margin: const EdgeInsets.only(bottom: 3),
-              child: ListTile(
-                dense: true,
-                leading: Text(node.iconEmoji, style: const TextStyle(fontSize: 16)),
-                title: Text(
-                  node.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11),
-                ),
-                subtitle: Text(
-                  _formatDate(note.updatedAt),
-                  style: TextStyle(fontSize: 8, color: Colors.grey.shade500),
-                ),
-                trailing: const Icon(Icons.chevron_right, size: 14),
-                onTap: () => _openNode(node),
-              ),
-            );
-          }),
-          if (_allNodes.where((n) => !n.isFolder).isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(8),
-              child: Center(
-                child: Text(
-                  '还没有内容，去采集吧',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
+          // ─── 知识线索 ──────────────────────────
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '🔍 知识线索',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                      Row(
+                        children: [
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _showOnlyWithTags = !_showOnlyWithTags;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: _showOnlyWithTags
+                                    ? Colors.blue.shade100
+                                    : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '🏷️',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: _showOnlyWithTags
+                                      ? Colors.blue.shade700
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _sortAscending = !_sortAscending;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                _sortAscending ? '🔼' : '🔽',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: '搜索线索...',
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                      hintStyle: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                    ),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  ..._filteredContentNodes.take(4).map((node) {
+                    final note = _allNotes.firstWhere(
+                      (n) => n.id == node.targetId,
+                      orElse: () => _allNotes.first,
+                    );
+                    return GestureDetector(
+                      onTap: () => _openNode(node),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          children: [
+                            Text(
+                              node.iconEmoji,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                node.title,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (node.tags.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: _getTagColor(node.tags.first).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  node.tags.first,
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    color: _getTagColor(node.tags.first),
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatDate(note.updatedAt),
+                              style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                  if (_filteredContentNodes.length > 4)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () {
+                          // TODO: 跳转到知识线索全屏列表
+                        },
+                        child: Text(
+                          '查看全部 ${_filteredContentNodes.length} 条 →',
+                          style: TextStyle(fontSize: 10, color: Colors.blue.shade600),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-          const SizedBox(height: 10),
+          ),
+          const SizedBox(height: 8),
+
+          // ─── 今日活跃 ──────────────────────────
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '📈 今日活跃',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      _buildTodayStatCard(
+                        icon: Icons.note_alt_outlined,
+                        label: '笔记',
+                        value: _todayNoteCount,
+                        color: Colors.blue.shade50,
+                        iconColor: Colors.blue.shade700,
+                        onTap: () => _onStatTap('笔记'),
+                      ),
+                      _buildTodayStatCard(
+                        icon: Icons.task_alt,
+                        label: '任务',
+                        value: _todayTaskCount,
+                        color: Colors.red.shade50,
+                        iconColor: Colors.red.shade700,
+                        onTap: () => _onStatTap('任务'),
+                      ),
+                      _buildTodayStatCard(
+                        icon: Icons.inbox,
+                        label: '待整理',
+                        value: _todayRawCount,
+                        color: Colors.orange.shade50,
+                        iconColor: Colors.orange.shade700,
+                        onTap: () => _onStatTap('待整理'),
+                      ),
+                      _buildTodayStatCard(
+                        icon: Icons.auto_stories,
+                        label: '图书',
+                        value: _todayBookCount,
+                        color: Colors.green.shade50,
+                        iconColor: Colors.green.shade700,
+                        onTap: () => _onStatTap('图书'),
+                      ),
+                      _buildTodayStatCard(
+                        icon: Icons.local_offer,
+                        label: '标签',
+                        value: _todayTagCount,
+                        color: Colors.purple.shade50,
+                        iconColor: Colors.purple.shade700,
+                        onTap: () => _onStatTap('标签'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ─── 最近编辑 ──────────────────────────
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '🕐 最近编辑',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        '${_recentlyEditedNodes.length} 条',
+                        style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  ..._recentlyEditedNodes.map((node) {
+                    final note = _allNotes.firstWhere(
+                      (n) => n.id == node.targetId,
+                      orElse: () => _allNotes.first,
+                    );
+                    return GestureDetector(
+                      onTap: () => _openNode(node),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          children: [
+                            Text(
+                              node.iconEmoji,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                node.title,
+                                style: const TextStyle(fontSize: 12),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              _formatDate(note.updatedAt),
+                              style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
         ],
       ),
     );
   }
 
-  // ============================================================
-  // 统计卡片（总数-彩色）
-  // ============================================================
+  // ─── 紧凑统计项 ──────────────────────────
+  Widget _buildCompactStat(String icon, int count, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          icon,
+          style: const TextStyle(fontSize: 12),
+        ),
+        const SizedBox(width: 2),
+        Text(
+          count.toString(),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
 
+  // ─── 统计卡片（总数-彩色） ──────────────────────────
   Widget _buildTotalStatCard({
     required IconData icon,
     required String label,
@@ -1033,50 +1159,49 @@ class InsightPageState extends State<InsightPage>
     required Color iconColor,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(4),
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Icon(icon, size: 14, color: iconColor),
                 ),
-                child: Icon(icon, size: 14, color: iconColor),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                value.toString(),
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
+                const SizedBox(height: 2),
+                Text(
+                  value.toString(),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 8,
-                  color: Colors.grey.shade600,
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 8,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ============================================================
-  // 统计卡片（今日活跃-浅色）
-  // ============================================================
-
+  // ─── 今日活跃卡片（浅色） ──────────────────────────
   Widget _buildTodayStatCard({
     required IconData icon,
     required String label,
@@ -1085,45 +1210,70 @@ class InsightPageState extends State<InsightPage>
     required Color iconColor,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        color: color,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 12, color: iconColor),
-              const SizedBox(height: 2),
-              Text(
-                value.toString(),
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: iconColor,
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          color: color,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 12, color: iconColor),
+                const SizedBox(height: 2),
+                Text(
+                  value.toString(),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: iconColor,
+                  ),
                 ),
-              ),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 8,
-                  color: Colors.grey.shade600,
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 8,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ============================================================
-  // 切换热力图模式
-  // ============================================================
+  // ─── 统一样式的统计项（卡片学习状态用） ──────────────────────────
+  Widget _buildStatItem(String label, int count, Color color) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Text(
+              count.toString(),
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+            ),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
+  // ─── 切换热力图模式 ──────────────────────────
   void _toggleHeatmapMode() async {
     if (_userSettings == null) return;
     final current = _userSettings!.heatmapStatMode;
@@ -1143,10 +1293,7 @@ class InsightPageState extends State<InsightPage>
     );
   }
 
-  // ============================================================
-  // 热力图（全年12个月）
-  // ============================================================
-
+  // ─── 热力图（全年12个月 — 压缩版） ──────────────────────────
   Widget _buildHeatmapHorizontal() {
     final now = DateTime.now();
     final year = now.year;
@@ -1157,7 +1304,7 @@ class InsightPageState extends State<InsightPage>
     final heatmapData = _heatmapData;
     final isWordMode = _userSettings?.heatmapStatMode == HeatmapStatMode.words;
 
-    const cellSize = 18.0;
+    const cellSize = 12.0;
     const cellMargin = 1.0;
     const cellTotal = cellSize + cellMargin * 2;
 
@@ -1165,11 +1312,11 @@ class InsightPageState extends State<InsightPage>
 
     if (totalCount == 0) {
       return Container(
-        height: 80,
+        padding: const EdgeInsets.symmetric(vertical: 20),
         alignment: Alignment.center,
         child: const Text(
           '📝 今年还没有写作记录',
-          style: TextStyle(fontSize: 11, color: Colors.grey),
+          style: TextStyle(fontSize: 9, color: Colors.grey),
         ),
       );
     }
@@ -1180,10 +1327,11 @@ class InsightPageState extends State<InsightPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 月份标题
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(width: 22),
+              const SizedBox(width: 14),
               ...months.asMap().entries.map((entry) {
                 final index = entry.key;
                 final month = entry.value;
@@ -1193,17 +1341,17 @@ class InsightPageState extends State<InsightPage>
                   children: [
                     if (!isFirstMonth)
                       Container(
-                        width: 1.5,
-                        height: 14,
+                        width: 1,
+                        height: 10,
                         color: Colors.grey.shade300,
-                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        margin: const EdgeInsets.symmetric(horizontal: 1),
                       ),
                     SizedBox(
                       width: cellTotal,
                       child: Text(
                         '${month.month}月',
                         style: TextStyle(
-                          fontSize: 7,
+                          fontSize: 5,
                           color: Colors.grey.shade500,
                         ),
                         textAlign: TextAlign.center,
@@ -1214,18 +1362,19 @@ class InsightPageState extends State<InsightPage>
               }),
             ],
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 1),
 
+          // 7行（星期一到星期日）
           ...List.generate(7, (row) {
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                  width: 22,
+                  width: 14,
                   child: Text(
                     ['一', '二', '三', '四', '五', '六', '日'][row],
                     style: TextStyle(
-                      fontSize: 7,
+                      fontSize: 5,
                       color: row >= 5 ? Colors.red.shade300 : Colors.grey.shade500,
                       fontWeight: FontWeight.w500,
                     ),
@@ -1281,12 +1430,12 @@ class InsightPageState extends State<InsightPage>
                         margin: EdgeInsets.all(cellMargin),
                         decoration: BoxDecoration(
                           color: heatmapColors[colorIndex],
-                          borderRadius: BorderRadius.circular(3),
+                          borderRadius: BorderRadius.circular(2),
                           border: isFirstDayOfMonth
                               ? Border(
                                   bottom: BorderSide(
                                     color: Colors.grey.shade400,
-                                    width: 1.5,
+                                    width: 1,
                                   ),
                                 )
                               : null,
@@ -1298,37 +1447,30 @@ class InsightPageState extends State<InsightPage>
               ],
             );
           }),
-          const SizedBox(height: 3),
+          const SizedBox(height: 1),
 
+          // 图例
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('少', style: TextStyle(fontSize: 7, color: Colors.grey)),
+              const Text('少', style: TextStyle(fontSize: 5, color: Colors.grey)),
               ...heatmapColors.map((c) => Container(
-                width: 12,
-                height: 12,
+                width: 8,
+                height: 8,
                 margin: const EdgeInsets.symmetric(horizontal: 1),
                 decoration: BoxDecoration(
                   color: c,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(1),
                 ),
               )),
-              const Text('多', style: TextStyle(fontSize: 7, color: Colors.grey)),
-              const SizedBox(width: 10),
+              const Text('多', style: TextStyle(fontSize: 5, color: Colors.grey)),
+              const SizedBox(width: 6),
               Text(
                 isWordMode
                     ? '共 ${heatmapData.values.reduce((a, b) => a + b)} 字'
                     : '共 ${heatmapData.values.reduce((a, b) => a + b)} 条',
-                style: TextStyle(fontSize: 7, color: Colors.grey.shade500),
+                style: TextStyle(fontSize: 5, color: Colors.grey.shade500),
               ),
-              const SizedBox(width: 10),
-              if (_userSettings != null)
-                Text(
-                  isWordMode
-                      ? '高产: ≥${_userSettings!.heatmapWordHighThreshold}字'
-                      : '高产: ≥${_userSettings!.heatmapHighThreshold}条',
-                  style: TextStyle(fontSize: 6, color: Colors.grey.shade400),
-                ),
             ],
           ),
         ],
@@ -1627,132 +1769,7 @@ class InsightPageState extends State<InsightPage>
   // ============================================================
 
   Widget _buildReviewTab() {
-    if (_isReviewLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_allCards.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.psychology, size: 56, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            const Text(
-              '还没有复习卡片',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '在笔记详情中点击「🧠 制卡」创建复习卡片',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () {
-                widget.onTabChange?.call(1);
-                widget.onRefreshWisdom?.call();
-              },
-              icon: const Icon(Icons.auto_stories),
-              label: const Text('去智库'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final stats = _dueCards.length;
-    final total = _allCards.length;
-
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildStatItem(
-                label: '待复习',
-                value: stats,
-                color: stats > 0 ? Colors.orange : Colors.green,
-              ),
-              _buildStatItem(
-                label: '总卡片',
-                value: total,
-                color: Colors.blue,
-              ),
-              _buildStatItem(
-                label: '进度',
-                value: total > 0 ? ((total - stats) / total * 100).round() : 0,
-                suffix: '%',
-                color: Colors.purple,
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: stats == 0
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.check_circle, size: 48, color: Colors.green.shade300),
-                      const SizedBox(height: 12),
-                      const Text(
-                        '🎉 今日复习全部完成！',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '休息一下，明天再来',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(10),
-                  itemCount: _dueCards.length,
-                  itemBuilder: (context, index) {
-                    final card = _dueCards[index];
-                    final isReviewing = _reviewingCardId == card.id;
-                    return _buildReviewCardItem(card, isReviewing);
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatItem({
-    required String label,
-    required int value,
-    String suffix = '',
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Text(
-          '$value$suffix',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.grey.shade600,
-          ),
-        ),
-      ],
-    );
+    return const ReviewTab();
   }
 
   Widget _buildReviewCardItem(ReviewCard card, bool isReviewing) {

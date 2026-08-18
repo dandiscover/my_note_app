@@ -541,6 +541,60 @@ class DatabaseService {
   }
 
   // ============================================================
+  // 🆕 复盘专用方法（新增）
+  // ============================================================
+
+  /// 确保“复盘”文件夹存在，返回其 nodeId
+  Future<String> ensureReviewFolder() async {
+    final allNodes = await getAllNodes();
+    for (var node in allNodes) {
+      if (node.title == '复盘' && node.isFolder && node.parentId == null) {
+        return node.id;
+      }
+    }
+    // 不存在则创建
+    final folder = await createFolder(title: '复盘');
+    return folder.id;
+  }
+
+  /// 在“复盘”文件夹下创建一篇笔记（自动打 #复盘 标签）
+  Future<NotebookEntry> createReviewNote({
+    required String title,
+    required String content,
+    List<String> extraTags = const [],
+  }) async {
+    // 1. 获取或创建“复盘”文件夹
+    final folderId = await ensureReviewFolder();
+
+    // 2. 创建笔记实体
+    final noteId = DateTime.now().millisecondsSinceEpoch.toString();
+    final allTags = <String>['复盘', ...extraTags];
+
+    final noteMap = {
+      'id': noteId,
+      'title': title,
+      'content': content,
+      'status': 'active',
+      'editorMode': 'plain',
+      'updatedAt': DateTime.now().toIso8601String(),
+    };
+
+    // 3. 保存笔记
+    await insertNote(noteMap);
+
+    // 4. 创建节点关联到“复盘”文件夹
+    await attachNoteToNode(
+      noteId: noteId,
+      title: title,
+      parentId: folderId,
+      tags: allTags,
+    );
+
+    // 5. 返回笔记对象
+    return NotebookEntry.fromMap(noteMap);
+  }
+
+  // ============================================================
   // 原生 SQLite 支持
   // ============================================================
 
@@ -591,7 +645,37 @@ class DatabaseService {
       ''');
     }
   }
+  // ============================================================
+  // 🆕 解析 Markdown 任务列表
+  // ============================================================
 
+  /// 从 Markdown 内容中解析子任务列表
+  /// 支持格式：
+  /// - [ ] 任务名（未完成）
+  /// - [x] 任务名（已完成）
+  List<Map<String, dynamic>> parseSubtasksFromMarkdown(String content) {
+    final results = <Map<String, dynamic>>[];
+    final lines = content.split('\n');
+    int index = 0;
+    for (var line in lines) {
+      final uncheckedMatch = RegExp(r'^-\s*\[\s*\]\s*(.+)$').firstMatch(line);
+      final checkedMatch = RegExp(r'^-\s*\[x\]\s*(.+)$').firstMatch(line);
+      if (uncheckedMatch != null) {
+        results.add({
+          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
+          'title': uncheckedMatch.group(1)?.trim() ?? '未命名子任务',
+          'isDone': false,
+        });
+      } else if (checkedMatch != null) {
+        results.add({
+          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
+          'title': checkedMatch.group(1)?.trim() ?? '未命名子任务',
+          'isDone': true,
+        });
+      }
+    }
+    return results;
+  }
   Future<void> _createTables(Database db) async {
     await db.execute('''
       CREATE TABLE notes(

@@ -2,16 +2,25 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:html' as html;
+
+import 'web_shortcut.dart'
+    if (dart.library.html) 'web_shortcut.dart'
+    if (dart.library.io) 'web_shortcut_stub.dart';
+
 import 'database_service.dart';
 import 'pages/collection_page.dart';
 import 'pages/wisdom_page.dart';
 import 'pages/insight_page.dart';
-import 'pages/creation_page.dart';
+import 'pages/creation_page.dart' as creation;
 import 'pages/profile_page.dart';
 import 'widgets/fullscreen_editor.dart';
 import 'services/keyboard_shortcut_manager.dart';
 import 'models/keyboard_shortcut.dart';
+
+// 🆕 导入宠物
+import 'models/pet.dart';
+import 'services/pet_service.dart';
+import 'widgets/floating_pet.dart';
 
 void main() {
   runApp(const MyApp());
@@ -40,10 +49,87 @@ class MyApp extends StatelessWidget {
           elevation: 0,
         ),
       ),
+      // 🆕 builder 中注入悬浮宠物
+      builder: (context, child) {
+        return Scaffold(
+          body: Stack(
+            children: [
+              // 原有页面
+              if (child != null) child,
+              // 悬浮宠物（覆盖在所有页面之上）
+              const _FloatingPetOverlay(),
+            ],
+          ),
+        );
+      },
       home: const NotebookPage(),
     );
   }
 }
+
+// ─── 悬浮宠物覆盖层 ─────────────────────────────
+class _FloatingPetOverlay extends StatefulWidget {
+  const _FloatingPetOverlay();
+
+  @override
+  State<_FloatingPetOverlay> createState() => _FloatingPetOverlayState();
+}
+
+class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
+  final PetService _petService = PetService();
+  Pet? _pet;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPet();
+  }
+
+  Future<void> _loadPet() async {
+    try {
+      final pet = await _petService.getOrCreatePet();
+      setState(() {
+        _pet = pet;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _interact() async {
+    if (_pet == null) return;
+    await _petService.petInteraction();
+    final updated = await _petService.getOrCreatePet();
+    setState(() {
+      _pet = updated;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading || _pet == null) {
+      return const SizedBox.shrink();
+    }
+
+    // 只在不遮挡内容的位置显示
+    return Positioned(
+      bottom: 80, // 在底部导航栏上方
+      right: 16,
+      child: IgnorePointer(
+        ignoring: false,
+        child: FloatingPet(
+          pet: _pet!,
+          size: 70,
+          onInteract: _interact,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── 以下是 NotebookPage（你原有的，保持不变） ─────────────
 
 class NotebookPage extends StatefulWidget {
   const NotebookPage({super.key});
@@ -56,22 +142,19 @@ class _NotebookPageState extends State<NotebookPage> {
   int _currentIndex = 0;
   final FocusNode _focusNode = FocusNode();
   KeyboardShortcutManager? _shortcutManager;
+  WebShortcutManager? _webShortcutManager;
 
   final GlobalKey<WisdomPageState> _wisdomKey = GlobalKey<WisdomPageState>();
   final GlobalKey<InsightPageState> _insightKey = GlobalKey<InsightPageState>();
-  final GlobalKey<CreationPageState> _creationKey = GlobalKey<CreationPageState>();
-
-  StreamSubscription<html.KeyboardEvent>? _webKeyHandler;
+  final GlobalKey<creation.CreationPageState> _creationKey = GlobalKey<creation.CreationPageState>();
 
   @override
   void initState() {
     super.initState();
-    print('📌 NotebookPage initState');
     _initShortcuts();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (kIsWeb) {
-        print('📌 Web 平台，设置键盘拦截');
-        _setupWebKeyboardInterceptor();
+        _setupWebShortcuts();
       }
       FocusScope.of(context).requestFocus(_focusNode);
     });
@@ -80,47 +163,18 @@ class _NotebookPageState extends State<NotebookPage> {
   Future<void> _initShortcuts() async {
     _shortcutManager = KeyboardShortcutManager();
     await _shortcutManager!.load();
-    print('📌 快捷键加载完成，共 ${_shortcutManager?.all.length ?? 0} 个');
   }
 
-  void _setupWebKeyboardInterceptor() {
-    _webKeyHandler = html.window.onKeyDown.listen((event) {
-      final isCtrl = event.ctrlKey || event.metaKey;
-      final key = event.key?.toLowerCase() ?? '';
-
-      if (key.isEmpty) return;
-
-      print('📌 Web 键盘事件: key=$key, ctrl=$isCtrl');
-
-      // 始终阻止 Ctrl+S、Ctrl+Shift+S
-      if (isCtrl && key == 's') {
-        print('📌 检测到 Ctrl+S，阻止默认行为');
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        _triggerSave();
-        _showShortcutSnackBar('Ctrl+S 保存');
-        return;
-      }
-
-      if (_shortcutManager != null) {
-        final matched = _shortcutManager!.match(
-          key,
-          isCtrl,
-          event.shiftKey,
-          event.altKey,
-        );
-
-        if (matched != null) {
-          print('📌 匹配到快捷键: ${matched.displayName}');
-          event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation();
-          _executeShortcut(matched.id);
-          _showShortcutSnackBar(matched.displayName);
-        }
-      }
-    });
+  void _setupWebShortcuts() {
+    _webShortcutManager = WebShortcutManager(
+      onExecute: (shortcutId) {
+        _executeShortcut(shortcutId);
+      },
+      onShowSnackBar: (label) {
+        _showShortcutSnackBar(label);
+      },
+    );
+    _webShortcutManager!.startListening();
   }
 
   void _showShortcutSnackBar(String label) {
@@ -141,7 +195,7 @@ class _NotebookPageState extends State<NotebookPage> {
 
   @override
   void dispose() {
-    _webKeyHandler?.cancel();
+    _webShortcutManager?.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -155,6 +209,9 @@ class _NotebookPageState extends State<NotebookPage> {
     }
     if (index == 2) {
       _insightKey.currentState?.refreshData();
+    }
+    if (index == 3) {
+      _creationKey.currentState?.refreshTasks();
     }
   }
 
@@ -184,7 +241,8 @@ class _NotebookPageState extends State<NotebookPage> {
   void _executeShortcut(String id) {
     switch (id) {
       case 'save':
-        _triggerSave();
+        CollectionPage.triggerSave();
+        FullscreenEditor.triggerSave();
         break;
       case 'escape':
         Navigator.of(context).maybePop();
@@ -198,14 +256,6 @@ class _NotebookPageState extends State<NotebookPage> {
       default:
         break;
     }
-  }
-
-  void _triggerSave() {
-    print('📌 _triggerSave 被调用');
-    // 采集页快速笔记
-    CollectionPage.triggerSave();
-    // 全屏编辑器（智库笔记详情）
-    FullscreenEditor.triggerSave();
   }
 
   void _insertMarkdown(String mark) {
@@ -257,7 +307,8 @@ class _NotebookPageState extends State<NotebookPage> {
           }
 
           if (isCtrl && keyName == 's') {
-            _triggerSave();
+            CollectionPage.triggerSave();
+            FullscreenEditor.triggerSave();
             _showShortcutSnackBar('Ctrl+S 保存');
             return;
           }
@@ -303,7 +354,9 @@ class _NotebookPageState extends State<NotebookPage> {
         body: IndexedStack(
           index: _currentIndex,
           children: [
-            const CollectionPage(),
+            CollectionPage(
+              creationKey: _creationKey,
+            ),
             WisdomPage(key: _wisdomKey),
             InsightPage(
               key: _insightKey,
@@ -312,7 +365,7 @@ class _NotebookPageState extends State<NotebookPage> {
               onSwitchToTaskTab: _onSwitchToTaskTab,
               onSwitchToFocusMode: _onSwitchToFocusMode,
             ),
-            CreationPage(key: _creationKey),
+            creation.CreationPage(key: _creationKey),
             const ProfilePage(),
           ],
         ),

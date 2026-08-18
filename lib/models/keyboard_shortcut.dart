@@ -1,3 +1,6 @@
+// lib/models/keyboard_shortcut.dart
+// 快捷键数据模型
+
 class KeyboardShortcut {
   final String id;
   final String name;
@@ -41,6 +44,32 @@ class KeyboardShortcut {
     );
   }
 
+  // ─── 序列化（SharedPreferences 存储用） ─────────────────────────────
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'description': description,
+      'key': key,
+      'isCtrlRequired': isCtrlRequired,
+      'isShiftRequired': isShiftRequired,
+      'isAltRequired': isAltRequired,
+    };
+  }
+
+  factory KeyboardShortcut.fromJson(Map<String, dynamic> json) {
+    return KeyboardShortcut(
+      id: json['id'],
+      name: json['name'],
+      description: json['description'] ?? '',
+      key: json['key'],
+      isCtrlRequired: json['isCtrlRequired'] ?? false,
+      isShiftRequired: json['isShiftRequired'] ?? false,
+      isAltRequired: json['isAltRequired'] ?? false,
+    );
+  }
+
+  // ─── 默认快捷键列表 ─────────────────────────────
   static List<KeyboardShortcut> get defaults {
     return [
       KeyboardShortcut(
@@ -88,6 +117,7 @@ class KeyboardShortcut {
     ];
   }
 
+  // ─── 获取显示名称 ─────────────────────────────
   String get displayName {
     final parts = <String>[];
     if (isCtrlRequired) parts.add('Ctrl');
@@ -98,6 +128,7 @@ class KeyboardShortcut {
     return parts.join('+');
   }
 
+  // ─── 🆕 从显示名称解析为 KeyboardShortcut ─────────────────────────────
   static KeyboardShortcut? fromDisplayName(String displayName) {
     final parts = displayName.split('+');
     if (parts.isEmpty) return null;
@@ -120,11 +151,11 @@ class KeyboardShortcut {
       }
     }
 
-    // ✅ 判空
     if (key == null || key.isEmpty) return null;
 
-    final matchedKey = key.toLowerCase(); // key 已非空，安全
+    final matchedKey = key.toLowerCase();
 
+    // 先在 defaults 中查找匹配的 id，再构建新对象
     final matched = defaults.firstWhere(
       (s) => s.key.toLowerCase() == matchedKey &&
           s.isCtrlRequired == isCtrl &&
@@ -141,6 +172,41 @@ class KeyboardShortcut {
       isCtrlRequired: isCtrl,
       isShiftRequired: isShift,
       isAltRequired: isAlt,
+    );
+  }
+
+  // ─── 重置为默认值 ─────────────────────────────
+  KeyboardShortcut resetToDefault() {
+    final defaultShortcut = KeyboardShortcut.defaults.firstWhere(
+      (s) => s.id == id,
+      orElse: () => this,
+    );
+    return KeyboardShortcut(
+      id: id,
+      name: name,
+      description: description,
+      key: defaultShortcut.key,
+      isCtrlRequired: defaultShortcut.isCtrlRequired,
+      isShiftRequired: defaultShortcut.isShiftRequired,
+      isAltRequired: defaultShortcut.isAltRequired,
+    );
+  }
+
+  // ─── 复制（用于更新） ─────────────────────────────
+  KeyboardShortcut copyWith({
+    String? key,
+    bool? isCtrlRequired,
+    bool? isShiftRequired,
+    bool? isAltRequired,
+  }) {
+    return KeyboardShortcut(
+      id: id,
+      name: name,
+      description: description,
+      key: key ?? this.key,
+      isCtrlRequired: isCtrlRequired ?? this.isCtrlRequired,
+      isShiftRequired: isShiftRequired ?? this.isShiftRequired,
+      isAltRequired: isAltRequired ?? this.isAltRequired,
     );
   }
 }

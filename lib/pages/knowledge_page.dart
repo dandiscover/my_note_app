@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/note.dart';
-import 'library_page.dart';
+import 'wisdom_page.dart';
 
 class KnowledgePage extends StatefulWidget {
   const KnowledgePage({super.key});
@@ -275,7 +275,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
           },
         ),
       ),
-      body: _currentTab == 0 ? _buildNoteBody() : const LibraryPage(),
+      body: _currentTab == 0 ? _buildNoteBody() : const WisdomPage(),
       floatingActionButton: _currentTab == 0
           ? FloatingActionButton(
               key: const ValueKey('add_note_fab'),

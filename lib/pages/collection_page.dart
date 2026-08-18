@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
@@ -8,15 +9,20 @@ import 'package:http/http.dart' as http;
 import '../database_service.dart';
 import '../models/book.dart';
 import '../models/note.dart';
+import '../models/task.dart';
 import 'book_detail_page.dart';
 import 'note_detail_page.dart';
 import '../services/keyboard_shortcut_manager.dart';
 import '../models/keyboard_shortcut.dart';
+import '../widgets/fullscreen_editor.dart';
+import 'creation_page.dart' as creation; // 🆕 导入 CreationPage
 
 class CollectionPage extends StatefulWidget {
-  const CollectionPage({super.key});
+  // 🆕 添加 creationKey 参数，用于刷新任务页
+  final GlobalKey<creation.CreationPageState>? creationKey;
 
-  // 保存回调
+  const CollectionPage({super.key, this.creationKey});
+
   static Future<void> Function()? _saveCallback;
 
   static void registerSave(Future<void> Function() callback) {
@@ -74,23 +80,81 @@ class _CollectionPageState extends State<CollectionPage> {
     }
   }
 
+  // ─── 创建探究任务 ─────────────────────────────
+  void _createExploreTask() async {
+    final tempNote = NotebookEntry(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: '探究任务',
+      content: '# 探究任务\n\n## 🎯 目标\n\n## 📋 步骤\n\n## 📎 参考资料\n\n',
+      tags: ['探究'],
+      updatedAt: DateTime.now(),
+      editorMode: 'markdown',
+    );
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FullscreenEditor(
+          entry: tempNote,
+          isFromCollection: true,
+          onSave: (entry, title, content, mode, tags) async {
+            final noteMap = {
+              'id': entry.id,
+              'title': title,
+              'content': content,
+              'status': 'active',
+              'editorMode': mode,
+              'updatedAt': DateTime.now().toIso8601String(),
+            };
+            await _db.insertNote(noteMap);
+
+            final task = Task(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              title: title,
+              type: TaskType.explore,
+              description: content,
+              difficulty: Difficulty.medium,
+              urgency: Urgency.medium,
+              necessity: Necessity.important,
+              noteId: entry.id,
+            );
+            await _saveTask(task);
+
+            // 🆕 刷新任务页
+            widget.creationKey?.currentState?.refreshTasks();
+
+            return true;
+          },
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ 探究任务已创建，可在「创作 → 任务」中查看')),
+      );
+    }
+  }
+
+  Future<void> _saveTask(Task task) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonList = prefs.getStringList('tasks') ?? [];
+      jsonList.add(jsonEncode(task.toJson()));
+      await prefs.setStringList('tasks', jsonList);
+    } catch (e) {
+      print('保存任务失败: $e');
+    }
+  }
+
+  // ─── 原有方法 ─────────────────────────────
+
   void _quickNote() {
     final controller = TextEditingController();
     final tagController = TextEditingController();
     bool isTask = false;
     List<String> tags = [];
     bool isSaving = false;
-
-    // ✅ 获取用户自定义的保存快捷键
-    String saveShortcutLabel = 'Ctrl+S';
-    try {
-      final manager = KeyboardShortcutManager();
-      // 注意：load 是异步的，但这里我们需要同步获取
-      // 使用默认值，后续可以优化
-      // 更好的方式：在对话框构建时异步加载
-    } catch (e) {
-      // 忽略
-    }
 
     Future<void> performSave() async {
       if (isSaving) return;
@@ -127,6 +191,21 @@ class _CollectionPageState extends State<CollectionPage> {
         );
       }
 
+      // 🆕 如果转为任务，同时创建任务记录并刷新任务页
+      if (isTask) {
+        final task = Task(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: title,
+          type: TaskType.quick,
+          difficulty: Difficulty.medium,
+          urgency: Urgency.medium,
+          necessity: Necessity.important,
+        );
+        await _saveTask(task);
+        // 🆕 刷新任务页
+        widget.creationKey?.currentState?.refreshTasks();
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -146,17 +225,6 @@ class _CollectionPageState extends State<CollectionPage> {
       context: context,
       barrierDismissible: true,
       builder: (context) {
-        // ✅ 在对话框构建时异步加载快捷键设置
-        String shortcutDisplay = 'Ctrl+S';
-        KeyboardShortcutManager().load().then((_) {
-          final shortcut = KeyboardShortcutManager().saveShortcut;
-          if (shortcut != null) {
-            shortcutDisplay = shortcut.displayName;
-          }
-          // 更新对话框中的快捷键显示
-          setState(() {});
-        });
-
         return StatefulBuilder(
           builder: (context, setDialogState) {
             void addTag(String tag) {
@@ -195,7 +263,7 @@ class _CollectionPageState extends State<CollectionPage> {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          '${_getSaveShortcutDisplay()} 保存', // ✅ 动态快捷键显示
+                          'Ctrl+S 保存',
                           style: TextStyle(
                             fontSize: 9,
                             color: Colors.grey.shade600,
@@ -337,20 +405,6 @@ class _CollectionPageState extends State<CollectionPage> {
     });
   }
 
-  // ✅ 获取用户自定义的保存快捷键显示名称
-  String _getSaveShortcutDisplay() {
-    try {
-      // 使用同步方式获取默认值，异步加载会在对话框构建后更新
-      // 这里返回默认值，后续通过 setState 更新
-      final manager = KeyboardShortcutManager();
-      // 由于 load 是异步的，这里使用默认值
-      // 实际显示会在对话框构建完成后通过 Future 更新
-      return 'Ctrl+S';
-    } catch (e) {
-      return 'Ctrl+S';
-    }
-  }
-
   Color _getTagColor(String tag) {
     final hash = tag.hashCode.abs();
     final colors = [
@@ -427,6 +481,11 @@ class _CollectionPageState extends State<CollectionPage> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.explore, color: Colors.purple),
+            tooltip: '创建探究任务',
+            onPressed: _createExploreTask,
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.add, color: Colors.black87),
             tooltip: '添加',
@@ -438,9 +497,22 @@ class _CollectionPageState extends State<CollectionPage> {
                 case 'scan':
                   _scanISBN();
                   break;
+                case 'explore':
+                  _createExploreTask();
+                  break;
               }
             },
             itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'explore',
+                child: Row(
+                  children: [
+                    Icon(Icons.explore, color: Colors.purple),
+                    SizedBox(width: 12),
+                    Text('探究任务'),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'import',
                 child: Row(
@@ -504,6 +576,12 @@ class _CollectionPageState extends State<CollectionPage> {
                           label: '画板',
                           color: Colors.purple.shade100,
                           onTap: _drawBoard,
+                        ),
+                        _buildCaptureCard(
+                          icon: Icons.explore,
+                          label: '探究',
+                          color: Colors.purple.shade100,
+                          onTap: _createExploreTask,
                         ),
                       ],
                     ),

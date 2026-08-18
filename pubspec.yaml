@@ -23,7 +23,6 @@ dependencies:
   http: ^1.1.0
 
   # PDF 阅读
-  printing: ^5.11.0
   pdf: ^3.10.0
 
   # Markdown 支持
