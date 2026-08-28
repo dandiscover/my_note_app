@@ -1,4 +1,8 @@
+// lib/pages/focus_page.dart
+// 专注模式页面 — 修复异步调用
+
 import 'dart:async';
+import 'dart:developer';
 import 'package:flutter/material.dart';
 import '../services/focus_service.dart';
 import '../widgets/pet_widget.dart';
@@ -21,6 +25,12 @@ class _FocusPageState extends State<FocusPage>
 
   final FocusService _focusService = FocusService();
 
+  // ✅ 新增：统计数据状态变量
+  int _todayTotal = 0;
+  int _weekTotal = 0;
+  int _totalSessions = 0;
+  bool _isStatsLoading = true;
+
   @override
   void initState() {
     super.initState();
@@ -33,6 +43,7 @@ class _FocusPageState extends State<FocusPage>
         }
       });
     _loadSettings();
+    _loadStats();
   }
 
   @override
@@ -49,6 +60,24 @@ class _FocusPageState extends State<FocusPage>
       _totalSeconds = _focusMinutes * 60;
       _seconds = _totalSeconds;
     });
+  }
+
+  /// ✅ 新增：加载统计数据
+  Future<void> _loadStats() async {
+    setState(() => _isStatsLoading = true);
+    try {
+      final today = await _focusService.getTodayTotal();
+      final week = await _focusService.getWeekTotal();
+      final total = await _focusService.getTotalSessions();
+      setState(() {
+        _todayTotal = today;
+        _weekTotal = week;
+        _totalSessions = total;
+        _isStatsLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isStatsLoading = false);
+    }
   }
 
   void _startFocus() {
@@ -87,6 +116,8 @@ class _FocusPageState extends State<FocusPage>
     _timer?.cancel();
     setState(() => _isRunning = false);
     _focusService.recordFocusSession(_focusMinutes);
+    // ✅ 专注完成后刷新统计数据
+    _loadStats();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('🎉 专注完成！太棒了！'),
@@ -148,7 +179,7 @@ class _FocusPageState extends State<FocusPage>
                     alignment: Alignment.center,
                     children: [
                       CircularProgressIndicator(
-                        value: progress,
+                        value: progress.toDouble(),
                         strokeWidth: 8,
                         backgroundColor: Colors.grey.shade200,
                         valueColor: AlwaysStoppedAnimation<Color>(
@@ -211,7 +242,7 @@ class _FocusPageState extends State<FocusPage>
                 ),
                 const SizedBox(height: 20),
 
-                // 统计
+                // ✅ 修复：统计数据使用状态变量
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -219,56 +250,76 @@ class _FocusPageState extends State<FocusPage>
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.grey.shade100),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Column(
-                        children: [
-                          Text(
-                            '${_focusService.getTodayTotal()}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                  child: _isStatsLoading
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           ),
-                          Text(
-                            '今日专注',
-                            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        children: [
-                          Text(
-                            '${_focusService.getWeekTotal()}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            Column(
+                              children: [
+                                Text(
+                                  '$_todayTotal',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '今日专注',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          Text(
-                            '本周专注',
-                            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        children: [
-                          Text(
-                            '${_focusService.getTotalSessions()}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                            Column(
+                              children: [
+                                Text(
+                                  '$_weekTotal',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '本周专注',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          Text(
-                            '总次数',
-                            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                            Column(
+                              children: [
+                                Text(
+                                  '$_totalSessions',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '总次数',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                 ),
               ],
             ),

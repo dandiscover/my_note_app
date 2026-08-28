@@ -1,9 +1,12 @@
 // lib/web_shortcut_stub.dart
-// 桌面端备用 — 空实现
+// 桌面端快捷键桩（测试环境兼容）
+
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class WebShortcutManager {
-  final void Function(String shortcutId) onExecute;
-  final void Function(String label) onShowSnackBar;
+  final Function(String) onExecute;
+  final Function(String) onShowSnackBar;
 
   WebShortcutManager({
     required this.onExecute,
@@ -11,8 +14,13 @@ class WebShortcutManager {
   });
 
   void startListening() {
-    print('📌 桌面端：Web 键盘监听已禁用');
+    // 桌面端或测试环境不执行
+    if (kIsWeb) {
+      // Web 环境不在此文件处理
+    }
   }
 
-  void dispose() {}
+  void dispose() {
+    // 空实现
+  }
 }

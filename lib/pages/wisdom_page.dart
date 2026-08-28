@@ -1,35 +1,34 @@
 // lib/pages/wisdom_page.dart
-// 📚 智库页面 — 分栏/图标/大图三种视图切换 + FAB菜单 + 卡片盒特殊视图
+// 📚 智库页面 — 含“灵感过期”文件夹按需出现 + 线索墙入口
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
 import '../models/node.dart';
-import '../models/task.dart';
 import '../models/card.dart';
+import '../models/task.dart';
 import '../services/card_service.dart';
+import '../services/task_service.dart';
+import '../services/cache_manager.dart';
+import '../mixins/state_mixin.dart';
 import '../widgets/fullscreen_editor.dart';
-import '../widgets/wisdom/wisdom_breadcrumb.dart';
 import '../widgets/wisdom/wisdom_folder_card.dart';
 import '../widgets/wisdom/wisdom_note_card.dart';
 import '../widgets/wisdom/wisdom_book_card.dart';
-import '../widgets/wisdom/wisdom_default_card.dart';
-import '../widgets/wisdom/wisdom_checkbox.dart';
+import '../widgets/wisdom/wisdom_card_box.dart';
+import '../widgets/wisdom/wisdom_toolbar.dart';
 import '../widgets/wisdom/wisdom_draggable.dart';
-import '../widgets/wisdom/wisdom_light_toast.dart';
+import '../widgets/wisdom/wisdom_search_bar.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
+// ✅ 导入写作页面（线索墙入口需要）
+import 'writing_page.dart';
 
-// ─── 视图模式枚举 ─────────────────────────────
-enum WisdomViewMode {
-  list,
-  grid,
-  large,
-}
+enum WisdomViewMode { list, grid, large, split }
 
 class WisdomPage extends StatefulWidget {
   const WisdomPage({super.key});
@@ -38,34 +37,31 @@ class WisdomPage extends StatefulWidget {
   WisdomPageState createState() => WisdomPageState();
 }
 
-class WisdomPageState extends State<WisdomPage> {
+class WisdomPageState extends State<WisdomPage> with StateMixin {
   final DatabaseService _db = DatabaseService();
   final CardService _cardService = CardService();
+  final TaskService _taskService = TaskService();
+  final CacheManager _cache = CacheManager();
+
   List<Node> _nodes = [];
   List<NotebookEntry> _notes = [];
   List<Book> _books = [];
   List<CardModel> _cards = [];
   String? _currentFolderId;
-  bool _isLoading = true;
+  String _searchKeyword = '';
   bool _isSelectMode = false;
   final Set<String> _selectedIds = {};
-  List<Node> _breadcrumbPath = [];
-  String _searchKeyword = '';
-  OverlayEntry? _contextMenuEntry;
-  Node? _contextMenuNode;
+  bool _showSearchBar = false;
 
-  bool _fabExpanded = false;
   WisdomViewMode _viewMode = WisdomViewMode.grid;
+  bool _fabExpanded = false;
 
-  // ─── 是否为卡片盒视图 ─────────────────────────────
-  bool get _isCardBoxView {
-    if (_currentFolderId == null) return false;
-    final node = _nodes.firstWhere(
-      (n) => n.id == _currentFolderId,
-      orElse: () => _nodes.first,
-    );
-    return node.title == '卡片盒' && node.isFolder && node.parentId == null;
-  }
+  List<Node>? _cachedFilteredNodes;
+  static const String _cacheKeyNodes = 'wisdom_nodes';
+  static const String _cacheKeyNotes = 'wisdom_notes';
+  static const String _cacheKeyBooks = 'wisdom_books';
+  static const String _cacheKeyCards = 'wisdom_cards';
+  Map<String, Map<String, int>>? _folderStatsCache;
 
   @override
   void initState() {
@@ -73,70 +69,125 @@ class WisdomPageState extends State<WisdomPage> {
     _loadData();
   }
 
-  @override
-  void dispose() {
-    _removeContextMenu();
-    super.dispose();
+  void refreshData() {
+    _cache.invalidate(_cacheKeyNodes);
+    _cache.invalidate(_cacheKeyNotes);
+    _cache.invalidate(_cacheKeyBooks);
+    _cache.invalidate(_cacheKeyCards);
+    _folderStatsCache = null;
+    _loadData();
   }
 
-  // ─── 加载数据 ─────────────────────────────
   Future<void> _loadData() async {
-    if (!mounted) return;
-    setState(() => _isLoading = true);
+    isLoading = true;
     try {
-      final nodes = await _db.getAllNodes();
-      final notes = await _db.getAllNotes(includeDeleted: false);
-      final books = await _db.getAllBooks();
-      final cards = await _cardService.getAllCards();
+      final nodes = await _cache.get<List<Node>>(
+        _cacheKeyNodes,
+        () => _db.getAllNodes(),
+        ttl: const Duration(seconds: 30),
+      );
+      final notes = await _cache.get<List<NotebookEntry>>(
+        _cacheKeyNotes,
+        () async {
+          final maps = await _db.getAllNotes(includeDeleted: false);
+          return maps.map((m) => NotebookEntry.fromMap(m)).toList();
+        },
+        ttl: const Duration(seconds: 30),
+      );
+      final books = await _cache.get<List<Book>>(
+        _cacheKeyBooks,
+        () async {
+          final maps = await _db.getAllBooks();
+          return maps.map((m) => Book.fromMap(m)).toList();
+        },
+        ttl: const Duration(seconds: 30),
+      );
+      final cards = await _cache.get<List<CardModel>>(
+        _cacheKeyCards,
+        () => _cardService.getAllCards(),
+        ttl: const Duration(seconds: 30),
+      );
 
-      if (!mounted) return;
       setState(() {
         _nodes = nodes;
-        _notes = notes.map((map) => NotebookEntry.fromMap(map)).toList();
-        _books = books.map((map) => Book.fromMap(map)).toList();
+        _notes = notes;
+        _books = books;
         _cards = cards;
-        _isLoading = false;
-        _updateBreadcrumb();
+        _cachedFilteredNodes = null;
+        _folderStatsCache = null;
       });
 
       await _ensureCardBoxFolder();
-
     } catch (e) {
-      print('加载智库数据失败: $e');
-      if (mounted) setState(() => _isLoading = false);
+      print('加载数据失败: $e');
     }
+    isLoading = false;
   }
 
-  Future<void> refreshData() async {
-    await _loadData();
+  Map<String, Map<String, int>> _getFolderStats() {
+    if (_folderStatsCache != null) return _folderStatsCache!;
+    
+    final stats = <String, Map<String, int>>{};
+    if (_nodes.isEmpty) return stats;
+
+    final folderIds = _nodes.where((n) => n.isFolder).map((n) => n.id).toList();
+    final cardSourceIds = _cards.map((c) => c.sourceId).toList();
+
+    for (var folderId in folderIds) {
+      final children = _nodes.where((n) => n.parentId == folderId).toList();
+      int subFolderCount = 0, noteCount = 0, bookCount = 0, cardCount = 0;
+      for (var child in children) {
+        if (child.isFolder) subFolderCount++;
+        else if (child.nodeType == 'note') { noteCount++; if (cardSourceIds.contains(child.targetId)) cardCount++; }
+        else if (child.nodeType == 'book') { bookCount++; if (cardSourceIds.contains(child.targetId)) cardCount++; }
+      }
+      stats[folderId] = {
+        'subFolders': subFolderCount,
+        'notes': noteCount,
+        'books': bookCount,
+        'cards': cardCount,
+        'total': children.length,
+      };
+    }
+    _folderStatsCache = stats;
+    return stats;
   }
 
-  // ─── 自动创建卡片盒文件夹 ─────────────────────────────
   Future<void> _ensureCardBoxFolder() async {
-    final existing = _nodes.where((n) =>
-      n.title == '卡片盒' && n.isFolder && n.parentId == null
-    ).toList();
-    if (existing.isNotEmpty) return;
-
-    try {
-      await _db.createFolder(
-        title: '卡片盒',
-        parentId: null,
-        tags: ['卡片盒', '系统'],
-      );
-      print('📁 已创建卡片盒文件夹');
-      await _loadData();
-    } catch (e) {
-      print('⚠️ 创建卡片盒文件夹失败: $e');
+    final existing = _nodes.where((n) => n.title == '卡片盒' && n.isFolder && n.parentId == null).toList();
+    if (existing.length > 1) {
+      for (var i = 1; i < existing.length; i++) { await _db.deleteNode(existing[i].id); }
+      _cache.invalidate(_cacheKeyNodes); await _loadData(); return;
+    }
+    if (existing.isEmpty && _cards.isNotEmpty) {
+      await _db.createFolder(title: '卡片盒', parentId: null, tags: ['卡片盒', '系统']);
+      _cache.invalidate(_cacheKeyNodes); await _loadData();
     }
   }
 
-  void _updateBreadcrumb() {
-    if (_currentFolderId == null) {
-      _breadcrumbPath = [];
-      return;
-    }
-    final List<Node> result = [];
+  bool get _isCardBoxView {
+    if (_currentFolderId == null) return false;
+    final node = _nodes.firstWhere((n) => n.id == _currentFolderId, orElse: () => _nodes.first);
+    return node.title == '卡片盒' && node.isFolder && node.parentId == null && _cards.isNotEmpty;
+  }
+
+  List<Node> get _children => _nodes.where((n) => n.parentId == _currentFolderId).toList();
+
+  List<Node> get _filteredNodes {
+    if (_cachedFilteredNodes != null) return _cachedFilteredNodes!;
+    final children = _children;
+    if (_searchKeyword.isEmpty) { _cachedFilteredNodes = children; return children; }
+    final result = children.where((n) =>
+      n.title.toLowerCase().contains(_searchKeyword.toLowerCase()) ||
+      n.tags.any((t) => t.toLowerCase().contains(_searchKeyword.toLowerCase()))
+    ).toList();
+    _cachedFilteredNodes = result;
+    return result;
+  }
+
+  List<Node> get _breadcrumbPath {
+    if (_currentFolderId == null) return [];
+    final result = <Node>[];
     String? currentId = _currentFolderId;
     final folderMap = {for (var n in _nodes.where((n) => n.isFolder)) n.id: n};
     while (currentId != null && folderMap.containsKey(currentId)) {
@@ -144,53 +195,66 @@ class WisdomPageState extends State<WisdomPage> {
       result.insert(0, node);
       currentId = node.parentId;
     }
-    setState(() {
-      _breadcrumbPath = result;
-    });
+    return result;
   }
 
-  void _navigateToFolder(String? folderId) {
-    setState(() {
-      _currentFolderId = folderId;
-      _updateBreadcrumb();
-      if (_isCardBoxView) {
-        _loadCards();
-      }
-    });
-  }
+  List<Node> get _rootFolders => _nodes.where((n) => n.isFolder && n.parentId == null).toList();
 
-  Future<void> _loadCards() async {
-    final cards = await _cardService.getAllCards();
-    setState(() {
-      _cards = cards;
-    });
-  }
-
-  List<Node> _getChildren(String? parentId) {
-    return _nodes.where((n) => n.parentId == parentId).toList();
-  }
-
-  List<Node> _getFilteredNodes(String? parentId) {
-    final children = _getChildren(parentId);
-    if (_searchKeyword.isEmpty) return children;
-    return children.where((n) =>
-      n.title.toLowerCase().contains(_searchKeyword.toLowerCase()) ||
-      n.tags.any((t) => t.toLowerCase().contains(_searchKeyword.toLowerCase()))
+  // ✅ 用户文件夹（不含系统文件夹）
+  List<Node> get _userFolders {
+    return _nodes.where((n) => 
+      n.isFolder && 
+      n.parentId == null && 
+      n.title != '灵感过期'
     ).toList();
   }
 
-  // ─── 新建笔记 ─────────────────────────────
-  void _createNote() async {
+  // ✅ 获取“灵感过期”文件夹
+  Node? get _expiredFolder {
+    final folder = _nodes.firstWhere(
+      (n) => n.title == '灵感过期' && n.isFolder && n.parentId == null,
+      orElse: () => Node(
+        id: '',
+        title: '',
+        isFolder: false,
+        nodeType: 'folder',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    if (folder.id.isEmpty) return null;
+    final children = _nodes.where((n) => n.parentId == folder.id && !n.isFolder).toList();
+    if (children.isEmpty) return null;
+    return folder;
+  }
+
+  int get _expiredNoteCount {
+    if (_expiredFolder == null) return 0;
+    return _nodes.where((n) => n.parentId == _expiredFolder!.id && !n.isFolder).length;
+  }
+
+  void _navigateToFolder(String? folderId) {
+    setState(() { _currentFolderId = folderId; _cachedFilteredNodes = null; _searchKeyword = ''; _showSearchBar = false; });
+  }
+
+  // ✅ 打开线索墙
+  void _openClueBoard() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WritingPage(
+          initialViewMode: WritingViewMode.clueBoard,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createNote() async {
     _closeFab();
     final tempNote = NotebookEntry(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: '无标题笔记',
-      content: '',
-      tags: [],
-      updatedAt: DateTime.now(),
-      editorMode: 'plain',
+      title: '无标题笔记', content: '', tags: [], updatedAt: DateTime.now(), editorMode: 'plain',
     );
-
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -198,1301 +262,665 @@ class WisdomPageState extends State<WisdomPage> {
           entry: tempNote,
           isFromCollection: true,
           onSave: (entry, title, content, mode, tags) async {
-            final noteMap = {
-              'id': entry.id,
-              'title': title,
-              'content': content,
-              'status': 'active',
-              'editorMode': mode,
-              'updatedAt': DateTime.now().toIso8601String(),
-            };
+            final noteMap = { 'id': entry.id, 'title': title, 'content': content, 'status': 'active', 'editorMode': mode, 'updatedAt': DateTime.now().toIso8601String(), 'isLocked': 0 };
             await _db.insertNote(noteMap);
-            await _db.attachNoteToNode(
-              noteId: entry.id,
-              title: title,
-              parentId: _currentFolderId,
-              tags: tags,
-            );
-            await _loadData();
-            return true;
+            await _db.attachNoteToNode(noteId: entry.id, title: title, parentId: _currentFolderId, tags: tags);
+            _cache.invalidate(_cacheKeyNodes); _cache.invalidate(_cacheKeyNotes); _folderStatsCache = null;
+            await _loadData(); return true;
           },
         ),
       ),
     );
-    if (result == true && mounted) {
-      _showToast('📝 笔记已创建');
+    if (result == true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📝 笔记已创建'), duration: Duration(seconds: 1)));
     }
   }
 
-  // ─── 新建探究任务 ─────────────────────────────
-  void _createExploreTask() async {
+  Future<void> _createExploreTask() async {
     _closeFab();
     final tempNote = NotebookEntry(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: '探究任务',
       content: '# 探究任务\n\n## 🎯 目标\n\n## 📋 步骤\n\n## 📎 参考资料\n\n',
-      tags: ['探究'],
-      updatedAt: DateTime.now(),
-      editorMode: 'markdown',
+      tags: ['探究'], updatedAt: DateTime.now(), editorMode: 'markdown',
     );
-
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => FullscreenEditor(
           entry: tempNote,
           isFromCollection: true,
-          exploreTaskId: '',
-          onAddSubtask: (subtaskTitle) {},
           onSave: (entry, title, content, mode, tags) async {
-            final noteMap = {
-              'id': entry.id,
-              'title': title,
-              'content': content,
-              'status': 'active',
-              'editorMode': mode,
-              'updatedAt': DateTime.now().toIso8601String(),
-            };
+            final noteMap = { 'id': entry.id, 'title': title, 'content': content, 'status': 'active', 'editorMode': mode, 'updatedAt': DateTime.now().toIso8601String(), 'isLocked': 0 };
             await _db.insertNote(noteMap);
-            await _db.attachNoteToNode(
-              noteId: entry.id,
-              title: title,
-              parentId: _currentFolderId,
-              tags: tags,
-            );
-
-            final subtasks = _parseSubtasksFromMarkdown(content);
-            final taskId = DateTime.now().millisecondsSinceEpoch.toString();
-
-            final task = Task(
-              id: taskId,
-              title: title,
-              type: TaskType.explore,
-              description: content,
-              difficulty: Difficulty.medium,
-              urgency: Urgency.medium,
-              necessity: Necessity.important,
-              noteId: entry.id,
-              subtaskIds: subtasks.map((st) => st['id'] as String).toList(),
-            );
+            final task = Task(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, type: TaskType.explore, description: content, difficulty: Difficulty.medium, urgency: Urgency.medium, necessity: Necessity.important, noteId: entry.id);
             await _saveTask(task);
-
-            for (var st in subtasks) {
-              final subtask = Subtask(
-                id: st['id'] as String,
-                parentTaskId: taskId,
-                title: st['title'] as String,
-                isDone: st['isDone'] as bool,
-              );
-              await _saveSubtask(subtask);
-            }
-
-            await _loadData();
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 探究任务已创建，可在「创作 → 任务」中查看'), duration: Duration(seconds: 2)));
             return true;
           },
         ),
       ),
     );
-
-    if (result == true && mounted) {
-      _showToast('🔍 探究任务已创建');
-    }
-  }
-
-  List<Map<String, dynamic>> _parseSubtasksFromMarkdown(String content) {
-    final results = <Map<String, dynamic>>[];
-    final lines = content.split('\n');
-    int index = 0;
-    for (var line in lines) {
-      final uncheckedMatch = RegExp(r'^-\s*\[\s*\]\s*(.+)$').firstMatch(line);
-      final checkedMatch = RegExp(r'^-\s*\[x\]\s*(.+)$').firstMatch(line);
-      if (uncheckedMatch != null) {
-        results.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
-          'title': uncheckedMatch.group(1)?.trim() ?? '未命名步骤',
-          'isDone': false,
-        });
-      } else if (checkedMatch != null) {
-        results.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
-          'title': checkedMatch.group(1)?.trim() ?? '未命名步骤',
-          'isDone': true,
-        });
-      }
-    }
-    return results;
+    if (result == true) { _cache.invalidate(_cacheKeyNodes); _cache.invalidate(_cacheKeyNotes); _folderStatsCache = null; await _loadData(); }
   }
 
   Future<void> _saveTask(Task task) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonList = prefs.getStringList('tasks') ?? [];
-      jsonList.add(jsonEncode(task.toJson()));
-      await prefs.setStringList('tasks', jsonList);
-    } catch (e) {
-      print('保存任务失败: $e');
-    }
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = prefs.getStringList('tasks') ?? [];
+    jsonList.add(jsonEncode(task.toJson()));
+    await prefs.setStringList('tasks', jsonList);
   }
 
-  Future<void> _saveSubtask(Subtask subtask) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonList = prefs.getStringList('subtasks') ?? [];
-      jsonList.add(jsonEncode(subtask.toJson()));
-      await prefs.setStringList('subtasks', jsonList);
-    } catch (e) {
-      print('保存子任务失败: $e');
-    }
-  }
-
-  // ─── 新建文件夹 ─────────────────────────────
-  void _createFolder() async {
+  Future<void> _createFolder() async {
     _closeFab();
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('新建文件夹'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: '请输入文件夹名称',
-          ),
-          onSubmitted: (value) => Navigator.pop(context, value),
-        ),
+        content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(hintText: '请输入文件夹名称'), onSubmitted: (value) => Navigator.pop(context, value)),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('创建'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('创建')),
         ],
       ),
     );
     if (result != null && result.isNotEmpty) {
-      await _db.createFolder(
-        title: result,
-        parentId: _currentFolderId,
-      );
-      await _loadData();
-      _showToast('📁 文件夹已创建');
+      await _db.createFolder(title: result, parentId: _currentFolderId);
+      _cache.invalidate(_cacheKeyNodes); _folderStatsCache = null; await _loadData();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📁 文件夹已创建'), duration: Duration(seconds: 1)));
     }
   }
 
-  void _showToast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(12),
-      ),
-    );
+  void _toggleSelectMode() {
+    setState(() { _isSelectMode = !_isSelectMode; if (!_isSelectMode) _selectedIds.clear(); });
   }
 
-  // ─── FAB 控制 ─────────────────────────────
-  void _toggleFab() {
-    setState(() {
-      _fabExpanded = !_fabExpanded;
-    });
-  }
+  void _closeFab() => setState(() => _fabExpanded = false);
+  void _toggleSearch() => setState(() => _showSearchBar = !_showSearchBar);
 
-  void _closeFab() {
-    setState(() {
-      _fabExpanded = false;
-    });
-  }
-
-  Widget _buildFabOption({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 20, color: color),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(fontSize: 14, color: color),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ─── 右键菜单 ─────────────────────────────
-  void _showContextMenu(Offset position, Node node) {
-    _removeContextMenu();
-    _contextMenuNode = node;
-    _contextMenuEntry = OverlayEntry(
-      builder: (context) => Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _removeContextMenu,
-              behavior: HitTestBehavior.translucent,
-            ),
-          ),
-          Positioned(
-            left: position.dx,
-            top: position.dy,
-            child: Material(
-              elevation: 8,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                width: 180,
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildMenuItem(
-                      icon: Icons.edit,
-                      label: '重命名',
-                      onTap: () {
-                        _removeContextMenu();
-                        _renameNode(node);
-                      },
-                    ),
-                    _buildMenuItem(
-                      icon: Icons.drive_file_move_outlined,
-                      label: '移动到...',
-                      onTap: () {
-                        _removeContextMenu();
-                        _moveNode(node);
-                      },
-                    ),
-                    _buildMenuItem(
-                      icon: Icons.delete_outline,
-                      label: '删除',
-                      color: Colors.red,
-                      onTap: () {
-                        _removeContextMenu();
-                        _deleteNode(node);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    Overlay.of(context).insert(_contextMenuEntry!);
-  }
-
-  void _removeContextMenu() {
-    _contextMenuEntry?.remove();
-    _contextMenuEntry = null;
-    _contextMenuNode = null;
-  }
-
-  Widget _buildMenuItem({
-    required IconData icon,
-    required String label,
-    Color? color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: color ?? Colors.grey.shade700),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: TextStyle(color: color ?? Colors.black87),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _renameNode(Node node) async {
-    final controller = TextEditingController(text: node.title);
-    final result = await showDialog<String>(
+  Future<void> _batchDelete() async {
+    if (_selectedIds.isEmpty) return;
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('重命名${node.isFolder ? '文件夹' : ''}'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-        ),
+        title: const Text('批量删除'),
+        content: Text('确定要删除 ${_selectedIds.length} 个项目吗？'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('确认'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red), child: const Text('删除')),
         ],
       ),
     );
-    if (result != null && result.isNotEmpty) {
-      final updated = node.copyWith(
-        title: result,
-        updatedAt: DateTime.now(),
-      );
-      await _db.updateNode(updated);
-      await _loadData();
-      _showToast('已重命名');
+    if (confirm == true) {
+      for (var id in _selectedIds) { await _db.deleteNode(id); }
+      _selectedIds.clear(); setState(() => _isSelectMode = false);
+      _cache.invalidate(_cacheKeyNodes); _folderStatsCache = null; await _loadData();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已批量删除'), duration: Duration(seconds: 1)));
     }
   }
 
-  Future<void> _moveNode(Node node) async {
+  Future<void> _batchMove() async {
+    if (_selectedIds.isEmpty) return;
     final folders = _nodes.where((n) => n.isFolder).toList();
     if (folders.isEmpty) {
-      _showToast('没有可移动的目标文件夹');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('没有可移动的目标文件夹'), duration: Duration(seconds: 1)));
       return;
     }
-
     String? selectedId;
-
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('移动到...'),
         content: SizedBox(
-          width: 300,
-          height: 300,
+          width: 300, height: 300,
           child: ListView.builder(
             itemCount: folders.length,
             itemBuilder: (context, index) {
               final f = folders[index];
               return ListTile(
-                title: Text(f.title),
-                leading: const Icon(Icons.folder),
+                title: Text(f.title), leading: const Icon(Icons.folder),
                 selected: selectedId == f.id,
-                onTap: () {
-                  selectedId = f.id;
-                  Navigator.pop(context, f.id);
-                },
-                trailing: f.id == node.id ? const Icon(Icons.fiber_manual_record, color: Colors.grey) : null,
+                onTap: () { selectedId = f.id; Navigator.pop(context, f.id); },
               );
             },
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-        ],
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消'))],
       ),
     );
-
-    if (selectedId != null && selectedId != node.id) {
-      await _db.moveNode(node.id, selectedId);
-      await _loadData();
-      _showToast('已移动');
+    if (selectedId != null) {
+      for (var id in _selectedIds) { await _db.moveNode(id, selectedId); }
+      _selectedIds.clear(); setState(() => _isSelectMode = false);
+      _cache.invalidate(_cacheKeyNodes); _folderStatsCache = null; await _loadData();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已批量移动'), duration: Duration(seconds: 1)));
     }
   }
 
-  Future<void> _deleteNode(Node node) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认删除'),
-        content: Text('确定要删除 "${node.title}" 吗？\n${node.isFolder ? '文件夹内的所有内容也将被删除。' : ''}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) {
-      await _db.deleteNode(node.id);
-      await _loadData();
-      _showToast('已删除');
+  Future<void> _openNode(Node node) async {
+    if (node.isFolder) { _navigateToFolder(node.id); return; }
+    if (node.nodeType == 'note') {
+      final note = await _db.getNoteByNodeId(node.id);
+      if (note != null) {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => NoteDetailPage(entry: note, nodeId: node.id)));
+        _cache.invalidate(_cacheKeyNotes); await _loadData();
+      }
+    } else if (node.nodeType == 'book') {
+      final book = await _db.getBookByNodeId(node.id);
+      if (book != null) {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => BookDetailPage(bookId: book.id, nodeId: node.id)));
+        _cache.invalidate(_cacheKeyBooks); await _loadData();
+      }
     }
   }
 
-  // ─── 视图切换 ─────────────────────────────
-  IconData _getViewModeIcon() {
-    switch (_viewMode) {
-      case WisdomViewMode.list:
-        return Icons.list;
-      case WisdomViewMode.grid:
-        return Icons.grid_view;
-      case WisdomViewMode.large:
-        return Icons.grid_on;
-    }
-  }
-
-  (int crossAxisCount, double aspectRatio) _getGridLayout(double maxWidth) {
-    switch (_viewMode) {
-      case WisdomViewMode.list:
-        return (1, 4.0);
-      case WisdomViewMode.grid:
-        return (6, 0.7);
-      case WisdomViewMode.large:
-        return (3, 0.8);
-    }
-  }
-
-  // ─── UI ─────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final children = _getFilteredNodes(_currentFolderId);
-
+    if (isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        appBar: AppBar(title: const Text('📚 智库'), centerTitle: true, elevation: 0, backgroundColor: Colors.white, foregroundColor: Colors.black87),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Text(_isCardBoxView ? '📇 卡片盒' : '📚 智库'),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        leading: _isCardBoxView
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _navigateToFolder(null),
-                tooltip: '返回智库',
-              )
-            : null,
-        actions: [
-          PopupMenuButton<WisdomViewMode>(
-            icon: Icon(_getViewModeIcon()),
-            onSelected: (mode) {
-              setState(() {
-                _viewMode = mode;
-              });
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: WisdomViewMode.list,
-                child: Row(
-                  children: [
-                    Icon(Icons.list, size: 18),
-                    SizedBox(width: 8),
-                    Text('分栏'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: WisdomViewMode.grid,
-                child: Row(
-                  children: [
-                    Icon(Icons.grid_view, size: 18),
-                    SizedBox(width: 8),
-                    Text('图标'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: WisdomViewMode.large,
-                child: Row(
-                  children: [
-                    Icon(Icons.grid_on, size: 18),
-                    SizedBox(width: 8),
-                    Text('大图'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.select_all),
-            onPressed: () {
-              setState(() {
-                _isSelectMode = !_isSelectMode;
-                if (!_isSelectMode) _selectedIds.clear();
-              });
-            },
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _isCardBoxView
-              ? _buildCardBoxView()
-              : Column(
-                  children: [
-                    WisdomBreadcrumb(
-                      breadcrumb: _breadcrumbPath,
-                      onGoRoot: () => _navigateToFolder(null),
-                      onGoToBreadcrumb: (nodeId) => _navigateToFolder(nodeId.toString()),
-                      onMoveNode: (sourceId, targetId) async {},
-                      isDescendantOf: (nodeId, ancestorId) => false,
-                    ),
-                    const Divider(height: 1),
-                    if (_searchKeyword.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.search, size: 16, color: Colors.grey),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '搜索: $_searchKeyword',
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                              ),
-                              GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _searchKeyword = '';
-                                  });
-                                },
-                                child: const Icon(Icons.close, size: 16, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    Expanded(
-                      child: children.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.shelves, size: 64, color: Colors.grey),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    '这里空空如也',
-                                    style: TextStyle(color: Colors.grey.shade600),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    '点击右下角 + 创建内容',
-                                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final maxWidth = constraints.maxWidth;
-                                  final layout = _getGridLayout(maxWidth);
-                                  final crossAxisCount = layout.$1;
-                                  final aspectRatio = layout.$2;
-                                  final cardWidth = maxWidth / crossAxisCount - 8;
-                                  final cardHeight = cardWidth / aspectRatio;
-
-                                  return GridView.builder(
-                                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: crossAxisCount,
-                                      crossAxisSpacing: 6,
-                                      mainAxisSpacing: 6,
-                                      childAspectRatio: aspectRatio,
-                                    ),
-                                    itemCount: children.length,
-                                    itemBuilder: (context, index) {
-                                      final node = children[index];
-                                      return _buildCard(node, cardWidth, cardHeight);
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-      floatingActionButton: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          if (_fabExpanded)
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: _closeFab,
-                behavior: HitTestBehavior.translucent,
-                child: Container(
-                  color: Colors.black.withOpacity(0.3),
-                ),
-              ),
-            ),
-          AnimatedOpacity(
-            opacity: _fabExpanded ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 200),
-            child: Visibility(
-              visible: _fabExpanded,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildFabOption(
-                    icon: Icons.edit_note,
-                    label: '新建笔记',
-                    color: Colors.blue,
-                    onTap: _createNote,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildFabOption(
-                    icon: Icons.explore,
-                    label: '新建探究任务',
-                    color: Colors.purple,
-                    onTap: _createExploreTask,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildFabOption(
-                    icon: Icons.create_new_folder,
-                    label: '新建文件夹',
-                    color: Colors.orange,
-                    onTap: _createFolder,
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ),
-            ),
-          ),
-          FloatingActionButton(
-            onPressed: _toggleFab,
-            mini: true,
-            backgroundColor: _fabExpanded ? Colors.grey.shade700 : Theme.of(context).primaryColor,
-            child: AnimatedIcon(
-              icon: AnimatedIcons.menu_close,
-              progress: _fabExpanded ? const AlwaysStoppedAnimation(1) : const AlwaysStoppedAnimation(0),
-              color: Colors.white,
-            ),
-            tooltip: '创建',
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(),
+      body: _isCardBoxView ? _buildCardBoxView() : _buildFolderView(),
+      floatingActionButton: _buildFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
-  // ─── 卡片盒特殊视图 ─────────────────────────────
-  Widget _buildCardBoxView() {
-    // ─── 搜索状态 ─────────────────────────────
-    String searchQuery = '';
-    final TextEditingController searchController = TextEditingController();
-
-    // ─── 筛选卡片 ─────────────────────────────
-    List<CardModel> getFilteredCards() {
-      if (searchQuery.trim().isEmpty) {
-        return _cards;
-      }
-      final query = searchQuery.trim().toLowerCase();
-      return _cards.where((card) {
-        if (card.tags.any((t) => t.toLowerCase().contains(query))) return true;
-        if (card.front?.toLowerCase().contains(query) == true) return true;
-        if (card.back?.toLowerCase().contains(query) == true) return true;
-        if (card.indexTitle?.toLowerCase().contains(query) == true) return true;
-        if (card.author?.toLowerCase().contains(query) == true) return true;
-        if (card.highlight?.toLowerCase().contains(query) == true) return true;
-        return false;
-      }).toList();
-    }
-
-    // ─── 按标签分组 ─────────────────────────────
-    Map<String, List<CardModel>> groupCardsByTag(List<CardModel> cards) {
-      final groups = <String, List<CardModel>>{};
-      for (var card in cards) {
-        if (card.tags.isEmpty) {
-          groups.putIfAbsent('未分类', () => []).add(card);
-        } else {
-          for (var tag in card.tags) {
-            groups.putIfAbsent(tag, () => []).add(card);
-          }
-        }
-      }
-      final sortedKeys = groups.keys.toList()..sort();
-      final sortedGroups = <String, List<CardModel>>{};
-      for (var key in sortedKeys) {
-        sortedGroups[key] = groups[key]!;
-      }
-      return sortedGroups;
-    }
-
-    final filteredCards = getFilteredCards();
-    final groupedCards = groupCardsByTag(filteredCards);
-
-    // ─── 统计 ─────────────────────────────
-    final totalCards = _cards.length;
-    final reviewCount = _cards.where((c) => c.cardType == CardType.review).length;
-    final indexCount = _cards.where((c) => c.cardType == CardType.indexCard).length;
-
-    // ─── 空状态 ─────────────────────────────
-    if (_cards.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.credit_card_outlined, size: 48, color: Colors.grey),
-            const SizedBox(height: 12),
-            Text(
-              '📇 卡片盒是空的',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '在笔记详情中点击「📇 生成卡片」创建复习卡',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-            ),
-          ],
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: Text(_isCardBoxView ? '📇 卡片盒' : '📚 智库'),
+      centerTitle: true,
+      elevation: 0,
+      backgroundColor: Colors.white,
+      foregroundColor: Colors.black87,
+      leading: _isCardBoxView
+          ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => _navigateToFolder(null), tooltip: '返回智库')
+          : null,
+      actions: [
+        IconButton(icon: const Icon(Icons.search), onPressed: _toggleSearch, tooltip: '搜索'),
+        IconButton(icon: const Icon(Icons.explore, color: Colors.purple), onPressed: _createExploreTask, tooltip: '探究任务'),
+        // ✅ 线索墙入口
+        IconButton(
+          icon: const Icon(Icons.bubble_chart, color: Colors.teal),
+          onPressed: _openClueBoard,
+          tooltip: '🧩 线索墙',
         ),
-      );
-    }
-
-    return Column(
-      children: [
-        // ─── 统计 + 搜索栏 ──────────────────────────
-        Container(
-          padding: const EdgeInsets.all(12),
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  _buildStatChip('📇 总卡片', totalCards, Colors.blue),
-                  const SizedBox(width: 12),
-                  _buildStatChip('📄 复习卡', reviewCount, Colors.purple),
-                  const SizedBox(width: 12),
-                  _buildStatChip('📚 索引卡', indexCount, Colors.teal),
-                  const Spacer(),
-                  Text(
-                    '${groupedCards.keys.length} 个标签',
-                    style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: searchController,
-                decoration: InputDecoration(
-                  hintText: '🔍 搜索卡片（标题/内容/标签/作者/高光句）...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  isDense: true,
-                  suffixIcon: searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.close, size: 16),
-                          onPressed: () {
-                            searchController.clear();
-                            setState(() {});
-                          },
-                        )
-                      : null,
-                ),
-                onChanged: (value) {
-                  setState(() {});
-                },
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-
-        // ─── 卡片列表 ──────────────────────────
-        if (filteredCards.isEmpty)
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.search_off, size: 40, color: Colors.grey),
-                  const SizedBox(height: 8),
-                  Text(
-                    '没有找到匹配的卡片',
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: groupedCards.entries.map((entry) {
-                  final tag = entry.key;
-                  final cards = entry.value;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // ─── 标签标题 ──────────────────────────
-                      Container(
-                        margin: const EdgeInsets.only(top: 8, bottom: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _getTagColor(tag).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.local_offer,
-                              size: 14,
-                              color: _getTagColor(tag),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              tag,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: _getTagColor(tag),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: _getTagColor(tag).withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '${cards.length}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: _getTagColor(tag),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // ─── 该标签下的卡片网格 ──────────────────────────
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 6,
-                          crossAxisSpacing: 4,
-                          mainAxisSpacing: 4,
-                          childAspectRatio: 2.0,
-                        ),
-                        itemCount: cards.length,
-                        itemBuilder: (context, index) {
-                          final card = cards[index];
-                          return _buildCardItem(card);
-                        },
-                      ),
-                      const SizedBox(height: 4),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
       ],
     );
   }
 
-  // ─── 统计芯片 ─────────────────────────────
-  Widget _buildStatChip(String label, int count, Color color) {
+  Widget _buildFolderView() {
+    final children = _filteredNodes;
+    final folderStats = _getFolderStats();
+    final expiredFolder = _expiredFolder;
+    final expiredCount = _expiredNoteCount;
+
+    return Column(
+      children: [
+        _buildBreadcrumb(),
+        const Divider(height: 1),
+        if (_showSearchBar) _buildSearchBar(),
+        WisdomToolbar(
+          currentMode: _viewMode,
+          onModeChanged: (mode) { setState(() => _viewMode = mode); },
+          isSelectMode: _isSelectMode,
+          onToggleSelectMode: _toggleSelectMode,
+          selectedCount: _selectedIds.length,
+          onBatchDelete: _batchDelete,
+          onBatchMove: _batchMove,
+        ),
+        Expanded(
+          child: children.isEmpty && expiredFolder == null
+              ? _buildEmptyState()
+              : Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _viewMode == WisdomViewMode.split
+                      ? _buildSplitView(children, folderStats, expiredFolder, expiredCount)
+                      : _buildGrid(children, folderStats, expiredFolder, expiredCount),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBreadcrumb() {
+    final path = _breadcrumbPath;
+    if (path.isEmpty) return const SizedBox.shrink();
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
+      height: 36, padding: const EdgeInsets.symmetric(horizontal: 12),
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            GestureDetector(onTap: () => _navigateToFolder(null), child: const Text('📚 根目录', style: TextStyle(fontSize: 12, color: Colors.blue))),
+            ...path.map((node) => Row(
+              children: [
+                const Text(' / ', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                GestureDetector(
+                  onTap: () => _navigateToFolder(node.id),
+                  child: Text(node.title, style: TextStyle(fontSize: 12, color: node.id == _currentFolderId ? Colors.black87 : Colors.blue, fontWeight: node.id == _currentFolderId ? FontWeight.w600 : FontWeight.normal)),
+                ),
+              ],
+            )),
+          ],
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: WisdomSearchBar(
+        initialQuery: _searchKeyword,
+        onChanged: (query) { setState(() { _searchKeyword = query; _cachedFilteredNodes = null; }); },
+        onClear: () { setState(() { _searchKeyword = ''; _cachedFilteredNodes = null; _showSearchBar = false; }); },
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            count.toString(),
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-          ),
+          Icon(Icons.shelves, size: 64, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          Text('这里空空如也', style: TextStyle(color: Colors.grey.shade600)),
+          const SizedBox(height: 8),
+          Text('点击右下角 + 创建内容', style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
         ],
       ),
     );
   }
 
-  // ─── 卡片项（桌面端：悬停展开） ─────────────────────────────
-  Widget _buildCardItem(CardModel card) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool _isHovered = false;
-        return MouseRegion(
-          onEnter: (_) => setState(() => _isHovered = true),
-          onExit: (_) => setState(() => _isHovered = false),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-           transform: _isHovered
-    ? (Matrix4.identity()..translate(0, -20)..scale(1.05))
-    : Matrix4.identity(),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(_isHovered ? 12 : 4),
-              border: Border.all(
-                color: _isHovered ? card.typeColor : Colors.grey.shade200,
-                width: _isHovered ? 2 : 0.5,
-              ),
-              boxShadow: _isHovered
-                  ? [
-                      BoxShadow(
-                        color: card.typeColor.withOpacity(0.2),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ]
-                  : null,
-            ),
-            padding: const EdgeInsets.all(4),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: card.typeColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    card.typeIcon,
-                    style: const TextStyle(fontSize: 10),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _getCardThumbnail(card),
-                  style: TextStyle(
-                    fontSize: _isHovered ? 10 : 7,
-                    color: _isHovered ? Colors.black87 : Colors.grey.shade700,
-                  ),
-                  maxLines: _isHovered ? 6 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-                if (card.mastered)
-                  const Text('✅', style: TextStyle(fontSize: 6)),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Widget _buildSplitView(List<Node> children, Map<String, Map<String, int>> folderStats, Node? expiredFolder, int expiredCount) {
+    final userFolders = _userFolders;
 
-  // ─── 卡片项（移动端：点击展开） ─────────────────────────────
-  Widget _buildCardItemMobile(CardModel card) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool _isExpanded = false;
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              _isExpanded = !_isExpanded;
-            });
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            height: _isExpanded ? 100 : 60,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(_isExpanded ? 8 : 4),
-              border: Border.all(
-                color: _isExpanded ? card.typeColor : Colors.grey.shade200,
-                width: _isExpanded ? 2 : 0.5,
-              ),
-              boxShadow: _isExpanded
-                  ? [
-                      BoxShadow(
-                        color: card.typeColor.withOpacity(0.15),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ]
-                  : null,
-            ),
-            padding: const EdgeInsets.all(6),
-            child: Row(
-              children: [
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: card.typeColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Center(
-                    child: Text(
-                      card.typeIcon,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
+    return Row(
+      children: [
+        Container(
+          width: 220,
+          decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade200))),
+          child: ListView.builder(
+            itemCount: userFolders.length + (expiredFolder != null ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index == userFolders.length && expiredFolder != null) {
+                return _buildExpiredFolderTile(expiredFolder, expiredCount);
+              }
+              final folder = userFolders[index];
+              final stats = folderStats[folder.id] ?? {};
+              final total = stats['total'] ?? 0;
+              return ListTile(
+                title: Text(folder.title, style: const TextStyle(fontSize: 13)),
+                subtitle: Text('$total 个项目', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                selected: _currentFolderId == folder.id,
+                onTap: () => _navigateToFolder(folder.id),
+                leading: const Icon(Icons.folder, size: 18, color: Colors.orange),
+                dense: true,
+              );
+            },
+          ),
+        ),
+        Expanded(
+          child: children.isEmpty
+              ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _getCardThumbnail(card),
-                        style: TextStyle(
-                          fontSize: _isExpanded ? 11 : 9,
-                          color: _isExpanded ? Colors.black87 : Colors.grey.shade700,
-                        ),
-                        maxLines: _isExpanded ? 4 : 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (_isExpanded && card.tags.isNotEmpty)
-                        Wrap(
-                          spacing: 2,
-                          children: card.tags.take(2).map((tag) => Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: _getTagColor(tag).withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              tag,
-                              style: TextStyle(
-                                fontSize: 7,
-                                color: _getTagColor(tag),
-                              ),
-                            ),
-                          )).toList(),
-                        ),
+                      Icon(Icons.folder_open, size: 48, color: Colors.grey.shade300),
+                      const SizedBox(height: 12),
+                      Text('选择左侧文件夹查看内容', style: TextStyle(color: Colors.grey.shade500)),
                     ],
                   ),
-                ),
-                if (card.mastered)
-                  const Text(
-                    '✅',
-                    style: TextStyle(fontSize: 10),
+                )
+              : GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4, crossAxisSpacing: 6, mainAxisSpacing: 6, childAspectRatio: 0.8,
                   ),
-                Icon(
-                  _isExpanded ? Icons.expand_less : Icons.expand_more,
-                  size: 16,
-                  color: Colors.grey.shade400,
+                  itemCount: children.length,
+                  itemBuilder: (context, index) {
+                    final node = children[index];
+                    return RepaintBoundary(child: _buildCard(node, folderStats));
+                  },
                 ),
-              ],
-            ),
-          ),
-        );
+        ),
+      ],
+    );
+  }
+
+  Widget _buildExpiredFolderTile(Node folder, int count) {
+    return ListTile(
+      title: Text(
+        '🗂️ 灵感过期 ($count)',
+        style: TextStyle(
+          fontSize: 13,
+          color: Colors.grey.shade600,
+          fontStyle: FontStyle.italic,
+        ),
+      ),
+      subtitle: Text(
+        '过期笔记自动归档于此',
+        style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
+      ),
+      selected: _currentFolderId == folder.id,
+      onTap: () => _navigateToFolder(folder.id),
+      leading: Icon(Icons.archive_outlined, size: 18, color: Colors.grey.shade500),
+      dense: true,
+    );
+  }
+
+  Widget _buildGrid(List<Node> children, Map<String, Map<String, int>> folderStats, Node? expiredFolder, int expiredCount) {
+    final crossAxisCount = _getCrossAxisCount();
+    final aspectRatio = _getAspectRatio();
+
+    List<Node> gridChildren = List.from(children);
+    if (expiredFolder != null) {
+      final expiredNode = Node(
+        id: expiredFolder.id,
+        title: '🗂️ 灵感过期 ($expiredCount)',
+        parentId: null,
+        isFolder: true,
+        nodeType: 'folder',
+        tags: ['系统', '过期'],
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+      gridChildren.add(expiredNode);
+    }
+
+    return GridView.builder(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount, crossAxisSpacing: 6, mainAxisSpacing: 6, childAspectRatio: aspectRatio,
+      ),
+      itemCount: gridChildren.length,
+      itemBuilder: (context, index) {
+        final node = gridChildren[index];
+        if (node.title.startsWith('🗂️ 灵感过期')) {
+          return _buildExpiredFolderCard(node, expiredCount);
+        }
+        return RepaintBoundary(child: _buildCard(node, folderStats));
       },
     );
   }
 
-  // ─── 获取卡片缩略图内容 ─────────────────────────────
-  String _getCardThumbnail(CardModel card) {
-    switch (card.cardType) {
-      case CardType.indexCard:
-        return card.highlight ?? card.indexTitle ?? '索引卡';
-      case CardType.review:
-        return card.front ?? '复习卡';
-      case CardType.qa:
-        return card.question ?? '问答卡';
-      case CardType.fill:
-        return card.fillQuestion ?? '填空卡';
-      case CardType.choice:
-        return card.choiceQuestion ?? '选择题';
-      case CardType.truefalse:
-        return card.tfStatement ?? '判断题';
+  // ✅ 修复：用 GestureDetector 包裹 Container
+  Widget _buildExpiredFolderCard(Node node, int count) {
+    return GestureDetector(
+      onTap: () => _navigateToFolder(node.id),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300, width: 0.5),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.archive_outlined, size: 28, color: Colors.grey.shade500),
+              const SizedBox(height: 4),
+              Text(
+                '🗂️ 灵感过期',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade600,
+                  fontStyle: FontStyle.italic,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              Text(
+                '$count 条',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  int _getCrossAxisCount() {
+    switch (_viewMode) {
+      case WisdomViewMode.list: return 1;
+      case WisdomViewMode.grid: return 6;
+      case WisdomViewMode.large: return 3;
+      case WisdomViewMode.split: return 4;
     }
   }
 
-  // ─── 标签颜色 ─────────────────────────────
-  Color _getTagColor(String tag) {
-    final hash = tag.hashCode.abs();
-    final colors = [
-      Colors.blue,
-      Colors.green,
-      Colors.purple,
-      Colors.orange,
-      Colors.teal,
-      Colors.pink,
-      Colors.indigo,
-      Colors.cyan,
-      Colors.deepPurple,
-      Colors.red,
-      Colors.amber,
-      Colors.brown,
-    ];
-    return colors[hash % colors.length];
+  double _getAspectRatio() {
+    switch (_viewMode) {
+      case WisdomViewMode.list: return 4.0;
+      case WisdomViewMode.grid: return 0.7;
+      case WisdomViewMode.large: return 0.8;
+      case WisdomViewMode.split: return 0.8;
+    }
   }
 
-  // ─── 构建普通卡片 ─────────────────────────────
-  Widget _buildCard(Node node, double cardWidth, double cardHeight) {
+  Widget _buildCard(Node node, Map<String, Map<String, int>> folderStats) {
+    final cardWidth = 120.0;
+    final cardHeight = 120.0;
+    Widget cardContent;
+
     if (node.isFolder) {
-      return WisdomFolderCard(
+      final stats = folderStats[node.id] ?? {};
+      cardContent = WisdomFolderCard(
         node: node,
         isSelectMode: _isSelectMode,
         isSelected: _selectedIds.contains(node.id),
         onEnterFolder: () => _navigateToFolder(node.id),
-        onLongPress: () => _showContextMenu(Offset.zero, node),
         onCheckChanged: (checked) {
-          setState(() {
-            if (checked == true) _selectedIds.add(node.id);
-            else _selectedIds.remove(node.id);
-          });
+          setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
         },
         cardWidth: cardWidth,
         cardHeight: cardHeight,
-        isDescendantOf: (nodeId, ancestorId) => false,
+        isDescendantOf: (a, b) => false,
+        subFolderCount: stats['subFolders'] ?? 0,
+        noteCount: stats['notes'] ?? 0,
+        cardCount: stats['cards'] ?? 0,
+        onDataChanged: () {
+          _cache.invalidate(_cacheKeyNodes);
+          _cache.invalidate(_cacheKeyNotes);
+          _cache.invalidate(_cacheKeyBooks);
+          _cache.invalidate(_cacheKeyCards);
+          _folderStatsCache = null;
+          _loadData();
+        },
       );
-    }
-
-    if (node.nodeType == 'note') {
-      final note = _notes.firstWhere(
-        (n) => n.id == node.targetId,
-        orElse: () => NotebookEntry(
-          id: 'unknown',
-          title: '笔记已删除',
-          content: '',
-          tags: [],
-          updatedAt: DateTime.now(),
-          status: 'deleted',
-        ),
-      );
-
-      return WisdomNoteCard(
+    } else if (node.nodeType == 'note') {
+      cardContent = WisdomNoteCard(
         node: node,
         isSelectMode: _isSelectMode,
         isSelected: _selectedIds.contains(node.id),
-        onTap: () async {
-          if (note.status != 'deleted') {
-            final result = await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => NoteDetailPage(entry: note),
+        onTap: () => _openNode(node),
+        onCheckChanged: (checked) {
+          setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
+        },
+        cardWidth: cardWidth,
+        cardHeight: cardHeight,
+      );
+    } else if (node.nodeType == 'book') {
+      cardContent = WisdomBookCard(
+        node: node,
+        isSelectMode: _isSelectMode,
+        isSelected: _selectedIds.contains(node.id),
+        onTap: () => _openNode(node),
+        onCheckChanged: (checked) {
+          setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
+        },
+        cardWidth: cardWidth,
+        cardHeight: cardHeight,
+      );
+    } else {
+      cardContent = Container(
+        width: cardWidth, height: cardHeight,
+        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(node.iconEmoji, style: const TextStyle(fontSize: 24)),
+              const SizedBox(height: 4),
+              Text(node.title, style: const TextStyle(fontSize: 10), textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_isSelectMode) {
+      return WisdomDraggable(
+        node: node,
+        child: cardContent,
+        onDragEnd: () {
+          _cache.invalidate(_cacheKeyNodes);
+          _folderStatsCache = null;
+          _loadData();
+        },
+      );
+    }
+    return cardContent;
+  }
+
+  Widget _buildCardBoxView() {
+    return WisdomCardBox(
+      cards: _cards,
+      onSearch: (query) {},
+      onCardTap: (card) => _showCardDetailDialog(card),
+    );
+  }
+
+  void _showCardDetailDialog(CardModel card) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Text(card.typeIcon, style: const TextStyle(fontSize: 20)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(card.typeLabel, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+            if (card.mastered) const Text('✅ 已掌握', style: TextStyle(fontSize: 12, color: Colors.green)),
+          ],
+        ),
+        content: SizedBox(
+          width: 500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('📖 正面', style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 4),
+                    Text(card.displayFront, style: const TextStyle(fontSize: 16)),
+                  ],
+                ),
               ),
-            );
-            if (result == true) await _loadData();
-          }
-        },
-        onLongPress: () => _showContextMenu(Offset.zero, node),
-        onCheckChanged: (checked) {
-          setState(() {
-            if (checked == true) _selectedIds.add(node.id);
-            else _selectedIds.remove(node.id);
-          });
-        },
-        cardWidth: cardWidth,
-        cardHeight: cardHeight,
-      );
-    }
-
-    if (node.nodeType == 'book') {
-      final book = _books.firstWhere(
-        (b) => b.id == node.targetId,
-        orElse: () => Book(
-          id: 'unknown',
-          title: '图书已删除',
-          author: '',
-          status: 'archived',
-          readingProgress: 0,
-          totalPages: 0,
-          createdAt: DateTime.now(),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('💡 背面', style: TextStyle(fontSize: 11, color: Colors.blue.shade700, fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 4),
+                    Text(card.displayBack, style: const TextStyle(fontSize: 16)),
+                  ],
+                ),
+              ),
+              if (card.tags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(spacing: 4, children: card.tags.map((tag) => Chip(label: Text(tag, style: const TextStyle(fontSize: 12)), materialTapTargetSize: MaterialTapTargetSize.shrinkWrap, visualDensity: VisualDensity.compact)).toList()),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text('重要性：${card.importanceLabel}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                  const SizedBox(width: 16),
+                  if (card.stage > 0) Text('阶段：${card.stageLabel}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                ],
+              ),
+            ],
+          ),
         ),
-      );
-
-      return WisdomBookCard(
-        node: node,
-        isSelectMode: _isSelectMode,
-        isSelected: _selectedIds.contains(node.id),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => BookDetailPage(bookId: book.id),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
+          if (!card.mastered)
+            ElevatedButton(
+              onPressed: () { Navigator.pop(context); },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
+              child: const Text('开始复习'),
             ),
-          );
-        },
-        onLongPress: () => _showContextMenu(Offset.zero, node),
-        onCheckChanged: (checked) {
-          setState(() {
-            if (checked == true) _selectedIds.add(node.id);
-            else _selectedIds.remove(node.id);
-          });
-        },
-        cardWidth: cardWidth,
-        cardHeight: cardHeight,
-      );
-    }
+        ],
+      ),
+    );
+  }
 
-    return WisdomDefaultCard(
-      node: node,
-      isSelectMode: _isSelectMode,
-      isSelected: _selectedIds.contains(node.id),
-      onTap: () {},
-      onLongPress: () => _showContextMenu(Offset.zero, node),
-      onCheckChanged: (checked) {
-        setState(() {
-          if (checked == true) _selectedIds.add(node.id);
-          else _selectedIds.remove(node.id);
-        });
-      },
-      cardWidth: cardWidth,
-      cardHeight: cardHeight,
+  Widget _buildFab() {
+    if (_isCardBoxView) return const SizedBox.shrink();
+    return Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        if (_fabExpanded)
+          Positioned.fill(
+            child: GestureDetector(onTap: _closeFab, behavior: HitTestBehavior.translucent, child: Container(color: Colors.black.withOpacity(0.3)))),
+        AnimatedOpacity(
+          opacity: _fabExpanded ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 200),
+          child: Visibility(
+            visible: _fabExpanded,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildFabOption(icon: Icons.edit_note, label: '新建笔记', color: Colors.blue, onTap: _createNote),
+                const SizedBox(height: 8),
+                _buildFabOption(icon: Icons.create_new_folder, label: '新建文件夹', color: Colors.orange, onTap: _createFolder),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        ),
+        FloatingActionButton(
+          onPressed: () => setState(() => _fabExpanded = !_fabExpanded),
+          mini: true,
+          backgroundColor: _fabExpanded ? Colors.grey.shade700 : Theme.of(context).primaryColor,
+          child: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _fabExpanded ? const AlwaysStoppedAnimation(1) : const AlwaysStoppedAnimation(0), color: Colors.white),
+          tooltip: '创建',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFabOption({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white, borderRadius: BorderRadius.circular(30),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 2))],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [Icon(icon, size: 20, color: color), const SizedBox(width: 8), Text(label, style: TextStyle(fontSize: 14, color: color))],
+        ),
+      ),
     );
   }
 }

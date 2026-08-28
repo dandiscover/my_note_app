@@ -65,7 +65,7 @@ class _InsightPageState extends State<InsightPage>
       final books = await _db.getAllBooks();
 
       // ✅ 打印日志，确认数据加载
-      print('📊 加载洞察数据: 节点数=${nodes.length}, 笔记数=${notes.length}, 图书数=${books.length}');
+      debugPrint('📊 加载洞察数据: 节点数=${nodes.length}, 笔记数=${notes.length}, 图书数=${books.length}');
 
       setState(() {
         _allNodes = nodes;
@@ -77,20 +77,20 @@ class _InsightPageState extends State<InsightPage>
       // ✅ 关键修复：数据加载完成后，无论当前在哪个Tab，都准备图谱数据
       // 但避免重复准备
       if (!_isGraphReady && _allNodes.isNotEmpty) {
-        print('📊 数据加载完成，准备图谱...');
+        debugPrint('📊 数据加载完成，准备图谱...');
         _prepareGraph();
       } else if (_allNodes.isEmpty) {
-        print('📊 数据为空，图谱跳过');
+        debugPrint('📊 数据为空，图谱跳过');
       }
     } catch (e) {
-      print('❌ 加载洞察数据失败: $e');
+      debugPrint('❌ 加载洞察数据失败: $e');
       setState(() => _isLoading = false);
     }
   }
 
   void _prepareGraph() {
     if (_allNodes.isEmpty) {
-      print('📊 图谱准备跳过：节点为空');
+      debugPrint('📊 图谱准备跳过：节点为空');
       setState(() => _isGraphReady = false);
       return;
     }
@@ -99,20 +99,20 @@ class _InsightPageState extends State<InsightPage>
       n.isFolder || n.nodeType == 'note' || n.nodeType == 'book'
     ).toList();
 
-    print('📊 有效节点数: ${validNodes.length}');
+    debugPrint('📊 有效节点数: ${validNodes.length}');
 
     if (validNodes.isEmpty) {
-      print('📊 图谱准备跳过：有效节点为空');
+      debugPrint('📊 图谱准备跳过：有效节点为空');
       setState(() => _isGraphReady = false);
       return;
     }
 
-    print('📊 开始构建图谱...');
+    debugPrint('📊 开始构建图谱...');
     final rawGraph = GraphBuilder.build(validNodes);
     final size = Size(800, 600);
     final layouted = ForceDirectedLayout.layout(rawGraph, size);
 
-    print('📊 图谱构建完成，节点数=${layouted.nodes.length}, 边数=${layouted.edges.length}');
+    debugPrint('📊 图谱构建完成，节点数=${layouted.nodes.length}, 边数=${layouted.edges.length}');
 
     setState(() {
       _graphData = layouted;
@@ -407,7 +407,7 @@ class _InsightPageState extends State<InsightPage>
     if (!_isGraphReady || _graphData == null) {
       // ✅ 如果数据存在但图谱未准备，手动触发
       if (_allNodes.isNotEmpty && !_isGraphReady) {
-        print('📊 图谱未准备，尝试重新准备...');
+        debugPrint('📊 图谱未准备，尝试重新准备...');
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _prepareGraph();
         });

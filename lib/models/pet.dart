@@ -1,14 +1,18 @@
 // lib/models/pet.dart
-// 宠物数据模型 — 7阶段成长：水滴→云脑
+// 宠物数据模型 — 8阶段成长：水滴→星云脑
 
 import 'dart:convert';
+import 'dart:developer';
 
 enum PetStage {
-  droplet,    // 1滴 💧 (Lv.1)
-  droplets,   // 多滴 💧💧 (Lv.2)
-  cloudlet,   // 小云 ☁️ (Lv.3-4)
-  cloud,      // 大云 ☁️☁️ (Lv.5-6)
-  cloudbrain, // 云脑 🧠✨ (Lv.7+)
+  droplet,   // 💧 水滴 (Lv.1)
+  steam,     // ♨️ 蒸汽 (Lv.2)
+  mist,      // 🌫️ 雾 (Lv.3)
+  cloud,     // ☁️ 云 (Lv.4-5)
+  sunny,     // 🌤️ 晴 (Lv.6)
+  rainy,     // 🌦️ 雨 (Lv.7)
+  glowing,   // ⛅✨ 辉光云 (Lv.8-9)
+  brain,     // 🌌 星云脑 (Lv.10)
 }
 
 class Pet {
@@ -33,24 +37,33 @@ class Pet {
 
   static PetStage getStageForLevel(int level) {
     if (level <= 1) return PetStage.droplet;
-    if (level <= 2) return PetStage.droplets;
-    if (level <= 4) return PetStage.cloudlet;
-    if (level <= 6) return PetStage.cloud;
-    return PetStage.cloudbrain;
+    if (level == 2) return PetStage.steam;
+    if (level == 3) return PetStage.mist;
+    if (level <= 5) return PetStage.cloud;
+    if (level == 6) return PetStage.sunny;
+    if (level == 7) return PetStage.rainy;
+    if (level <= 9) return PetStage.glowing;
+    return PetStage.brain;
   }
 
   String get stageLabel {
     switch (stage) {
       case PetStage.droplet:
-        return '小水滴';
-      case PetStage.droplets:
-        return '水滴群';
-      case PetStage.cloudlet:
-        return '小云';
+        return '水滴';
+      case PetStage.steam:
+        return '蒸汽';
+      case PetStage.mist:
+        return '雾';
       case PetStage.cloud:
         return '云';
-      case PetStage.cloudbrain:
-        return '云脑';
+      case PetStage.sunny:
+        return '晴';
+      case PetStage.rainy:
+        return '雨';
+      case PetStage.glowing:
+        return '辉光云';
+      case PetStage.brain:
+        return '星云脑';
     }
   }
 
@@ -58,14 +71,20 @@ class Pet {
     switch (stage) {
       case PetStage.droplet:
         return '💧';
-      case PetStage.droplets:
-        return '💧💧';
-      case PetStage.cloudlet:
-        return '☁️';
+      case PetStage.steam:
+        return '♨️';
+      case PetStage.mist:
+        return '🌫️';
       case PetStage.cloud:
-        return '☁️☁️';
-      case PetStage.cloudbrain:
-        return '🧠';
+        return '☁️';
+      case PetStage.sunny:
+        return '🌤️';
+      case PetStage.rainy:
+        return '🌦️';
+      case PetStage.glowing:
+        return '⛅✨';
+      case PetStage.brain:
+        return '🌌';
     }
   }
 
@@ -85,7 +104,6 @@ class Pet {
       newLevel++;
     }
 
-    // 🔧 修复1：使用 Pet.getStageForLevel 而不是 PetStage.getStageForLevel
     return Pet(
       name: name,
       level: newLevel,
@@ -96,8 +114,22 @@ class Pet {
     );
   }
 
+  /// ✅ 修复：lastFed = 0 时视为新宠物，不扣幸福感
   Pet dailyUpdate() {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    // 如果 lastFed == 0，说明是新宠物，设置为当前时间，不扣幸福感
+    if (lastFed == 0) {
+      return Pet(
+        name: name,
+        level: level,
+        exp: exp,
+        stage: stage,
+        happiness: happiness,
+        lastFed: now,
+      );
+    }
+
     final daysSinceFed = (now - lastFed) ~/ (24 * 60 * 60);
     return Pet(
       name: name,
@@ -132,6 +164,9 @@ class Pet {
   }
 
   factory Pet.fromMap(Map<String, dynamic> map) {
+    final happinessRaw = map['happiness'] ?? 80;
+    final lastFedRaw = map['lastFed'] ?? 0;
+
     return Pet(
       name: map['name'] ?? '小云',
       level: map['level'] ?? 1,
@@ -140,8 +175,8 @@ class Pet {
         (e) => e.name == map['stage'],
         orElse: () => PetStage.droplet,
       ),
-      happiness: map['happiness'] ?? 80,
-      lastFed: map['lastFed'] ?? 0,
+      happiness: happinessRaw is int ? happinessRaw : (happinessRaw as double).toInt(),
+      lastFed: lastFedRaw is int ? lastFedRaw : (lastFedRaw as double).toInt(),
     );
   }
 }

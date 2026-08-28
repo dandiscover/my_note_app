@@ -1,3 +1,6 @@
+// lib/services/focus_service.dart
+// 专注计时服务 — 修复异步问题
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FocusService {
@@ -14,7 +17,13 @@ class FocusService {
     return _prefs!;
   }
 
-  // 记录一次专注会话
+  /// ✅ 修复：获取会话列表（异步）
+  Future<List<String>> _getSessions() async {
+    final prefs = await _getPrefs();
+    return prefs.getStringList(_keySessions) ?? [];
+  }
+
+  /// 记录一次专注会话
   Future<void> recordFocusSession(int minutes) async {
     final prefs = await _getPrefs();
     final now = DateTime.now();
@@ -30,23 +39,23 @@ class FocusService {
     await prefs.setInt(_keyTotalSessions, totalSessions + 1);
 
     // 保存会话记录
-    final sessions = prefs.getStringList(_keySessions) ?? [];
+    final sessions = await _getSessions();
     sessions.add('${now.toIso8601String()}|$minutes');
     await prefs.setStringList(_keySessions, sessions);
   }
 
-  // 获取今日专注总时长
-  int getTodayTotal() {
-    // 简化实现：从会话记录中统计
-    final sessions = _getSessions();
+  /// ✅ 修复：获取今日专注总时长（异步）
+  Future<int> getTodayTotal() async {
+    final sessions = await _getSessions();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     int total = 0;
     for (var session in sessions) {
       final parts = session.split('|');
       if (parts.length == 2) {
-        final date = DateTime.parse(parts[0]);
-        if (date.year == today.year &&
+        final date = DateTime.tryParse(parts[0]);
+        if (date != null &&
+            date.year == today.year &&
             date.month == today.month &&
             date.day == today.day) {
           total += int.parse(parts[1]);
@@ -56,17 +65,17 @@ class FocusService {
     return total;
   }
 
-  // 获取本周专注总时长
-  int getWeekTotal() {
-    final sessions = _getSessions();
+  /// ✅ 修复：获取本周专注总时长（异步）
+  Future<int> getWeekTotal() async {
+    final sessions = await _getSessions();
     final now = DateTime.now();
     final weekStart = now.subtract(Duration(days: now.weekday - 1));
     int total = 0;
     for (var session in sessions) {
       final parts = session.split('|');
       if (parts.length == 2) {
-        final date = DateTime.parse(parts[0]);
-        if (date.isAfter(weekStart)) {
+        final date = DateTime.tryParse(parts[0]);
+        if (date != null && date.isAfter(weekStart)) {
           total += int.parse(parts[1]);
         }
       }
@@ -74,18 +83,13 @@ class FocusService {
     return total;
   }
 
-  // 获取总专注次数
-  int getTotalSessions() {
-    final sessions = _getSessions();
+  /// ✅ 修复：获取总专注次数（异步）
+  Future<int> getTotalSessions() async {
+    final sessions = await _getSessions();
     return sessions.length;
   }
 
-  List<String> _getSessions() {
-    final prefs = SharedPreferences.getInstance();
-    return prefs.then((p) => p.getStringList(_keySessions) ?? []).asStream().first as List<String>;
-  }
-
-  // 获取设置
+  /// 获取设置
   Future<Map<String, dynamic>> getSettings() async {
     final prefs = await _getPrefs();
     return {
@@ -93,7 +97,7 @@ class FocusService {
     };
   }
 
-  // 保存设置
+  /// 保存设置
   Future<void> saveSettings(Map<String, dynamic> settings) async {
     final prefs = await _getPrefs();
     if (settings.containsKey('focusMinutes')) {

@@ -1,3 +1,6 @@
+// lib/database_service.dart
+// 数据层 — 双引擎（Web/原生）支持 + 导出/导入 + 灵感过期归档
+
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart';
@@ -195,7 +198,6 @@ class DatabaseService {
     return node;
   }
 
-  // ✅ 修复：增加 tags 参数
   Future<Node> attachNoteToNode({
     required String noteId,
     required String title,
@@ -285,7 +287,7 @@ class DatabaseService {
         isFolder: false,
         nodeType: 'note',
         targetId: note.id,
-        tags: note.tags, // ✅ 旧数据迁移时也保留标签
+        tags: note.tags,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ).toMap());
@@ -300,7 +302,7 @@ class DatabaseService {
         isFolder: false,
         nodeType: 'book',
         targetId: book.id,
-        tags: [], // 图书暂时无标签
+        tags: [],
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ).toMap());
@@ -342,6 +344,9 @@ class DatabaseService {
     }
     if (!noteMap.containsKey('editorMode')) {
       noteMap['editorMode'] = 'plain';
+    }
+    if (!noteMap.containsKey('isLocked')) {
+      noteMap['isLocked'] = 0;
     }
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
@@ -541,10 +546,9 @@ class DatabaseService {
   }
 
   // ============================================================
-  // 🆕 复盘专用方法（新增）
+  // 复盘专用方法
   // ============================================================
 
-  /// 确保“复盘”文件夹存在，返回其 nodeId
   Future<String> ensureReviewFolder() async {
     final allNodes = await getAllNodes();
     for (var node in allNodes) {
@@ -552,21 +556,16 @@ class DatabaseService {
         return node.id;
       }
     }
-    // 不存在则创建
     final folder = await createFolder(title: '复盘');
     return folder.id;
   }
 
-  /// 在“复盘”文件夹下创建一篇笔记（自动打 #复盘 标签）
   Future<NotebookEntry> createReviewNote({
     required String title,
     required String content,
     List<String> extraTags = const [],
   }) async {
-    // 1. 获取或创建“复盘”文件夹
     final folderId = await ensureReviewFolder();
-
-    // 2. 创建笔记实体
     final noteId = DateTime.now().millisecondsSinceEpoch.toString();
     final allTags = <String>['复盘', ...extraTags];
 
@@ -577,12 +576,10 @@ class DatabaseService {
       'status': 'active',
       'editorMode': 'plain',
       'updatedAt': DateTime.now().toIso8601String(),
+      'isLocked': 0,
     };
 
-    // 3. 保存笔记
     await insertNote(noteMap);
-
-    // 4. 创建节点关联到“复盘”文件夹
     await attachNoteToNode(
       noteId: noteId,
       title: title,
@@ -590,8 +587,260 @@ class DatabaseService {
       tags: allTags,
     );
 
-    // 5. 返回笔记对象
     return NotebookEntry.fromMap(noteMap);
+  }
+
+  // ============================================================
+  // 解析 Markdown 任务列表
+  // ============================================================
+
+  List<Map<String, dynamic>> parseSubtasksFromMarkdown(String content) {
+    final results = <Map<String, dynamic>>[];
+    final lines = content.split('\n');
+    int index = 0;
+    for (var line in lines) {
+      final uncheckedMatch = RegExp(r'^-\s*\[\s*\]\s*(.+)$').firstMatch(line);
+      final checkedMatch = RegExp(r'^-\s*\[x\]\s*(.+)$').firstMatch(line);
+      if (uncheckedMatch != null) {
+        results.add({
+          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
+          'title': uncheckedMatch.group(1)?.trim() ?? '未命名子任务',
+          'isDone': false,
+        });
+      } else if (checkedMatch != null) {
+        results.add({
+          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
+          'title': checkedMatch.group(1)?.trim() ?? '未命名子任务',
+          'isDone': true,
+        });
+      }
+    }
+    return results;
+  }
+
+  // ============================================================
+  // ✅ 导出/导入（合并后保留）
+  // ============================================================
+
+  /// 导出全部数据为 JSON 字符串
+  Future<String> exportAllData() async {
+    final data = {
+      'version': '1.0',
+      'exportDate': DateTime.now().toIso8601String(),
+      'notes': await getAllNotes(includeDeleted: true),
+      'nodes': await _getAllNodesInternal(),
+      'books': await getAllBooks(),
+    };
+    return jsonEncode(data);
+  }
+
+  /// 导入 JSON 数据（覆盖所有数据）
+  Future<void> importAllData(String jsonString) async {
+    final data = jsonDecode(jsonString);
+    await _clearAllData();
+
+    if (data['notes'] != null) {
+      for (var note in data['notes']) {
+        await insertNote(note);
+      }
+    }
+    if (data['nodes'] != null) {
+      for (var node in data['nodes']) {
+        await insertNode(node);
+      }
+    }
+    if (data['books'] != null) {
+      for (var book in data['books']) {
+        await insertBook(book);
+      }
+    }
+  }
+
+  /// 清空所有数据
+  Future<void> _clearAllData() async {
+    if (_isWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('notes_data');
+      await prefs.remove('nodes_data');
+      await prefs.remove('books_data');
+    } else {
+      final db = await _getDatabase();
+      await db.delete('notes');
+      await db.delete('nodes');
+      await db.delete('books');
+    }
+  }
+
+  /// 导出笔记为 Markdown 文件
+  Future<String> exportNotesAsMarkdown() async {
+    final noteMaps = await getAllNotes(includeDeleted: false);
+    final buffer = StringBuffer();
+    for (var map in noteMaps) {
+      final note = NotebookEntry.fromMap(map);
+      buffer.writeln('# ${note.title}');
+      buffer.writeln('> 标签：${note.tags.join(', ')}');
+      buffer.writeln('> 状态：${note.status}');
+      buffer.writeln('> 更新时间：${note.updatedAt.toIso8601String()}');
+      buffer.writeln('');
+      buffer.writeln(note.content);
+      buffer.writeln('\n---\n');
+    }
+    return buffer.toString();
+  }
+
+  // ============================================================
+  // 🆕 灵感笔记自动归档相关（保留您原有的）
+  // ============================================================
+
+  /// 归档过期的灵感笔记（status='raw' 且超过 retentionDays 天未更新）
+  Future<int> archiveExpiredRawNotes(int retentionDays) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final now = DateTime.now();
+    final cutoff = now.subtract(Duration(days: retentionDays));
+
+    final expiredNoteIds = <String>[];
+    for (var note in notes) {
+      final updatedAt = DateTime.parse(note['updatedAt']);
+      if (note['status'] == 'raw' &&
+          note['isLocked'] != 1 &&
+          updatedAt.isBefore(cutoff)) {
+        expiredNoteIds.add(note['id']);
+      }
+    }
+
+    if (expiredNoteIds.isEmpty) return 0;
+
+    for (var id in expiredNoteIds) {
+      final index = notes.indexWhere((n) => n['id'] == id);
+      if (index != -1) {
+        notes[index]['status'] = 'archived';
+        notes[index]['updatedAt'] = DateTime.now().toIso8601String();
+      }
+    }
+    await _saveNotes(notes);
+
+    final expiredFolderId = await _ensureExpiredFolder();
+    for (var id in expiredNoteIds) {
+      final nodes = await _getAllNodesInternal();
+      final existingNodeIndex = nodes.indexWhere((n) => n['target_id'] == id);
+      if (existingNodeIndex != -1) {
+        nodes.removeAt(existingNodeIndex);
+        await _saveNodes(nodes);
+      }
+      await attachNoteToNode(
+        noteId: id,
+        title: notes.firstWhere((n) => n['id'] == id)['title'],
+        parentId: expiredFolderId,
+        tags: [],
+      );
+    }
+
+    return expiredNoteIds.length;
+  }
+
+  Future<String> _ensureExpiredFolder() async {
+    final allNodes = await getAllNodes();
+    for (var node in allNodes) {
+      if (node.title == '灵感过期' && node.isFolder && node.parentId == null) {
+        return node.id;
+      }
+    }
+    final node = Node(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: '灵感过期',
+      parentId: null,
+      isFolder: true,
+      nodeType: 'folder',
+      tags: ['系统', '过期'],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await insertNode(node.toMap());
+    return node.id;
+  }
+
+  Future<List<NotebookEntry>> getExpiringRawNotes(int retentionDays) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final now = DateTime.now();
+    final cutoff = now.subtract(Duration(days: retentionDays));
+
+    final result = <NotebookEntry>[];
+    for (var map in notes) {
+      if (map['status'] != 'raw') continue;
+      if (map['isLocked'] == 1) continue;
+      final updatedAt = DateTime.parse(map['updatedAt']);
+      final daysAgo = now.difference(updatedAt).inDays;
+      if (daysAgo >= retentionDays - 7 && daysAgo < retentionDays) {
+        result.add(NotebookEntry.fromMap(map));
+      }
+    }
+    return result;
+  }
+
+  Future<int> getExpiredRawNotesCount(int retentionDays) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final now = DateTime.now();
+    final cutoff = now.subtract(Duration(days: retentionDays));
+
+    int count = 0;
+    for (var map in notes) {
+      if (map['status'] != 'raw') continue;
+      if (map['isLocked'] == 1) continue;
+      final updatedAt = DateTime.parse(map['updatedAt']);
+      if (updatedAt.isBefore(cutoff)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  Future<void> toggleLockNote(String noteId, bool locked) async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    final index = notes.indexWhere((n) => n['id'] == noteId);
+    if (index != -1) {
+      notes[index]['isLocked'] = locked ? 1 : 0;
+      await _saveNotes(notes);
+    }
+  }
+
+  Future<int> getLockedNotesCount() async {
+    final notes = await _getAllNotesInternal(includeDeleted: false);
+    return notes.where((n) => n['isLocked'] == 1).length;
+  }
+
+  Future<int> getExpiredFolderNoteCount() async {
+    final nodes = await getAllNodes();
+    final expiredFolder = nodes.firstWhere(
+      (n) => n.title == '灵感过期' && n.isFolder && n.parentId == null,
+      orElse: () => nodes.first,
+    );
+    if (expiredFolder.id.isEmpty) return 0;
+    final children = await getChildren(expiredFolder.id);
+    return children.where((n) => !n.isFolder).length;
+  }
+
+  Future<List<NotebookEntry>> getExpiredFolderNotes() async {
+    final nodes = await getAllNodes();
+    final expiredFolder = nodes.firstWhere(
+      (n) => n.title == '灵感过期' && n.isFolder && n.parentId == null,
+      orElse: () => nodes.first,
+    );
+    if (expiredFolder.id.isEmpty) return [];
+    final children = await getChildren(expiredFolder.id);
+    final noteIds = children
+        .where((n) => n.nodeType == 'note' && n.targetId != null)
+        .map((n) => n.targetId!)
+        .toList();
+    if (noteIds.isEmpty) return [];
+
+    final allNotes = await _getAllNotesInternal(includeDeleted: false);
+    final result = <NotebookEntry>[];
+    for (var map in allNotes) {
+      if (noteIds.contains(map['id'])) {
+        result.add(NotebookEntry.fromMap(map));
+      }
+    }
+    return result;
   }
 
   // ============================================================
@@ -645,37 +894,7 @@ class DatabaseService {
       ''');
     }
   }
-  // ============================================================
-  // 🆕 解析 Markdown 任务列表
-  // ============================================================
 
-  /// 从 Markdown 内容中解析子任务列表
-  /// 支持格式：
-  /// - [ ] 任务名（未完成）
-  /// - [x] 任务名（已完成）
-  List<Map<String, dynamic>> parseSubtasksFromMarkdown(String content) {
-    final results = <Map<String, dynamic>>[];
-    final lines = content.split('\n');
-    int index = 0;
-    for (var line in lines) {
-      final uncheckedMatch = RegExp(r'^-\s*\[\s*\]\s*(.+)$').firstMatch(line);
-      final checkedMatch = RegExp(r'^-\s*\[x\]\s*(.+)$').firstMatch(line);
-      if (uncheckedMatch != null) {
-        results.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
-          'title': uncheckedMatch.group(1)?.trim() ?? '未命名子任务',
-          'isDone': false,
-        });
-      } else if (checkedMatch != null) {
-        results.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
-          'title': checkedMatch.group(1)?.trim() ?? '未命名子任务',
-          'isDone': true,
-        });
-      }
-    }
-    return results;
-  }
   Future<void> _createTables(Database db) async {
     await db.execute('''
       CREATE TABLE notes(
@@ -684,7 +903,8 @@ class DatabaseService {
         content TEXT,
         updatedAt TEXT,
         status TEXT DEFAULT 'raw',
-        editorMode TEXT DEFAULT 'plain'
+        editorMode TEXT DEFAULT 'plain',
+        isLocked INTEGER DEFAULT 0
       )
     ''');
     await db.execute('''

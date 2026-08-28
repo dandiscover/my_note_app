@@ -1,5 +1,5 @@
 // lib/widgets/pet_avatar.dart
-// 宠物拟物形象 — 水滴→云脑 7阶段成长 + 活动动画
+// 宠物头像组件 — 适配8阶段进化（💧→♨️→🌫️→☁️→🌤️→🌦️→⛅✨→🌌）
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -21,14 +21,14 @@ class PetAvatar extends StatefulWidget {
 
   @override
   State<PetAvatar> createState() => _PetAvatarState();
-}// ✅ 修复后
+}
+
 class _PetAvatarState extends State<PetAvatar>
     with TickerProviderStateMixin {
   late AnimationController _breatheController;
   late Animation<double> _breatheAnimation;
   late AnimationController _blinkController;
   bool _isBlinking = false;
-  double _mouthOpen = 0.0;
 
   @override
   void initState() {
@@ -89,30 +89,47 @@ class _PetAvatarState extends State<PetAvatar>
     );
   }
 
+  // ─── 8阶段路由 ──────────────────────────────────────────
+
   Widget _buildPetByStage(Pet pet, double size) {
     switch (pet.stage) {
+      // 💧 水滴阶段
       case PetStage.droplet:
-        return _buildDroplet(size, pet.emoji, 1);
-      case PetStage.droplets:
-        return _buildDroplet(size, pet.emoji, 3);
-      case PetStage.cloudlet:
-        return _buildCloud(size, pet.emoji, false);
+        return _buildDroplet(size, pet.emoji, 1, Colors.blue.shade300);
+      // ♨️ 蒸汽阶段
+      case PetStage.steam:
+        return _buildDroplet(size, pet.emoji, 2, Colors.blue.shade200);
+      // 🌫️ 雾阶段
+      case PetStage.mist:
+        return _buildDroplet(size, pet.emoji, 3, Colors.grey.shade300);
+      // ☁️ 云阶段
       case PetStage.cloud:
-        return _buildCloud(size, pet.emoji, true);
-      case PetStage.cloudbrain:
-        return _buildCloudBrain(size, pet.emoji);
+        return _buildCloud(size, pet.emoji, false, Colors.grey.shade300);
+      // 🌤️ 晴阶段
+      case PetStage.sunny:
+        return _buildCloud(size, pet.emoji, false, Colors.yellow.shade100);
+      // 🌦️ 雨阶段
+      case PetStage.rainy:
+        return _buildCloud(size, pet.emoji, true, Colors.blue.shade200);
+      // ⛅✨ 辉光云阶段
+      case PetStage.glowing:
+        return _buildCloudBrain(size, pet.emoji, glow: true);
+      // 🌌 星云脑阶段
+      case PetStage.brain:
+        return _buildCloudBrain(size, pet.emoji, glow: true, isBrain: true);
     }
   }
 
-  // ─── 水滴 ──────────────────────────
-  Widget _buildDroplet(double size, String emotion, int count) {
+  // ─── 水滴绘制 ──────────────────────────────────────────
+
+  Widget _buildDroplet(double size, String emotion, int count, Color color) {
+    final droplets = <Widget>[];
     final colors = [
-      Colors.blue.shade300,
-      Colors.blue.shade200,
-      Colors.blue.shade400,
+      color,
+      color.withOpacity(0.7),
+      color.withOpacity(0.5),
     ];
 
-    final droplets = <Widget>[];
     for (var i = 0; i < count && i < colors.length; i++) {
       final offsetX = (i - (count - 1) / 2) * size * 0.25;
       final offsetY = (i % 2 == 0 ? -1 : 1) * size * 0.1;
@@ -161,11 +178,12 @@ class _PetAvatarState extends State<PetAvatar>
     );
   }
 
-  // ─── 云朵 ──────────────────────────
-  Widget _buildCloud(double size, String emotion, bool isBig) {
+  // ─── 云朵绘制 ──────────────────────────────────────────
+
+  Widget _buildCloud(double size, String emotion, bool isBig, Color color) {
     final scale = isBig ? 1.3 : 1.0;
     final s = size * 0.8 * scale;
-    final color = isBig ? Colors.grey.shade300 : Colors.grey.shade300;
+    final mainColor = color;
 
     return SizedBox(
       width: s,
@@ -178,7 +196,7 @@ class _PetAvatarState extends State<PetAvatar>
             width: s * 0.6,
             height: s * 0.35,
             decoration: BoxDecoration(
-              color: color,
+              color: mainColor,
               borderRadius: BorderRadius.circular(s * 0.2),
             ),
           ),
@@ -190,7 +208,7 @@ class _PetAvatarState extends State<PetAvatar>
               width: s * 0.3,
               height: s * 0.3,
               decoration: BoxDecoration(
-                color: color,
+                color: mainColor,
                 shape: BoxShape.circle,
               ),
             ),
@@ -202,7 +220,7 @@ class _PetAvatarState extends State<PetAvatar>
               width: s * 0.35,
               height: s * 0.35,
               decoration: BoxDecoration(
-                color: color,
+                color: mainColor,
                 shape: BoxShape.circle,
               ),
             ),
@@ -214,7 +232,7 @@ class _PetAvatarState extends State<PetAvatar>
               width: s * 0.25,
               height: s * 0.25,
               decoration: BoxDecoration(
-                color: color,
+                color: mainColor,
                 shape: BoxShape.circle,
               ),
             ),
@@ -233,9 +251,11 @@ class _PetAvatarState extends State<PetAvatar>
     );
   }
 
-  // ─── 云脑（七仔风格拟物） ──────────────────────────
-  Widget _buildCloudBrain(double size, String emotion) {
+  // ─── 云脑绘制（辉光云 + 星云脑） ──────────────────────
+
+  Widget _buildCloudBrain(double size, String emotion, {bool glow = false, bool isBrain = false}) {
     final s = size * 0.9;
+    final glowColor = isBrain ? Colors.indigo : Colors.purple;
 
     return AnimatedBuilder(
       animation: _blinkController,
@@ -243,23 +263,33 @@ class _PetAvatarState extends State<PetAvatar>
         final isBlinking = _blinkController.value > 0.5;
         final eyeScale = isBlinking ? 0.1 : 1.0;
 
-        return SizedBox(
+        return Container(
           width: s,
           height: s * 1.1,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: glow
+                ? [
+                    BoxShadow(
+                      color: glowColor.withOpacity(0.4),
+                      blurRadius: s * 0.4,
+                      spreadRadius: s * 0.05,
+                    ),
+                  ]
+                : null,
+          ),
           child: Stack(
             alignment: Alignment.center,
             children: [
               // ─── 云朵身体 ──────────────────────────
-              // 主体
               Container(
                 width: s * 0.65,
                 height: s * 0.5,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFFF5F5F5),
-                      const Color(0xFFE8E8E8),
-                    ],
+                    colors: isBrain
+                        ? [const Color(0xFFD1C4E9), const Color(0xFFB39DDB)]
+                        : [const Color(0xFFF5F5F5), const Color(0xFFE8E8E8)],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                   ),
@@ -274,7 +304,7 @@ class _PetAvatarState extends State<PetAvatar>
                   width: s * 0.35,
                   height: s * 0.35,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF0F0F0),
+                    color: isBrain ? const Color(0xFFD1C4E9) : const Color(0xFFF0F0F0),
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
@@ -292,7 +322,7 @@ class _PetAvatarState extends State<PetAvatar>
                   width: s * 0.4,
                   height: s * 0.4,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEEEEEE),
+                    color: isBrain ? const Color(0xFFC5B4E3) : const Color(0xFFEEEEEE),
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
@@ -310,7 +340,7 @@ class _PetAvatarState extends State<PetAvatar>
                   width: s * 0.3,
                   height: s * 0.3,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFECECEC),
+                    color: isBrain ? const Color(0xFFBA9FD8) : const Color(0xFFECECEC),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -326,7 +356,7 @@ class _PetAvatarState extends State<PetAvatar>
                     width: s * 0.13,
                     height: s * 0.15,
                     decoration: BoxDecoration(
-                      color: Colors.black87,
+                      color: isBrain ? Colors.indigo.shade900 : Colors.black87,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
@@ -357,7 +387,7 @@ class _PetAvatarState extends State<PetAvatar>
                     width: s * 0.13,
                     height: s * 0.15,
                     decoration: BoxDecoration(
-                      color: Colors.black87,
+                      color: isBrain ? Colors.indigo.shade900 : Colors.black87,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
@@ -420,7 +450,7 @@ class _PetAvatarState extends State<PetAvatar>
                         width: s * 0.08,
                         height: s * 0.06,
                         decoration: BoxDecoration(
-                          color: Colors.red.shade300,
+                          color: isBrain ? Colors.indigo.shade300 : Colors.red.shade300,
                           borderRadius: BorderRadius.circular(s * 0.04),
                         ),
                       ),
@@ -429,21 +459,53 @@ class _PetAvatarState extends State<PetAvatar>
                 ),
               ),
 
-              // ─── 小星星装饰 ──────────────────────────
-              Positioned(
-                top: -s * 0.15,
-                right: -s * 0.05,
-                child: AnimatedBuilder(
-                  animation: _breatheController,
-                  builder: (context, child) {
-                    final angle = _breatheController.value * 2 * 3.14159;
-                    return Transform.rotate(
-                      angle: angle,
-                      child: const Text('✨', style: TextStyle(fontSize: 16)),
-                    );
-                  },
+              // ─── 辉光/星星装饰 ──────────────────────────
+              if (glow)
+                Positioned(
+                  top: -s * 0.15,
+                  right: -s * 0.05,
+                  child: AnimatedBuilder(
+                    animation: _breatheController,
+                    builder: (context, child) {
+                      final angle = _breatheController.value * 2 * 3.14159;
+                      return Transform.rotate(
+                        angle: angle,
+                        child: Text(
+                          isBrain ? '🌌' : '✨',
+                          style: TextStyle(fontSize: s * 0.2),
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
+
+              // ─── 星云脑额外光晕 ──────────────────────────
+              if (isBrain)
+                Positioned(
+                  bottom: -s * 0.1,
+                  left: -s * 0.1,
+                  child: AnimatedBuilder(
+                    animation: _breatheController,
+                    builder: (context, child) {
+                      final opacity = 0.3 + _breatheAnimation.value * 0.1;
+                      return Container(
+                        width: s * 0.3,
+                        height: s * 0.3,
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.withOpacity(opacity),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.indigo.withOpacity(0.3),
+                              blurRadius: s * 0.3,
+                              spreadRadius: s * 0.1,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
             ],
           ),
         );

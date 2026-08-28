@@ -1,3 +1,6 @@
+// lib/widgets/wisdom/wisdom_default_card.dart
+// 智库 - 默认卡片
+
 import 'package:flutter/material.dart';
 import '../../models/node.dart';
 import 'wisdom_draggable.dart';
@@ -83,12 +86,10 @@ class WisdomDefaultCard extends StatelessWidget {
       ),
     );
 
+    // ✅ 修复：WisdomDraggable 只传 node 和 child
     return WisdomDraggable(
       node: node,
       child: cardContent,
-      isSelectMode: isSelectMode,
-      cardWidth: cardWidth,
-      cardHeight: cardHeight,
     );
   }
 }

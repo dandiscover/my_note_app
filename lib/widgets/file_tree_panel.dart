@@ -52,7 +52,7 @@ class _FileTreePanelState extends State<FileTreePanel> {
         _isLoading = false;
       });
     } catch (e) {
-      print('加载文件树失败: $e');
+      debugPrint('加载文件树失败: $e');
       setState(() => _isLoading = false);
     }
   }

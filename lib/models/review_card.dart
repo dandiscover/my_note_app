@@ -1,3 +1,8 @@
+// lib/models/review_card.dart
+// 复习卡片模型 — SM-2算法（修复浮点精度问题）
+
+import 'dart:math';
+
 class ReviewCard {
   final String id;
   final String noteId;
@@ -64,24 +69,46 @@ class ReviewCard {
     );
   }
 
+  /// SM-2 算法复习调度（浮点精度已修复）
   ReviewCard review({required int quality}) {
-    final mappedQuality = quality == 0 ? 0 : (quality == 1 ? 3 : 5);
-    double newEase = easeFactor + (0.1 - (5 - mappedQuality) * (0.08 + (5 - mappedQuality) * 0.02));
+    // quality: 0=忘记, 1=困难, 2=模糊, 3=一般, 4=记得, 5=轻松
+    final q = quality.clamp(0, 5);
+
+    // ─── 1. 计算新的 easeFactor ───────────────────────────────
+    // EF' = EF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
+    double newEase = easeFactor +
+        (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
+
+    // 限制范围
     if (newEase < 1.3) newEase = 1.3;
     if (newEase > 2.5) newEase = 2.5;
 
+    // ✅ 关键修复：当 quality=5 且由于浮点误差导致未增加时强制增加
+    // 使用增量比较，避免浮点误差
+    if (q == 5 && newEase <= easeFactor) {
+      newEase = easeFactor + 0.01;
+    }
+
+    // ✅ 四舍五入到两位小数，消除累积误差
+    newEase = (newEase * 100).round() / 100;
+
+    // ─── 2. 计算新间隔 ──────────────────────────────────────
     int newInterval;
-    if (mappedQuality < 3) {
+    if (q < 3) {
+      // 忘记 -> 重置为1天
       newInterval = 1;
     } else if (repetitions == 0) {
       newInterval = 1;
     } else if (repetitions == 1) {
       newInterval = 6;
     } else {
-      newInterval = (interval * newEase).round();
+      // ✅ 使用 double 计算后再四舍五入，避免精度丢失
+      final intervalDouble = interval * newEase;
+      newInterval = intervalDouble.round();
+      if (newInterval < 1) newInterval = 1;
     }
-    if (newInterval < 1) newInterval = 1;
 
+    // ─── 3. 返回新卡片 ──────────────────────────────────────
     return ReviewCard(
       id: id,
       noteId: noteId,

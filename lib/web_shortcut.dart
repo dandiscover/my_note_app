@@ -1,13 +1,16 @@
 // lib/web_shortcut.dart
-// Web 平台专用 — 键盘快捷键拦截
+// Web 快捷键管理
 
-import 'dart:html' as html;
 import 'dart:async';
+import 'dart:html' as html;
+
+typedef ShortcutCallback = void Function(String shortcutId);
 
 class WebShortcutManager {
-  StreamSubscription<html.KeyboardEvent>? _subscription;
-  final void Function(String shortcutId) onExecute;
-  final void Function(String label) onShowSnackBar;
+  final ShortcutCallback onExecute;
+  final void Function(String) onShowSnackBar;
+
+  StreamSubscription<html.KeyboardEvent>? _listener;
 
   WebShortcutManager({
     required this.onExecute,
@@ -15,61 +18,65 @@ class WebShortcutManager {
   });
 
   void startListening() {
-    _subscription = html.window.onKeyDown.listen((event) {
+    _listener = html.document.onKeyDown.listen((event) {
+      // 忽略输入框中的快捷键（让原生行为处理）
+      final target = event.target;
+      if (target is html.Element) {
+        final tag = target.tagName.toLowerCase();
+        if (tag == 'input' || tag == 'textarea' || tag == 'select') {
+          return;
+        }
+      }
+
       final isCtrl = event.ctrlKey || event.metaKey;
-      final key = event.key?.toLowerCase() ?? '';
+      final key = (event.key ?? '').toLowerCase();
 
       if (key.isEmpty) return;
 
-      print('📌 Web 键盘事件: key=$key, ctrl=$isCtrl');
-
+      // Ctrl+S 保存
       if (isCtrl && key == 's') {
         event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
         onExecute('save');
-        onShowSnackBar('Ctrl+S 保存');
+        onShowSnackBar('💾 保存');
         return;
       }
 
-      if (isCtrl && key == 'b') {
-        event.preventDefault();
-        onExecute('bold');
-        onShowSnackBar('Ctrl+B 加粗');
-        return;
-      }
-
-      if (isCtrl && key == 'i') {
-        event.preventDefault();
-        onExecute('italic');
-        onShowSnackBar('Ctrl+I 斜体');
-        return;
-      }
-
-      if (isCtrl && key == 'z') {
-        event.preventDefault();
-        onExecute('undo');
-        onShowSnackBar('Ctrl+Z 撤销');
-        return;
-      }
-
-      if (isCtrl && event.shiftKey && key == 'z') {
-        event.preventDefault();
-        onExecute('redo');
-        onShowSnackBar('Ctrl+Shift+Z 重做');
-        return;
-      }
-
+      // Escape
       if (key == 'escape') {
         event.preventDefault();
         onExecute('escape');
-        onShowSnackBar('Esc 返回');
+        onShowSnackBar('🔙 返回');
         return;
       }
+
+      // Ctrl+B 加粗
+      if (isCtrl && key == 'b') {
+        event.preventDefault();
+        onExecute('bold');
+        onShowSnackBar('🔤 加粗');
+        return;
+      }
+
+      // Ctrl+I 斜体
+      if (isCtrl && key == 'i') {
+        event.preventDefault();
+        onExecute('italic');
+        onShowSnackBar('🔤 斜体');
+        return;
+      }
+
+      // Ctrl+Z 撤销（不拦截，让编辑器处理）
+      if (isCtrl && key == 'z') {
+        return;
+      }
+
+      // ✅ 改用 print（无需额外导入）
+      print('📌 Web 键盘事件: key=$key, ctrl=$isCtrl');
     });
   }
 
   void dispose() {
-    _subscription?.cancel();
+    _listener?.cancel();
+    _listener = null;
   }
 }

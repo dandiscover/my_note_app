@@ -1,3 +1,6 @@
+// lib/main.dart
+// 应用入口 — 全局配置、路由、快捷键、悬浮宠物
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,8 +19,6 @@ import 'pages/profile_page.dart';
 import 'widgets/fullscreen_editor.dart';
 import 'services/keyboard_shortcut_manager.dart';
 import 'models/keyboard_shortcut.dart';
-
-// 🆕 导入宠物
 import 'models/pet.dart';
 import 'services/pet_service.dart';
 import 'widgets/floating_pet.dart';
@@ -49,14 +50,11 @@ class MyApp extends StatelessWidget {
           elevation: 0,
         ),
       ),
-      // 🆕 builder 中注入悬浮宠物
       builder: (context, child) {
         return Scaffold(
           body: Stack(
             children: [
-              // 原有页面
               if (child != null) child,
-              // 悬浮宠物（覆盖在所有页面之上）
               const _FloatingPetOverlay(),
             ],
           ),
@@ -68,6 +66,7 @@ class MyApp extends StatelessWidget {
 }
 
 // ─── 悬浮宠物覆盖层 ─────────────────────────────
+
 class _FloatingPetOverlay extends StatefulWidget {
   const _FloatingPetOverlay();
 
@@ -79,6 +78,8 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   final PetService _petService = PetService();
   Pet? _pet;
   bool _isLoading = true;
+  Offset _position = const Offset(16, 80);
+  bool _isDragging = false;
 
   @override
   void initState() {
@@ -93,7 +94,7 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
         _pet = pet;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       setState(() => _isLoading = false);
     }
   }
@@ -107,29 +108,50 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
     });
   }
 
+  void _onPanStart() {
+    setState(() => _isDragging = true);
+  }
+
+  void _onPanUpdate(Offset delta) {
+    setState(() {
+      _position += delta;
+      final size = MediaQuery.of(context).size;
+      _position = Offset(
+        _position.dx.clamp(0, size.width - 70),
+        _position.dy.clamp(0, size.height - 150),
+      );
+    });
+  }
+
+  void _onPanEnd() {
+    setState(() => _isDragging = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading || _pet == null) {
       return const SizedBox.shrink();
     }
 
-    // 只在不遮挡内容的位置显示
     return Positioned(
-      bottom: 80, // 在底部导航栏上方
-      right: 16,
+      left: _position.dx,
+      top: _position.dy,
       child: IgnorePointer(
         ignoring: false,
         child: FloatingPet(
           pet: _pet!,
           size: 70,
-          onInteract: _interact,
+          onTap: _interact,
+          onPanStart: _onPanStart,
+          onPanUpdate: _onPanUpdate,
+          onPanEnd: _onPanEnd,
         ),
       ),
     );
   }
 }
 
-// ─── 以下是 NotebookPage（你原有的，保持不变） ─────────────
+// ─── NotebookPage ─────────────────────────────
 
 class NotebookPage extends StatefulWidget {
   const NotebookPage({super.key});
@@ -146,7 +168,8 @@ class _NotebookPageState extends State<NotebookPage> {
 
   final GlobalKey<WisdomPageState> _wisdomKey = GlobalKey<WisdomPageState>();
   final GlobalKey<InsightPageState> _insightKey = GlobalKey<InsightPageState>();
-  final GlobalKey<creation.CreationPageState> _creationKey = GlobalKey<creation.CreationPageState>();
+  final GlobalKey<creation.CreationPageState> _creationKey =
+      GlobalKey<creation.CreationPageState>();
 
   @override
   void initState() {
@@ -241,8 +264,18 @@ class _NotebookPageState extends State<NotebookPage> {
   void _executeShortcut(String id) {
     switch (id) {
       case 'save':
-        CollectionPage.triggerSave();
-        FullscreenEditor.triggerSave();
+        final editorActive = FullscreenEditor.isActive;
+        final dialogActive = CollectionPage.isActive;
+
+        if (editorActive) {
+          FullscreenEditor.triggerSave();
+          _showShortcutSnackBar('💾 笔记已保存');
+        } else if (dialogActive) {
+          CollectionPage.triggerSave();
+          _showShortcutSnackBar('💾 笔记已保存');
+        } else {
+          _showShortcutSnackBar('ℹ️ 没有可保存的内容');
+        }
         break;
       case 'escape':
         Navigator.of(context).maybePop();
@@ -307,9 +340,18 @@ class _NotebookPageState extends State<NotebookPage> {
           }
 
           if (isCtrl && keyName == 's') {
-            CollectionPage.triggerSave();
-            FullscreenEditor.triggerSave();
-            _showShortcutSnackBar('Ctrl+S 保存');
+            final editorActive = FullscreenEditor.isActive;
+            final dialogActive = CollectionPage.isActive;
+
+            if (editorActive) {
+              FullscreenEditor.triggerSave();
+              _showShortcutSnackBar('💾 笔记已保存');
+            } else if (dialogActive) {
+              CollectionPage.triggerSave();
+              _showShortcutSnackBar('💾 笔记已保存');
+            } else {
+              _showShortcutSnackBar('ℹ️ 没有可保存的内容');
+            }
             return;
           }
 
@@ -371,9 +413,7 @@ class _NotebookPageState extends State<NotebookPage> {
         ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) {
-            _onTabChange(index);
-          },
+          onTap: _onTabChange,
           type: BottomNavigationBarType.fixed,
           items: const [
             BottomNavigationBarItem(

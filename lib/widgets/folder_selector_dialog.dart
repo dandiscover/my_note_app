@@ -42,7 +42,7 @@ class _FolderSelectorDialogState extends State<FolderSelectorDialog> {
         _isLoading = false;
       });
     } catch (e) {
-      print('加载文件夹失败: $e');
+      debugPrint('加载文件夹失败: $e');
       setState(() => _isLoading = false);
     }
   }

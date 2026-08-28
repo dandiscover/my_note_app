@@ -100,7 +100,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       }
       return true;
     } catch (e) {
-      print('保存失败: $e');
+      debugPrint('保存失败: $e');
       if (mounted) {
         setState(() {
           _isSaving = false;

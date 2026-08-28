@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:convert';
+import 'dart:developer';
+import 'dart:html' as html;
+import 'package:file_picker/file_picker.dart';
+import 'dart:io' as io;
 import '../services/settings_service.dart';
 import '../models/user_settings.dart';
 import '../services/keyboard_shortcut_manager.dart';
 import '../models/keyboard_shortcut.dart';
+import '../database_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -15,6 +22,7 @@ class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   final SettingsService _settings = SettingsService();
   final KeyboardShortcutManager _shortcutManager = KeyboardShortcutManager();
+  final DatabaseService db = DatabaseService();
   UserSettings? _settingsData;
   bool _isLoading = true;
   List<KeyboardShortcut> _shortcuts = [];
@@ -45,7 +53,7 @@ class _ProfilePageState extends State<ProfilePage>
         _isLoading = false;
       });
     } catch (e) {
-      print('加载设置失败: $e');
+      debugPrint('加载设置失败: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -54,6 +62,156 @@ class _ProfilePageState extends State<ProfilePage>
     if (_settingsData == null) return;
     await _settings.save(_settingsData!);
   }
+
+  // ============================================================
+  // 文件操作辅助
+  // ============================================================
+
+  void _downloadFile(String content, String fileName, String mimeType) {
+    final blob = html.Blob([content], mimeType);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..download = fileName
+      ..click();
+    html.Url.revokeObjectUrl(url);
+  }
+
+  Future<void> _saveFileDesktop(String content, String fileName) async {
+    final String? outputFile = await FilePicker.platform.saveFile(
+      dialogTitle: '保存文件',
+      fileName: fileName,
+    );
+    if (outputFile != null) {
+      final file = io.File(outputFile);
+      await file.writeAsString(content);
+    }
+  }
+
+  Future<String?> _pickFileDesktop() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+    if (result == null) return null;
+    final fileBytes = result.files.first.bytes;
+    return utf8.decode(fileBytes!);
+  }
+
+  Future<String?> _pickFileWeb() async {
+    final input = html.FileUploadInputElement()..accept = '.json';
+    input.click();
+    await input.onChange.first;
+    if (input.files!.isEmpty) return null;
+    final file = input.files!.first;
+    // 使用 FileReader 替代 file.text() 避免类型问题
+    final reader = html.FileReader();
+    reader.readAsText(file);
+    await reader.onLoad.first;
+    return reader.result as String?;
+  }
+
+  // ============================================================
+  // 导出 / 导入
+  // ============================================================
+
+  Future<void> _exportJson() async {
+    try {
+      final jsonData = await db.exportAllData();
+      final fileName = 'cloudbrain_backup_${DateTime.now().toIso8601String()}.json';
+      if (kIsWeb) {
+        _downloadFile(jsonData, fileName, 'application/json');
+      } else {
+        await _saveFileDesktop(jsonData, fileName);
+      }
+      _showSnackBar('✅ 导出成功');
+    } catch (e) {
+      _showSnackBar('❌ 导出失败：$e');
+    }
+  }
+
+  Future<void> _importJson() async {
+    try {
+      String? jsonString;
+      if (kIsWeb) {
+        jsonString = await _pickFileWeb();
+      } else {
+        jsonString = await _pickFileDesktop();
+      }
+      if (jsonString == null) return;
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('⚠️ 导入确认'),
+          content: const Text(
+            '导入将**覆盖**当前所有数据（笔记、节点、图书、卡片、宠物、复习卡、快捷键、任务、子任务、用户设置）。\n\n'
+            '此操作不可撤销，请确认已备份当前数据。',
+            style: TextStyle(fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('确认覆盖'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => const AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('正在导入数据，请稍候...'),
+              ],
+            ),
+          ),
+        );
+
+        await db.importAllData(jsonString);
+        if (mounted) Navigator.pop(context);
+        _showSnackBar('✅ 导入成功！请重启应用（或刷新页面）以生效。');
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      _showSnackBar('❌ 导入失败：$e');
+    }
+  }
+
+  Future<void> _exportMarkdown() async {
+    try {
+      final markdown = await db.exportNotesAsMarkdown();
+      final fileName = 'cloudbrain_notes_${DateTime.now().toIso8601String()}.md';
+      if (kIsWeb) {
+        _downloadFile(markdown, fileName, 'text/markdown');
+      } else {
+        await _saveFileDesktop(markdown, fileName);
+      }
+      _showSnackBar('✅ Markdown 导出成功');
+    } catch (e) {
+      _showSnackBar('❌ 导出失败：$e');
+    }
+  }
+
+  void _showSnackBar(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  // ============================================================
+  // UI 构建
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -221,7 +379,7 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   // ============================================================
-  // Tab 2：设置
+  // Tab 2：设置（完整保留）
   // ============================================================
 
   Widget _buildSettingsTab() {
@@ -673,7 +831,7 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   // ============================================================
-  // Tab 3：快捷键设置（新增）
+  // Tab 3：快捷键
   // ============================================================
 
   Widget _buildShortcutTab() {
@@ -681,7 +839,6 @@ class _ProfilePageState extends State<ProfilePage>
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // 标题说明
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -702,8 +859,6 @@ class _ProfilePageState extends State<ProfilePage>
             ),
           ),
           const SizedBox(height: 12),
-
-          // 快捷键列表
           ..._shortcuts.map((shortcut) => Card(
             margin: const EdgeInsets.only(bottom: 6),
             child: ListTile(
@@ -733,7 +888,6 @@ class _ProfilePageState extends State<ProfilePage>
               onTap: () => _showShortcutEditor(shortcut),
             ),
           )).toList(),
-
           const SizedBox(height: 12),
           Center(
             child: TextButton(
@@ -757,85 +911,260 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
- void _showShortcutEditor(KeyboardShortcut shortcut) async {
-  final current = shortcut.displayName;
-  final controller = TextEditingController(text: current);
+  void _showShortcutEditor(KeyboardShortcut shortcut) async {
+    final current = shortcut.displayName;
+    final controller = TextEditingController(text: current);
 
-  final result = await showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('修改 "${shortcut.name}" 快捷键'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('输入新的快捷键组合，例如：'),
-          const SizedBox(height: 4),
-          const Text(
-            'Ctrl+S, Ctrl+Shift+Z, Alt+E',
-            style: TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: 'Ctrl+S',
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('修改 "${shortcut.name}" 快捷键'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('输入新的快捷键组合，例如：'),
+            const SizedBox(height: 4),
+            const Text(
+              'Ctrl+S, Ctrl+Shift+Z, Alt+E',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
             ),
-            onSubmitted: (value) => Navigator.pop(context, value),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Ctrl+S',
+              ),
+              onSubmitted: (value) => Navigator.pop(context, value),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('保存'),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, controller.text.trim()),
-          child: const Text('保存'),
-        ),
-      ],
-    ),
-  );
+    );
 
-  if (result != null && result.isNotEmpty && result != current) {
-    try {
-      final newShortcut = KeyboardShortcut.fromDisplayName(result);
-      if (newShortcut == null) {
+    if (result != null && result.isNotEmpty && result != current) {
+      try {
+        final newShortcut = KeyboardShortcut.fromDisplayName(result);
+        if (newShortcut == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('❌ 无效的快捷键格式'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        await _shortcutManager.update(shortcut.id, newShortcut);
+        await _shortcutManager.load();
+        setState(() {
+          _shortcuts = _shortcutManager.all;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ 无效的快捷键格式'),
+          SnackBar(
+            content: Text('✅ 已更新 "${shortcut.name}" 快捷键'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ $e'),
             duration: Duration(seconds: 2),
           ),
         );
-        return;
       }
-      await _shortcutManager.update(shortcut.id, newShortcut);
-      // ✅ 重新加载并刷新页面
-      await _shortcutManager.load();
-      setState(() {
-        _shortcuts = _shortcutManager.all;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✅ 已更新 "${shortcut.name}" 快捷键'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ $e'),
-          duration: Duration(seconds: 2),
-        ),
-      );
     }
   }
-}
+
   // ============================================================
-  // 颜色相关辅助方法
+  // Tab 4：数据管理
   // ============================================================
+
+  Widget _buildDataTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildDataCard(
+            icon: Icons.upload_file,
+            title: '📤 导出 JSON 备份',
+            subtitle: '导出全部数据（笔记、节点、图书、卡片、宠物、复习卡、快捷键、任务、设置）',
+            buttonText: '导出',
+            color: Colors.blue,
+            onTap: _exportJson,
+          ),
+          const SizedBox(height: 12),
+          _buildDataCard(
+            icon: Icons.download,
+            title: '📥 导入 JSON 恢复',
+            subtitle: '从备份文件恢复数据（⚠️ 覆盖当前所有数据）',
+            buttonText: '导入',
+            color: Colors.green,
+            onTap: _importJson,
+          ),
+          const SizedBox(height: 12),
+          _buildDataCard(
+            icon: Icons.text_snippet,
+            title: '📄 导出 Markdown',
+            subtitle: '将所有笔记导出为单个 Markdown 文件',
+            buttonText: '导出',
+            color: Colors.orange,
+            onTap: _exportMarkdown,
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '数据存储在本地，导出备份可防止数据丢失。导入将覆盖所有现有数据，请谨慎操作。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String buttonText,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon, color: color, size: 28),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+        trailing: OutlinedButton(
+          onPressed: onTap,
+          style: OutlinedButton.styleFrom(
+            side: BorderSide(color: color),
+            foregroundColor: color,
+          ),
+          child: Text(buttonText),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // Tab 5：社交
+  // ============================================================
+
+  Widget _buildSocialTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.people_outline, size: 48, color: Colors.blue),
+                const SizedBox(height: 12),
+                const Text(
+                  '🌐 社交功能开发中',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '分享知识库、关联账号、社区互动',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '即将上线',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildSocialCard(
+            icon: Icons.share,
+            title: '分享知识库',
+            subtitle: '生成公开链接分享你的知识',
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('分享功能开发中...')),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildSocialCard(
+            icon: Icons.link,
+            title: '关联账号',
+            subtitle: '绑定社交账号同步数据',
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('关联功能开发中...')),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildSocialCard(
+            icon: Icons.groups,
+            title: '社区',
+            subtitle: '查看他人的公开知识库',
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('社区功能开发中...')),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSocialCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon, color: Colors.blue),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+        trailing: const Icon(Icons.chevron_right, size: 16),
+        onTap: onTap,
+      ),
+    );
+  }
+
+
 
   Widget _buildColorPickerTile({
     required String title,
@@ -980,208 +1309,6 @@ class _ProfilePageState extends State<ProfilePage>
         ),
         ...children,
       ],
-    );
-  }
-
-  // ============================================================
-  // Tab 4：数据管理
-  // ============================================================
-
-  Widget _buildDataTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          _buildDataCard(
-            icon: Icons.upload_file,
-            title: '📤 导出数据',
-            subtitle: '导出为 Markdown 或 JSON 格式',
-            buttonText: '导出',
-            color: Colors.blue,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('导出功能开发中...')),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          _buildDataCard(
-            icon: Icons.download,
-            title: '📥 导入数据',
-            subtitle: '从备份文件恢复数据',
-            buttonText: '导入',
-            color: Colors.green,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('导入功能开发中...')),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          _buildDataCard(
-            icon: Icons.backup,
-            title: '💾 备份',
-            subtitle: '创建当前数据的完整备份',
-            buttonText: '备份',
-            color: Colors.orange,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('备份功能开发中...')),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          _buildDataCard(
-            icon: Icons.restore,
-            title: '🔄 恢复备份',
-            subtitle: '从历史备份中恢复数据',
-            buttonText: '恢复',
-            color: Colors.red,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('恢复功能开发中...')),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    '数据存储在本地，导出备份可防止数据丢失',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDataCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String buttonText,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      child: ListTile(
-        leading: Icon(icon, color: color, size: 28),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-        trailing: OutlinedButton(
-          onPressed: onTap,
-          style: OutlinedButton.styleFrom(
-            side: BorderSide(color: color),
-            foregroundColor: color,
-          ),
-          child: Text(buttonText),
-        ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // Tab 5：社交
-  // ============================================================
-
-  Widget _buildSocialTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                const Icon(Icons.people_outline, size: 48, color: Colors.blue),
-                const SizedBox(height: 12),
-                const Text(
-                  '🌐 社交功能开发中',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '分享知识库、关联账号、社区互动',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  '即将上线',
-                  style: TextStyle(fontSize: 11, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildSocialCard(
-            icon: Icons.share,
-            title: '分享知识库',
-            subtitle: '生成公开链接分享你的知识',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('分享功能开发中...')),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          _buildSocialCard(
-            icon: Icons.link,
-            title: '关联账号',
-            subtitle: '绑定社交账号同步数据',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('关联功能开发中...')),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          _buildSocialCard(
-            icon: Icons.groups,
-            title: '社区',
-            subtitle: '查看他人的公开知识库',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('社区功能开发中...')),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSocialCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      child: ListTile(
-        leading: Icon(icon, color: Colors.blue),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-        trailing: const Icon(Icons.chevron_right, size: 16),
-        onTap: onTap,
-      ),
     );
   }
 }
