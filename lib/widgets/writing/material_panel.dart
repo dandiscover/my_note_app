@@ -105,13 +105,13 @@ class MaterialPanel extends StatelessWidget {
   }
 
   Widget _buildMaterialItem(CardModel card) {
-    bool _isHovered = false;
+    bool isHovered = false;
 
     return StatefulBuilder(
       builder: (context, setState) {
         return MouseRegion(
-          onEnter: (_) => setState(() => _isHovered = true),
-          onExit: (_) => setState(() => _isHovered = false),
+          onEnter: (_) => setState(() => isHovered = true),
+          onExit: (_) => setState(() => isHovered = false),
           child: GestureDetector(
             onTap: () {
               final quote = card.highlight ?? card.indexTitle ?? card.displayFront;
@@ -128,14 +128,14 @@ class MaterialPanel extends StatelessWidget {
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: _isHovered ? Colors.teal.shade50 : Colors.white,
+                color: isHovered ? Colors.teal.shade50 : Colors.white,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: _isHovered ? Colors.teal.shade300 : Colors.grey.shade200,
-                  width: _isHovered ? 1.5 : 0.5,
+                  color: isHovered ? Colors.teal.shade300 : Colors.grey.shade200,
+                  width: isHovered ? 1.5 : 0.5,
                 ),
-                boxShadow: _isHovered
-                    ? [BoxShadow(color: Colors.teal.withOpacity(0.08), blurRadius: 4)]
+                boxShadow: isHovered
+                    ? [BoxShadow(color: Colors.teal.withValues(alpha: 0.08), blurRadius: 4)]
                     : null,
               ),
               child: Column(
@@ -151,7 +151,7 @@ class MaterialPanel extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: _isHovered ? Colors.teal.shade700 : Colors.black87,
+                            color: isHovered ? Colors.teal.shade700 : Colors.black87,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -173,7 +173,7 @@ class MaterialPanel extends StatelessWidget {
                         card.highlight!,
                         style: TextStyle(
                           fontSize: 12,
-                          color: _isHovered ? Colors.black87 : Colors.grey.shade600,
+                          color: isHovered ? Colors.black87 : Colors.grey.shade600,
                           fontStyle: FontStyle.italic,
                         ),
                         maxLines: 2,
@@ -188,7 +188,7 @@ class MaterialPanel extends StatelessWidget {
                         children: card.tags.take(2).map((tag) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                           decoration: BoxDecoration(
-                            color: _getTagColor(tag).withOpacity(0.15),
+                            color: _getTagColor(tag).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(tag, style: TextStyle(fontSize: 7, color: _getTagColor(tag))),

@@ -1,8 +1,9 @@
 // lib/pages/book_detail_page.dart
-// 书籍详情页 — 移除 dart:html 依赖
+// 书籍详情页
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
@@ -14,7 +15,7 @@ import '../database_service.dart';
 import '../models/book.dart';
 import '../models/book_note.dart';
 import '../models/node.dart';
-import '../services/card_service.dart';
+import '../services/book_service.dart';
 import '../utils/app_date_utils.dart';
 import '../utils/app_string_utils.dart';
 import 'pdf_reader_page.dart';
@@ -34,9 +35,10 @@ class BookDetailPage extends StatefulWidget {
   State<BookDetailPage> createState() => _BookDetailPageState();
 }
 
-class _BookDetailPageState extends State<BookDetailPage> {
+class _BookDetailPageState extends State<BookDetailPage>
+    with SingleTickerProviderStateMixin {
+  final BookService _bookService = BookService();
   final DatabaseService _db = DatabaseService();
-  final CardService _cardService = CardService();
 
   Book? _book;
   Node? _node;
@@ -62,14 +64,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
     super.dispose();
   }
 
-  // ─── 数据加载 ──────────────────────────────────────────────
-
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final bookMap = await _db.getBook(widget.bookId);
-      if (bookMap != null) {
-        _book = Book.fromMap(bookMap);
+      _book = await _bookService.getBook(widget.bookId);
+      if (_book != null) {
         _titleController.text = _book!.title;
         _authorController.text = _book!.author;
         _selectedStatus = _book!.status;
@@ -79,38 +78,14 @@ class _BookDetailPageState extends State<BookDetailPage> {
         _node = await _db.getNode(widget.nodeId!);
       }
 
-      await _loadNotes();
+      _notes = await _bookService.getNotes(widget.bookId);
     } catch (e) {
       debugPrint('加载书籍详情失败: $e');
     }
     setState(() => _isLoading = false);
   }
 
-  Future<void> _loadNotes() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'book_notes_${widget.bookId}';
-    final data = prefs.getString(key);
-    if (data != null && data.isNotEmpty) {
-      try {
-        final list = jsonDecode(data) as List;
-        _notes = list.map((m) => BookNote.fromMap(m)).toList();
-        _notes.sort((a, b) => a.pageNumber.compareTo(b.pageNumber));
-      } catch (_) {
-        _notes = [];
-      }
-    } else {
-      _notes = [];
-    }
-    setState(() {});
-  }
-
-  Future<void> _saveNotes() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'book_notes_${widget.bookId}';
-    await prefs.setString(key, jsonEncode(_notes.map((n) => n.toMap()).toList()));
-  }
-
-  // ─── 导入书籍 ──────────────────────────────────────────────
+  // ─── 导入书籍（带进度） ──────────────────────────────────────
 
   Future<void> _importBook() async {
     if (_isImporting) return;
@@ -128,92 +103,190 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
       final file = result.files.first;
       final extension = path.extension(file.name).toLowerCase().replaceFirst('.', '');
-      final bookId = widget.bookId;
+      final bytes = file.bytes;
 
-      // ✅ Web 端：使用 base64 编码存储（不依赖 dart:html）
-      if (kIsWeb) {
-        final bytes = file.bytes;
-        if (bytes == null) {
-          setState(() => _isImporting = false);
-          return;
-        }
-
-        // 将 PDF 内容编码为 Base64 存储
-        final base64Data = base64Encode(bytes);
-        _book = _book!.copyWith(filePath: base64Data, fileType: extension);
-        await _db.updateBook(_book!.toMap());
-
-        setState(() {
-          _isImporting = false;
-        });
-        _showSnackBar('✅ 书籍已导入！');
-        _loadData();
-
-        // 打开阅读器
-        _openReader(base64Data, extension, isWeb: true);
+      if (bytes == null) {
+        setState(() => _isImporting = false);
+        _showSnackBar('❌ 无法读取文件');
         return;
       }
 
-      // 桌面端：保存到文件系统
-      final appDir = await getApplicationDocumentsDirectory();
-      final bookDir = Directory('${appDir.path}/books');
-      if (!await bookDir.exists()) await bookDir.create(recursive: true);
-      final targetPath = '${bookDir.path}/book_$bookId.$extension';
+      // 进度状态
+      double progressValue = 0.0;
+      int uploadedBytes = 0;
+      String progressText = '准备上传...';
 
-      final sourceFile = File(file.path!);
-      await sourceFile.copy(targetPath);
+      // ✅ 显示进度对话框
+      final progressDialog = showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.cloud_upload, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text('正在导入...'),
+                ],
+              ),
+              content: SizedBox(
+                width: 400,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      file.name,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: progressValue,
+                      backgroundColor: Colors.grey.shade200,
+                      color: Colors.blue,
+                      minHeight: 8,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          progressText,
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                        Text(
+                          '${(progressValue * 100).toInt()}%',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatFileSize(uploadedBytes, bytes.length),
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    setState(() => _isImporting = false);
+                    _showSnackBar('❌ 已取消导入');
+                  },
+                  child: const Text('取消', style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            );
+          },
+        ),
+      );
 
-      _book = _book!.copyWith(filePath: targetPath, fileType: extension);
-      await _db.updateBook(_book!.toMap());
-      setState(() {});
+      // ✅ 执行导入（带进度回调）
+      final newBook = await _bookService.importBook(
+        title: file.name.replaceAll(RegExp(r'\.[^.]*$'), ''),
+        author: '',
+        filePath: kIsWeb ? '' : (file.path ?? ''),
+        fileType: extension,
+        fileBytes: bytes,
+        onProgress: (sent, total) {
+          progressValue = sent / total;
+          uploadedBytes = sent;
+          progressText = '上传中... ${(progressValue * 100).toInt()}%';
+        },
+      );
+
+      // ✅ 关闭进度对话框
+      if (mounted) Navigator.pop(context);
+
+      _book = newBook;
+      _titleController.text = _book!.title;
+      _authorController.text = _book!.author;
+      _selectedStatus = _book!.status;
+
       setState(() => _isImporting = false);
-      _showSnackBar('✅ 书籍导入成功！');
-      _loadData();
-      _openReader(targetPath, extension);
+      _showSnackBar('✅ 导入成功！已放入"图书馆"文件夹');
 
+      _openReader(_book!.filePath, _book!.fileType, isWeb: kIsWeb);
+
+    } on Exception catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isImporting = false);
+      _showSnackBar('❌ ${e.toString()}');
     } catch (e) {
+      if (mounted) Navigator.pop(context);
       setState(() => _isImporting = false);
       _showSnackBar('❌ 导入失败: $e');
     }
   }
 
-  void _openReader(String filePath, String fileType, {bool isWeb = false}) {
+  String _formatFileSize(int sent, int total) {
+    final sentMB = sent / 1024 / 1024;
+    final totalMB = total / 1024 / 1024;
+    if (totalMB < 1) {
+      final sentKB = sent / 1024;
+      final totalKB = total / 1024;
+      return '${sentKB.toStringAsFixed(0)} KB / ${totalKB.toStringAsFixed(0)} KB';
+    }
+    return '${sentMB.toStringAsFixed(1)} MB / ${totalMB.toStringAsFixed(1)} MB';
+  }
+
+  void _openReader(String filePath, String fileType, {bool isWeb = false}) async {
+    String? actualPath = filePath;
+
+    if (isWeb && !filePath.startsWith('blob:') && !filePath.startsWith('data:')) {
+      final url = await _bookService.getBookFileUrl(widget.bookId, fileType);
+      if (url != null) {
+        actualPath = url;
+      }
+    }
+
+    final String finalPath = actualPath ?? '';
+    final bool isUrl = finalPath.startsWith('blob:') ||
+        finalPath.startsWith('http') ||
+        finalPath.startsWith('data:');
+
     if (fileType == 'pdf') {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => PdfReaderPage(
             bookId: widget.bookId,
-            filePath: isWeb ? '' : filePath,
-            fileUrl: isWeb ? filePath : '',
+            filePath: isWeb ? '' : finalPath,
+            fileUrl: isUrl ? finalPath : '',
             fileName: _book!.title,
             isWeb: isWeb,
           ),
         ),
-      ).then((_) => _loadNotes());
-    } else {
+      ).then((_) => _loadData());
+    } else if (fileType == 'epub') {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => EpubReaderPage(
             bookId: widget.bookId,
-            filePath: isWeb ? '' : filePath,
-            fileUrl: isWeb ? filePath : '',
+            filePath: isWeb ? '' : finalPath,
+            fileUrl: isUrl ? finalPath : '',
             fileName: _book!.title,
             isWeb: isWeb,
           ),
         ),
-      ).then((_) => _loadNotes());
+      ).then((_) => _loadData());
+    } else {
+      _showSnackBar('📖 暂不支持 $fileType 格式阅读');
     }
   }
 
-  void _showSnackBar(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
-    );
+  Future<void> _saveNote(BookNote note) async {
+    await _bookService.saveNote(note);
+    _notes = await _bookService.getNotes(widget.bookId);
+    setState(() {});
+    _showSnackBar('✅ 笔记已保存');
   }
-
-  // ─── 删除笔记 ──────────────────────────────────────────────
 
   Future<void> _deleteNote(BookNote note) async {
     final confirm = await showDialog<bool>(
@@ -231,14 +304,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
       ),
     );
     if (confirm == true) {
-      _notes.removeWhere((n) => n.id == note.id);
-      await _saveNotes();
+      await _bookService.deleteNote(widget.bookId, note.id);
+      _notes = await _bookService.getNotes(widget.bookId);
       setState(() {});
       _showSnackBar('已删除笔记');
     }
   }
-
-  // ─── 保存编辑 ──────────────────────────────────────────────
 
   Future<void> _saveEdit() async {
     if (_book == null) return;
@@ -247,14 +318,18 @@ class _BookDetailPageState extends State<BookDetailPage> {
       author: _authorController.text.trim(),
       status: _selectedStatus,
     );
-    await _db.updateBook(updated.toMap());
+    await _bookService.saveBook(updated);
     _book = updated;
     _isEditing = false;
     setState(() {});
     _showSnackBar('✅ 已更新书籍信息');
   }
 
-  // ─── UI 构建 ──────────────────────────────────────────────
+  void _showSnackBar(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -268,7 +343,9 @@ class _BookDetailPageState extends State<BookDetailPage> {
     if (_book == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('书籍详情')),
-        body: const Center(child: Text('书籍不存在', style: TextStyle(fontSize: 16, color: Colors.grey))),
+        body: const Center(
+          child: Text('书籍不存在', style: TextStyle(fontSize: 16, color: Colors.grey)),
+        ),
       );
     }
 
@@ -290,8 +367,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
   }
 
-  // ─── AppBar ──────────────────────────────────────────────────
-
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       title: _isEditing
@@ -309,11 +384,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         if (_isEditing)
           IconButton(icon: const Icon(Icons.save), onPressed: _saveEdit, tooltip: '保存')
         else ...[
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () => setState(() => _isEditing = true),
-            tooltip: '编辑',
-          ),
+          IconButton(icon: const Icon(Icons.edit), onPressed: () => setState(() => _isEditing = true), tooltip: '编辑'),
           if (_book!.hasEbook)
             IconButton(
               icon: const Icon(Icons.menu_book),
@@ -321,8 +392,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 _openReader(
                   _book!.filePath,
                   _book!.fileType,
-                  isWeb: _book!.filePath.startsWith('http') ||
-                      _book!.filePath.length > 200,
+                  isWeb: _book!.filePath.startsWith('http') || _book!.filePath.length > 200,
                 );
               },
               tooltip: '阅读',
@@ -331,8 +401,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
       ],
     );
   }
-
-  // ─── 信息卡片 ──────────────────────────────────────────────
 
   Widget _buildInfoCard() {
     return Card(
@@ -345,32 +413,34 @@ class _BookDetailPageState extends State<BookDetailPage> {
               Text(_book!.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
               Text('作者：${_book!.author.isNotEmpty ? _book!.author : '未知'}'),
+              if (_book!.isbn.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('ISBN：${_book!.isbn}'),
+              ],
               const SizedBox(height: 4),
               Row(
                 children: [
                   const Text('状态：'),
-                  Chip(
-                    label: Text(_book!.statusLabel),
-                    backgroundColor: _getStatusColor(_book!.status),
-                  ),
+                  Chip(label: Text(_book!.statusLabel), backgroundColor: _getStatusColor(_book!.status)),
                   const SizedBox(width: 16),
                   Text('进度：${_book!.readingProgress}%'),
+                  if (_book!.totalPages > 0) Text(' / ${_book!.totalPages}页'),
                 ],
               ),
               if (_book!.hasEbook) ...[
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.check_circle, size: 14, color: Colors.green),
                       const SizedBox(width: 4),
-                      Text('已导入 ${_book!.fileType.toUpperCase()}', style: const TextStyle(fontSize: 12, color: Colors.green)),
+                      Text('已导入 ${_book!.fileTypeLabel}', style: const TextStyle(fontSize: 12, color: Colors.green)),
+                      const SizedBox(width: 8),
+                      Text('${(_book!.fileSize / 1024 / 1024).toStringAsFixed(1)} MB',
+                          style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
                     ],
                   ),
                 ),
@@ -421,21 +491,34 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'want':
-        return Colors.orange.shade100;
-      case 'reading':
-        return Colors.blue.shade100;
-      case 'read':
-        return Colors.green.shade100;
-      default:
-        return Colors.grey.shade100;
+      case 'want': return Colors.orange.shade100;
+      case 'reading': return Colors.blue.shade100;
+      case 'read': return Colors.green.shade100;
+      default: return Colors.grey.shade100;
     }
   }
 
-  // ─── 导入书籍 ──────────────────────────────────────────────
-
   Widget _buildImportSection() {
-    if (_book!.hasEbook) return const SizedBox.shrink();
+    if (_book!.hasEbook) {
+      return Card(
+        color: Colors.green.shade50,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green.shade700),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '已导入 ${_book!.fileTypeLabel} 文件，点击右上角 📖 阅读',
+                  style: TextStyle(color: Colors.green.shade700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Card(
       child: Padding(
@@ -450,7 +533,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 children: [
                   const Text('导入电子书', style: TextStyle(fontWeight: FontWeight.w600)),
                   Text(
-                    '支持 PDF, EPUB, MOBI, AZW3',
+                    '支持 PDF / EPUB / MOBI / AZW3',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
@@ -469,8 +552,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
   }
 
-  // ─── 笔记列表 ──────────────────────────────────────────────
-
   Widget _buildNotesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -479,21 +560,20 @@ class _BookDetailPageState extends State<BookDetailPage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('📝 阅读笔记 (${_notes.length})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            if (_book!.hasEbook)
+              TextButton.icon(
+                onPressed: () {
+                  _openReader(_book!.filePath, _book!.fileType,
+                      isWeb: _book!.filePath.length > 200);
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('添加笔记'),
+                style: TextButton.styleFrom(foregroundColor: Colors.blue),
+              ),
           ],
         ),
         const Divider(),
-        if (_notes.isEmpty)
-          _buildEmptyNotes()
-        else
-          ..._buildNoteList(),
-        if (_notes.length > 5)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: _showAllNotesDialog,
-              child: Text('查看全部 ${_notes.length} 条笔记 →'),
-            ),
-          ),
+        if (_notes.isEmpty) _buildEmptyNotes() else ..._buildNoteList(),
       ],
     );
   }
@@ -508,14 +588,15 @@ class _BookDetailPageState extends State<BookDetailPage> {
           const SizedBox(height: 8),
           Text('还没有阅读笔记', style: TextStyle(color: Colors.grey.shade500)),
           const SizedBox(height: 4),
-          Text('在阅读器中选中文字即可添加笔记', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+          Text('在阅读器中选中文字 → 点击 📝 做笔记 添加笔记',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
         ],
       ),
     );
   }
 
   List<Widget> _buildNoteList() {
-    final displayNotes = _notes.take(5).toList();
+    final displayNotes = _notes.take(10).toList();
     return displayNotes.map((note) {
       return Card(
         margin: const EdgeInsets.only(bottom: 6),
@@ -538,82 +619,46 @@ class _BookDetailPageState extends State<BookDetailPage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+            onPressed: () => _deleteNote(note),
+            tooltip: '删除',
+          ),
           onTap: () {
-            if (_book!.hasEbook && _book!.fileType == 'pdf') {
-              _openReader(_book!.filePath, _book!.fileType,
-                  isWeb: _book!.filePath.length > 200);
-            }
+            _showNoteDetailDialog(note);
           },
         ),
       );
     }).toList();
   }
 
-  // ─── 全部笔记对话框 ──────────────────────────────────────────
-
-  void _showAllNotesDialog() {
-    showModalBottomSheet(
+  void _showNoteDetailDialog(BookNote note) {
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        minChildSize: 0.3,
-        expand: false,
-        builder: (context, scrollController) {
-          return Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('📝 全部笔记 (${_notes.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                  ],
-                ),
-                const Divider(),
-                Expanded(
-                  child: ListView.builder(
-                    controller: scrollController,
-                    itemCount: _notes.length,
-                    itemBuilder: (context, index) {
-                      final note = _notes[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: Container(
-                            width: 4,
-                            height: 40,
-                            color: Color(int.parse(note.color.replaceFirst('#', ''), radix: 16) + 0xFF000000),
-                          ),
-                          title: Text(
-                            note.selectedText,
-                            style: const TextStyle(fontWeight: FontWeight.w500),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '第${note.pageNumber}页 · ${AppDateUtils.formatShort(note.createdAt)}',
-                            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                          ),
-                          onTap: () {
-                            Navigator.pop(context);
-                            if (_book!.hasEbook && _book!.fileType == 'pdf') {
-                              _openReader(_book!.filePath, _book!.fileType,
-                                  isWeb: _book!.filePath.length > 200);
-                            }
-                          },
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+      builder: (context) => AlertDialog(
+        title: Text('📝 第${note.pageNumber}页 笔记'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(6)),
+              child: Text(note.selectedText, style: const TextStyle(fontSize: 15)),
             ),
-          );
-        },
+            if (note.comment.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text('💭 我的思考：', style: TextStyle(fontWeight: FontWeight.w600)),
+              Text(note.comment),
+            ],
+            const SizedBox(height: 8),
+            Text('${AppDateUtils.formatFull(note.createdAt)}',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
+        ],
       ),
     );
   }

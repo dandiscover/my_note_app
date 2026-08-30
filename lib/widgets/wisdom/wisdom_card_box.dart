@@ -103,7 +103,7 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))],
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2))],
           ),
           child: Column(
             children: [
@@ -167,7 +167,7 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
                         margin: const EdgeInsets.only(top: 8, bottom: 6),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         decoration: BoxDecoration(
-                          color: _getTagColor(tag).withOpacity(0.15),
+                          color: _getTagColor(tag).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Row(
@@ -179,7 +179,7 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(color: _getTagColor(tag).withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                              decoration: BoxDecoration(color: _getTagColor(tag).withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
                               child: Text('${cards.length}', style: TextStyle(fontSize: 10, color: _getTagColor(tag))),
                             ),
                           ],
@@ -211,7 +211,7 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
   Widget _buildStatChip(String label, int count, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(16)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -224,22 +224,22 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
   }
 
   Widget _buildCardItem(CardModel card) {
-    bool _isHovered = false;
+    bool isHovered = false;
     return StatefulBuilder(
       builder: (context, setState) {
         return MouseRegion(
-          onEnter: (_) => setState(() => _isHovered = true),
-          onExit: (_) => setState(() => _isHovered = false),
+          onEnter: (_) => setState(() => isHovered = true),
+          onExit: (_) => setState(() => isHovered = false),
           child: GestureDetector(
             onTap: () => widget.onCardTap(card),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              transform: _isHovered ? Matrix4.diagonal3Values(1.04, 1.04, 1.0) : Matrix4.identity(),
+              transform: isHovered ? Matrix4.diagonal3Values(1.04, 1.04, 1.0) : Matrix4.identity(),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(_isHovered ? 12 : 4),
-                border: Border.all(color: _isHovered ? card.typeColor : Colors.grey.shade200, width: _isHovered ? 2 : 0.5),
-                boxShadow: _isHovered ? [BoxShadow(color: card.typeColor.withOpacity(0.2), blurRadius: 16, offset: const Offset(0, 6))] : null,
+                borderRadius: BorderRadius.circular(isHovered ? 12 : 4),
+                border: Border.all(color: isHovered ? card.typeColor : Colors.grey.shade200, width: isHovered ? 2 : 0.5),
+                boxShadow: isHovered ? [BoxShadow(color: card.typeColor.withValues(alpha: 0.2), blurRadius: 16, offset: const Offset(0, 6))] : null,
               ),
               padding: const EdgeInsets.all(4),
               child: Column(
@@ -247,14 +247,14 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    decoration: BoxDecoration(color: card.typeColor.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(color: card.typeColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
                     child: Text(card.typeIcon, style: const TextStyle(fontSize: 10)),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     _getCardThumbnail(card),
-                    style: TextStyle(fontSize: _isHovered ? 10 : 7, color: _isHovered ? Colors.black87 : Colors.grey.shade700),
-                    maxLines: _isHovered ? 6 : 2,
+                    style: TextStyle(fontSize: isHovered ? 10 : 7, color: isHovered ? Colors.black87 : Colors.grey.shade700),
+                    maxLines: isHovered ? 6 : 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                   ),

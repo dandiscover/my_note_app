@@ -1,17 +1,21 @@
+// lib/models/book.dart
+// 图书数据模型（添加 fileTypeLabel getter）
+
 class Book {
   final String id;
   String title;
   String author;
   String isbn;
-  String coverUrl;        // 对应数据库列: cover_image
-  String filePath;        // 对应数据库列: pdf_path
-  String fileType;        // 对应数据库列: file_type
-  int fileSize;           // 仅内存使用，不存数据库
-  String fileName;        // 仅内存使用，不存数据库
-  String status;          // want / reading / read
-  int readingProgress;    // 对应数据库列: reading_progress
-  int totalPages;         // 对应数据库列: total_pages
-  DateTime createdAt;     // 对应数据库列: created_at
+  String coverUrl;
+  String filePath;
+  String fileType;
+  int fileSize;
+  String fileName;
+  String status;
+  int readingProgress;
+  int totalPages;
+  DateTime createdAt;
+  DateTime? lastReadAt;
 
   Book({
     required this.id,
@@ -27,6 +31,7 @@ class Book {
     this.readingProgress = 0,
     this.totalPages = 0,
     required this.createdAt,
+    this.lastReadAt,
   });
 
   Map<String, dynamic> toMap() {
@@ -35,14 +40,16 @@ class Book {
       'title': title,
       'author': author,
       'isbn': isbn,
-      'cover_image': coverUrl,
-      'pdf_path': filePath,
+      'cover_url': coverUrl,
+      'file_path': filePath,
       'file_type': fileType,
-      // fileSize 和 fileName 不写入数据库
+      'file_size': fileSize,
+      'file_name': fileName,
       'status': status,
       'reading_progress': readingProgress,
       'total_pages': totalPages,
       'created_at': createdAt.toIso8601String(),
+      'last_read_at': lastReadAt?.toIso8601String(),
     };
   }
 
@@ -52,15 +59,18 @@ class Book {
       title: map['title'] ?? '',
       author: map['author'] ?? '',
       isbn: map['isbn'] ?? '',
-      coverUrl: map['cover_image'] ?? '',
-      filePath: map['pdf_path'] ?? '',
+      coverUrl: map['cover_url'] ?? '',
+      filePath: map['file_path'] ?? '',
       fileType: map['file_type'] ?? 'none',
-      fileSize: map['file_size'] ?? 0,      // 如果数据库有就读取，没有就用默认值
-      fileName: map['file_name'] ?? '',     // 同上
+      fileSize: map['file_size'] ?? 0,
+      fileName: map['file_name'] ?? '',
       status: map['status'] ?? 'want',
       readingProgress: map['reading_progress'] ?? 0,
       totalPages: map['total_pages'] ?? 0,
       createdAt: DateTime.tryParse(map['created_at'] ?? '') ?? DateTime.now(),
+      lastReadAt: map['last_read_at'] != null
+          ? DateTime.tryParse(map['last_read_at'])
+          : null,
     );
   }
 
@@ -78,6 +88,7 @@ class Book {
     int? readingProgress,
     int? totalPages,
     DateTime? createdAt,
+    DateTime? lastReadAt,
   }) {
     return Book(
       id: id ?? this.id,
@@ -93,22 +104,22 @@ class Book {
       readingProgress: readingProgress ?? this.readingProgress,
       totalPages: totalPages ?? this.totalPages,
       createdAt: createdAt ?? this.createdAt,
+      lastReadAt: lastReadAt ?? this.lastReadAt,
     );
   }
 
   String get statusLabel {
     switch (status) {
-      case 'want':
-        return '想读';
-      case 'reading':
-        return '在读';
-      case 'read':
-        return '读完';
-      default:
-        return status;
+      case 'want': return '想读';
+      case 'reading': return '在读';
+      case 'read': return '读完';
+      default: return status;
     }
   }
 
   String get progressLabel => '$readingProgress%';
   bool get hasEbook => filePath.isNotEmpty && fileType != 'none';
+
+  // ✅ 新增：文件类型标签（大写）
+  String get fileTypeLabel => fileType.toUpperCase();
 }

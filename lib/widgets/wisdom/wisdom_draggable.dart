@@ -20,7 +20,6 @@ class WisdomDraggable extends StatelessWidget {
   Widget build(BuildContext context) {
     return Draggable<Node>(
       data: node,
-      child: child,
       feedback: Material(
         color: Colors.transparent,
         child: Transform.scale(
@@ -33,7 +32,7 @@ class WisdomDraggable extends StatelessWidget {
               border: Border.all(color: Colors.blue.shade400, width: 2),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.25),
+                  color: Colors.black.withValues(alpha: 0.25),
                   blurRadius: 16,
                   offset: const Offset(0, 8),
                 ),
@@ -70,6 +69,7 @@ class WisdomDraggable extends StatelessWidget {
       onDragEnd: (details) {
         onDragEnd?.call();
       },
+      child: child,
     );
   }
 }

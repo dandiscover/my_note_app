@@ -1,10 +1,17 @@
 // lib/pages/collection_page.dart
-// 采集页 — 灵感笔记自动归档提醒
+// 采集页 — 灵感笔记自动归档提醒 + 图书导入入口（支持 Web/桌面）
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
@@ -12,6 +19,7 @@ import '../models/task.dart';
 import '../services/task_service.dart';
 import '../services/cache_manager.dart';
 import '../services/settings_service.dart';
+import '../services/book_service.dart';
 import '../mixins/state_mixin.dart';
 import '../widgets/fullscreen_editor.dart';
 import '../widgets/collection/capture_card.dart';
@@ -37,7 +45,6 @@ class CollectionPage extends StatefulWidget {
     _saveCallback = null;
   }
 
-  // ✅ 添加 isActive 和返回 bool 的 triggerSave
   static bool get isActive => _saveCallback != null;
 
   static Future<bool> triggerSave() async {
@@ -53,6 +60,7 @@ class CollectionPage extends StatefulWidget {
 class _CollectionPageState extends State<CollectionPage> with StateMixin {
   final DatabaseService _db = DatabaseService();
   final TaskService _taskService = TaskService();
+  final BookService _bookService = BookService();
   final CacheManager _cache = CacheManager();
   final SettingsService _settingsService = SettingsService();
 
@@ -239,15 +247,60 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     );
   }
 
-  void _importFile() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('导入功能开发中...'), duration: Duration(seconds: 1)),
-    );
+  // ✅ 真正的导入功能（支持 Web/桌面）
+  Future<void> _importBook() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'epub', 'mobi', 'azw3'],
+      );
+      if (result == null) return;
+
+      final file = result.files.first;
+      final extension = path.extension(file.name).toLowerCase().replaceFirst('.', '');
+      final bytes = file.bytes;
+
+      if (bytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ 无法读取文件')),
+        );
+        return;
+      }
+
+      // 使用 BookService 导入（自动放入“图书馆”文件夹）
+      final newBook = await _bookService.importBook(
+        title: file.name.replaceAll(RegExp(r'\.[^.]*$'), ''),
+        author: '',
+        filePath: kIsWeb ? '' : (file.path ?? ''),
+        fileType: extension,
+        fileBytes: bytes,
+      );
+
+      // 刷新最近导入列表
+      _cache.invalidate(_cacheKeyRecentBooks);
+      await _loadData();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('✅ 已导入「${newBook.title}」到图书馆')),
+      );
+
+      // 跳转到图书详情页
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BookDetailPage(bookId: newBook.id),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ 导入失败: $e')),
+      );
+    }
   }
 
   void _scanISBN() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('扫码功能开发中...'), duration: Duration(seconds: 1)),
+      const SnackBar(content: Text('📷 扫码功能开发中...'), duration: Duration(seconds: 1)),
     );
   }
 
@@ -298,7 +351,7 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
               onSelected: (value) {
                 switch (value) {
                   case 'import':
-                    _importFile();
+                    _importBook();
                     break;
                   case 'scan':
                     _scanISBN();
@@ -349,7 +402,7 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
             onSelected: (value) {
               switch (value) {
                 case 'import':
-                  _importFile();
+                  _importBook();
                   break;
                 case 'scan':
                   _scanISBN();

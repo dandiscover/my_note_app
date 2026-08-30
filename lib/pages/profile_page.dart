@@ -1,3 +1,6 @@
+// lib/pages/profile_page.dart
+// 我的页 — 完整功能 + Supabase 登录
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
@@ -10,6 +13,7 @@ import '../models/user_settings.dart';
 import '../services/keyboard_shortcut_manager.dart';
 import '../models/keyboard_shortcut.dart';
 import '../database_service.dart';
+import '../services/supabase_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -103,7 +107,6 @@ class _ProfilePageState extends State<ProfilePage>
     await input.onChange.first;
     if (input.files!.isEmpty) return null;
     final file = input.files!.first;
-    // 使用 FileReader 替代 file.text() 避免类型问题
     final reader = html.FileReader();
     reader.readAsText(file);
     await reader.onLoad.first;
@@ -210,6 +213,175 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   // ============================================================
+  // 登录相关
+  // ============================================================
+
+  void _showLoginDialog() {
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    bool isSignUp = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(isSignUp ? '📝 注册' : '🔐 登录'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(
+                    labelText: '邮箱',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: '密码（最少6位）',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () {
+                    setDialogState(() => isSignUp = !isSignUp);
+                  },
+                  child: Text(isSignUp ? '已有账号？去登录' : '没有账号？去注册'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  try {
+                    if (isSignUp) {
+                      // ✅ 注册
+                      await SupabaseService().signUp(
+                        email: emailController.text.trim(),
+                        password: passwordController.text.trim(),
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('✅ 注册成功！请登录')),
+                      );
+                      Navigator.pop(context);
+                    } else {
+                      // ✅ 登录
+                      await SupabaseService().signIn(
+                        email: emailController.text.trim(),
+                        password: passwordController.text.trim(),
+                      );
+                      Navigator.pop(context);
+                      setState(() {});
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('✅ 登录成功！')),
+                      );
+                    }
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('❌ 操作失败: $e')),
+                    );
+                  }
+                },
+                child: Text(isSignUp ? '注册' : '登录'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAuthSection() {
+    final service = SupabaseService();
+    final isLoggedIn = service.isLoggedIn;
+    final email = service.currentUserEmail;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  isLoggedIn ? Icons.check_circle : Icons.cloud_outlined,
+                  color: isLoggedIn ? Colors.green : Colors.blue,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isLoggedIn ? '☁️ 已连接云端 ($email)' : '☁️ 未登录',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isLoggedIn ? Colors.green.shade700 : Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (isLoggedIn)
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '📤 上传的图书将自动备份到云端',
+                        style: TextStyle(fontSize: 11, color: Colors.green.shade700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.logout, size: 20, color: Colors.red),
+                    onPressed: () async {
+                      await service.signOut();
+                      setState(() {});
+                      _showSnackBar('已登出');
+                    },
+                    tooltip: '登出',
+                  ),
+                ],
+              )
+            else
+              ElevatedButton.icon(
+                onPressed: _showLoginDialog,
+                icon: const Icon(Icons.login),
+                label: const Text('登录 / 注册'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            if (!kIsWeb && !isLoggedIn)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '💡 桌面端可离线使用，登录后支持云端同步',
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
   // UI 构建
   // ============================================================
 
@@ -274,6 +446,8 @@ class _ProfilePageState extends State<ProfilePage>
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          _buildAuthSection(),
+          const SizedBox(height: 12),
           GestureDetector(
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -307,12 +481,7 @@ class _ProfilePageState extends State<ProfilePage>
                     contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                   style: const TextStyle(fontSize: 14),
-                  controller: TextEditingController(text: settings.nickname)
-                    ..addListener(() {
-                      setState(() {
-                        _settingsData!.nickname = _settingsData!.nickname;
-                      });
-                    }),
+                  controller: TextEditingController(text: settings.nickname),
                   onChanged: (value) {
                     _settingsData!.nickname = value;
                     _saveSettings();
@@ -339,12 +508,7 @@ class _ProfilePageState extends State<ProfilePage>
                   ),
                   style: const TextStyle(fontSize: 14),
                   maxLines: 3,
-                  controller: TextEditingController(text: settings.bio)
-                    ..addListener(() {
-                      setState(() {
-                        _settingsData!.bio = _settingsData!.bio;
-                      });
-                    }),
+                  controller: TextEditingController(text: settings.bio),
                   onChanged: (value) {
                     _settingsData!.bio = value;
                     _saveSettings();
@@ -379,7 +543,7 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   // ============================================================
-  // Tab 2：设置（完整保留）
+  // Tab 2：设置
   // ============================================================
 
   Widget _buildSettingsTab() {
@@ -424,7 +588,6 @@ class _ProfilePageState extends State<ProfilePage>
             ],
           ),
           const Divider(),
-
           _buildSettingSection(
             title: '✍️ 编辑器',
             children: [
@@ -442,7 +605,6 @@ class _ProfilePageState extends State<ProfilePage>
             ],
           ),
           const Divider(),
-
           _buildSettingSection(
             title: '🧠 复习设置',
             children: [
@@ -537,7 +699,6 @@ class _ProfilePageState extends State<ProfilePage>
             ],
           ),
           const Divider(),
-
           _buildSettingSection(
             title: '📊 热力图设置',
             children: [
@@ -739,7 +900,6 @@ class _ProfilePageState extends State<ProfilePage>
             ],
           ),
           const Divider(),
-
           _buildSettingSection(
             title: '🐾 宠物',
             children: [
@@ -786,12 +946,7 @@ class _ProfilePageState extends State<ProfilePage>
                       border: InputBorder.none,
                       hintText: '输入名字',
                     ),
-                    controller: TextEditingController(text: settings.petName)
-                      ..addListener(() {
-                        setState(() {
-                          _settingsData!.petName = _settingsData!.petName;
-                        });
-                      }),
+                    controller: TextEditingController(text: settings.petName),
                     onChanged: (value) async {
                       _settingsData!.petName = value;
                       await _saveSettings();
@@ -813,7 +968,6 @@ class _ProfilePageState extends State<ProfilePage>
             ],
           ),
           const Divider(),
-
           _buildSettingSection(
             title: '🔌 插件（开发中）',
             children: [
@@ -887,7 +1041,7 @@ class _ProfilePageState extends State<ProfilePage>
               ),
               onTap: () => _showShortcutEditor(shortcut),
             ),
-          )).toList(),
+          )),
           const SizedBox(height: 12),
           Center(
             child: TextButton(
@@ -1164,7 +1318,9 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-
+  // ============================================================
+  // 颜色工具
+  // ============================================================
 
   Widget _buildColorPickerTile({
     required String title,

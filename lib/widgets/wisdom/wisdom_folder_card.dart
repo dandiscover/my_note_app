@@ -67,22 +67,18 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
           child: DragTarget<Node>(
             onWillAccept: (data) {
               if (data == null) return false;
+              // ✅ 修复：直接使用 data.id，而不是 data.data.id
               if (data.id == widget.node.id) return false;
               if (widget.isDescendantOf(data.id, widget.node.id)) return false;
 
-              // ✅ 卡片盒的特殊限制
               if (_isCardBox) {
-                // 如果是卡片盒，只允许接受卡片（在现有数据中，卡片不是 Node，所以这里拒绝所有拖入）
-                // 但为了更好的体验，我们允许文件夹拖入（方便用户整理卡片盒中的分类？不，卡片盒是一个扁平视图，不应该拖入任何 Node）
-                // 根据用户需求：笔记不可以放到卡片盒内，所以我们拒绝所有 Node 拖入卡片盒
                 return false;
               }
 
-              // ✅ 如果是普通文件夹，允许所有类型的 Node（笔记、图书、子文件夹）
               return true;
             },
             onAccept: (data) async {
-              // 移动节点到当前文件夹
+              // ✅ 修复：直接使用 data.id，而不是 data.data.id
               await _db.moveNode(data.id, widget.node.id);
               WisdomLightToast.show(context, '✅ 已移动到「${widget.node.title}」');
               widget.onDataChanged?.call();
@@ -93,7 +89,6 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
             builder: (context, candidateData, rejectedData) {
               final isDragTarget = _dragTargetId == widget.node.id && candidateData.isNotEmpty;
 
-              // ✅ 卡片盒样式：紫色系
               final boxColor = _isCardBox
                   ? (widget.isSelected ? Colors.purple.shade100 : Colors.purple.shade50)
                   : (widget.isSelected ? Colors.blue.shade50 : Colors.grey.shade50);
@@ -141,7 +136,6 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
                                   onChanged: widget.onCheckChanged,
                                 ),
                               Icon(
-                                // ✅ 卡片盒使用信用卡图标，普通文件夹使用文件夹图标
                                 _isCardBox ? Icons.credit_card : Icons.folder,
                                 size: 20,
                                 color: iconColor,
@@ -162,7 +156,6 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
                             ),
                           ),
                           const SizedBox(height: 2),
-                          // ✅ 卡片盒显示特殊统计信息
                           if (_isCardBox) ...[
                             Text(
                               '📇 卡片盒',
@@ -180,7 +173,6 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
                               ),
                             ),
                           ] else ...[
-                            // 普通文件夹统计
                             Row(
                               children: [
                                 if (widget.subFolderCount > 0) ...[
@@ -214,8 +206,6 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
           ),
         );
 
-        // ✅ 文件夹本身也可拖动（拖到其他文件夹），但卡片盒不可拖动
-        // 卡片盒作为特殊视图，我们不希望它被移动，所以不包裹 Draggable
         if (_isCardBox) {
           return cardContent;
         }

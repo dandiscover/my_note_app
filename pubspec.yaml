@@ -34,11 +34,23 @@ dependencies:
   # 社交分享
   share_plus: ^7.0.0
 
-  # ✅ PDF 预览（核心依赖 — PDF阅读器必需）
-  printing: ^5.11.0
+  # PDF 阅读
+  printing: ^5.9.0
 
-  # ✅ 异步状态管理（可选，用于 FutureBuilder 优化）
-  # flutter_bloc: ^8.1.0
+  # EPUB 解析
+  epubx: ^3.0.0
+
+  # SVG 支持
+  flutter_svg: ^2.0.0
+
+  # ✅ Supabase 云存储
+  supabase_flutter: ^2.8.0
+
+  # ✅ 环境变量（保留，但不再使用 .env 文件）
+  flutter_dotenv: ^5.1.0
+
+  # ✅ HTML 渲染（EPUB 内容渲染）
+  flutter_widget_from_html: ^0.17.2
 
   cupertino_icons: ^1.0.8
 
@@ -49,6 +61,12 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+dependency_overrides:
+  archive: ^3.3.0
+  image: ^4.0.0
+  xml: ^6.0.0
+  webview_flutter: ^2.0.4
 
 flutter:
   uses-material-design: true

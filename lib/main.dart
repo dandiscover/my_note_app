@@ -1,5 +1,5 @@
 // lib/main.dart
-// 应用入口 — 全局配置、路由、快捷键、悬浮宠物
+// 应用入口 — 配置 Supabase
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -22,10 +22,28 @@ import 'models/keyboard_shortcut.dart';
 import 'models/pet.dart';
 import 'services/pet_service.dart';
 import 'widgets/floating_pet.dart';
+import 'services/supabase_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ 正确的 Project URL（从 Supabase 仪表盘复制）
+  const supabaseUrl = 'https://tbthjvgtcuqgfbjdswrz.supabase.co';
+  // ✅ 您的 anon key
+  const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidGhqdmd0Y3VxZ2ZiamRzd3J6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MjYxNzksImV4cCI6MjEwMzUwMjE3OX0.IdWOeucWqZTR92FoRGvOAohsS2ewVKx9XQs0d1eWvNo';
+
+  print('🔑 Supabase URL: $supabaseUrl');
+  print('🔑 Supabase Key: ${supabaseAnonKey.substring(0, 20)}...');
+
+  await SupabaseService.init(
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
+  );
+
   runApp(const MyApp());
 }
+
+// ─── MyApp ──────────────────────────────────────────────────
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -65,7 +83,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ─── 悬浮宠物覆盖层 ─────────────────────────────
+// ─── 悬浮宠物覆盖层 ──────────────────────────────────────────
 
 class _FloatingPetOverlay extends StatefulWidget {
   const _FloatingPetOverlay();
@@ -151,7 +169,7 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   }
 }
 
-// ─── NotebookPage ─────────────────────────────
+// ─── NotebookPage ─────────────────────────────────────────────
 
 class NotebookPage extends StatefulWidget {
   const NotebookPage({super.key});

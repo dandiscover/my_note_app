@@ -1,5 +1,5 @@
 // lib/widgets/insight/review_stats.dart
-// 复习统计栏 — 显示今日复习进度
+// 复习统计栏
 
 import 'package:flutter/material.dart';
 

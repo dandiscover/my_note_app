@@ -1,12 +1,11 @@
 // lib/widgets/insight/review_card_item.dart
-// 复习卡片项 — 显示卡片内容 + 评分按钮
+// 复习卡片项 — 使用 CardModel
 
 import 'package:flutter/material.dart';
-import '../../models/review_card.dart';
-import '../../mixins/state_mixin.dart';
+import '../../models/card.dart';
 
 class ReviewCardItem extends StatefulWidget {
-  final ReviewCard card;
+  final CardModel card;
   final bool isReviewing;
   final Function(int quality) onReview;
 
@@ -44,21 +43,25 @@ class _ReviewCardItemState extends State<ReviewCardItem> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: widget.card.isNew ? Colors.green.shade100 : Colors.orange.shade100,
+                    color: widget.card.totalReviews == 0
+                        ? Colors.green.shade100
+                        : Colors.orange.shade100,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    widget.card.isNew ? '新卡片' : '复习 #${widget.card.repetitions}',
+                    widget.card.totalReviews == 0 ? '新卡片' : '复习 #${widget.card.totalReviews}',
                     style: TextStyle(
                       fontSize: 10,
-                      color: widget.card.isNew ? Colors.green.shade700 : Colors.orange.shade700,
+                      color: widget.card.totalReviews == 0
+                          ? Colors.green.shade700
+                          : Colors.orange.shade700,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
                 const Spacer(),
                 Text(
-                  '间隔 ${widget.card.interval}天',
+                  '阶段 ${widget.card.stage}/7',
                   style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
                 ),
               ],
@@ -86,7 +89,6 @@ class _ReviewCardItemState extends State<ReviewCardItem> {
 
             const SizedBox(height: 12),
 
-            // ─── 提示 ──────────────────────────────────────
             if (!widget.isReviewing && !_isFlipped)
               Center(
                 child: Text(
@@ -95,7 +97,6 @@ class _ReviewCardItemState extends State<ReviewCardItem> {
                 ),
               ),
 
-            // ─── 评分按钮 ──────────────────────────────────
             if (_isFlipped || widget.isReviewing)
               _buildReviewButtons(),
           ],
@@ -118,9 +119,22 @@ class _ReviewCardItemState extends State<ReviewCardItem> {
           ),
           const SizedBox(height: 6),
           Text(
-            widget.card.question,
+            widget.card.displayFront,
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           ),
+          if (widget.card.typeLabel != '复习卡')
+            Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: widget.card.typeColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                widget.card.typeLabel,
+                style: TextStyle(fontSize: 9, color: widget.card.typeColor),
+              ),
+            ),
         ],
       ),
     );
@@ -140,20 +154,20 @@ class _ReviewCardItemState extends State<ReviewCardItem> {
           ),
           const SizedBox(height: 6),
           Text(
-            widget.card.answer,
+            widget.card.displayBack,
             style: const TextStyle(fontSize: 15),
           ),
-          if (widget.card.isDue)
+          if (widget.card.stage < 7)
             Container(
               margin: const EdgeInsets.only(top: 6),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.red.shade100,
+                color: Colors.blue.shade100,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                '⏰ 需要复习',
-                style: TextStyle(fontSize: 10, color: Colors.red.shade700),
+                widget.card.stageLabel,
+                style: TextStyle(fontSize: 10, color: Colors.blue.shade700),
               ),
             ),
         ],

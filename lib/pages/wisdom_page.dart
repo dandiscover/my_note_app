@@ -1,9 +1,10 @@
 // lib/pages/wisdom_page.dart
-// 📚 智库页面 — 含“灵感过期”文件夹按需出现 + 线索墙入口
+// 📚 智库页面 — 含“灵感过期”文件夹 + “图书馆”系统文件夹
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:collection/collection.dart';  // ✅ 添加
 
 import '../database_service.dart';
 import '../models/note.dart';
@@ -25,7 +26,6 @@ import '../widgets/wisdom/wisdom_draggable.dart';
 import '../widgets/wisdom/wisdom_search_bar.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
-// ✅ 导入写作页面（线索墙入口需要）
 import 'writing_page.dart';
 
 enum WisdomViewMode { list, grid, large, split }
@@ -81,6 +81,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   Future<void> _loadData() async {
     isLoading = true;
     try {
+      await _db.ensureLibraryFolder();
+
       final nodes = await _cache.get<List<Node>>(
         _cacheKeyNodes,
         () => _db.getAllNodes(),
@@ -200,29 +202,37 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
   List<Node> get _rootFolders => _nodes.where((n) => n.isFolder && n.parentId == null).toList();
 
-  // ✅ 用户文件夹（不含系统文件夹）
   List<Node> get _userFolders {
     return _nodes.where((n) => 
       n.isFolder && 
       n.parentId == null && 
-      n.title != '灵感过期'
+      n.title != '灵感过期' &&
+      n.title != '图书馆'
     ).toList();
   }
 
-  // ✅ 获取“灵感过期”文件夹
-  Node? get _expiredFolder {
-    final folder = _nodes.firstWhere(
-      (n) => n.title == '灵感过期' && n.isFolder && n.parentId == null,
-      orElse: () => Node(
-        id: '',
-        title: '',
-        isFolder: false,
-        nodeType: 'folder',
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
+  // ✅ 修复：使用 firstWhereOrNull
+  Node? get _libraryFolder {
+    final folder = _nodes.firstWhereOrNull(
+      (n) => n.title == '图书馆' && n.isFolder && n.parentId == null,
     );
-    if (folder.id.isEmpty) return null;
+    if (folder == null) return null;
+    final children = _nodes.where((n) => n.parentId == folder.id && !n.isFolder).toList();
+    if (children.isEmpty) return null;
+    return folder;
+  }
+
+  int get _libraryBookCount {
+    if (_libraryFolder == null) return 0;
+    return _nodes.where((n) => n.parentId == _libraryFolder!.id && n.nodeType == 'book').length;
+  }
+
+  // ✅ 修复：使用 firstWhereOrNull
+  Node? get _expiredFolder {
+    final folder = _nodes.firstWhereOrNull(
+      (n) => n.title == '灵感过期' && n.isFolder && n.parentId == null,
+    );
+    if (folder == null) return null;
     final children = _nodes.where((n) => n.parentId == folder.id && !n.isFolder).toList();
     if (children.isEmpty) return null;
     return folder;
@@ -237,7 +247,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     setState(() { _currentFolderId = folderId; _cachedFilteredNodes = null; _searchKeyword = ''; _showSearchBar = false; });
   }
 
-  // ✅ 打开线索墙
   void _openClueBoard() {
     Navigator.push(
       context,
@@ -445,7 +454,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       actions: [
         IconButton(icon: const Icon(Icons.search), onPressed: _toggleSearch, tooltip: '搜索'),
         IconButton(icon: const Icon(Icons.explore, color: Colors.purple), onPressed: _createExploreTask, tooltip: '探究任务'),
-        // ✅ 线索墙入口
         IconButton(
           icon: const Icon(Icons.bubble_chart, color: Colors.teal),
           onPressed: _openClueBoard,
@@ -460,6 +468,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     final folderStats = _getFolderStats();
     final expiredFolder = _expiredFolder;
     final expiredCount = _expiredNoteCount;
+    final libraryFolder = _libraryFolder;
+    final libraryCount = _libraryBookCount;
 
     return Column(
       children: [
@@ -476,13 +486,13 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           onBatchMove: _batchMove,
         ),
         Expanded(
-          child: children.isEmpty && expiredFolder == null
+          child: children.isEmpty && expiredFolder == null && libraryFolder == null
               ? _buildEmptyState()
               : Padding(
                   padding: const EdgeInsets.all(12),
                   child: _viewMode == WisdomViewMode.split
-                      ? _buildSplitView(children, folderStats, expiredFolder, expiredCount)
-                      : _buildGrid(children, folderStats, expiredFolder, expiredCount),
+                      ? _buildSplitView(children, folderStats, expiredFolder, expiredCount, libraryFolder, libraryCount)
+                      : _buildGrid(children, folderStats, expiredFolder, expiredCount, libraryFolder, libraryCount),
                 ),
         ),
       ],
@@ -541,7 +551,14 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
   }
 
-  Widget _buildSplitView(List<Node> children, Map<String, Map<String, int>> folderStats, Node? expiredFolder, int expiredCount) {
+  Widget _buildSplitView(
+    List<Node> children,
+    Map<String, Map<String, int>> folderStats,
+    Node? expiredFolder,
+    int expiredCount,
+    Node? libraryFolder,
+    int libraryCount,
+  ) {
     final userFolders = _userFolders;
 
     return Row(
@@ -550,12 +567,21 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           width: 220,
           decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade200))),
           child: ListView.builder(
-            itemCount: userFolders.length + (expiredFolder != null ? 1 : 0),
+            itemCount: userFolders.length + (expiredFolder != null ? 1 : 0) + (libraryFolder != null ? 1 : 0),
             itemBuilder: (context, index) {
-              if (index == userFolders.length && expiredFolder != null) {
+              int offset = 0;
+              if (libraryFolder != null) {
+                if (index == 0) {
+                  return _buildLibraryFolderTile(libraryFolder, libraryCount);
+                }
+                offset = 1;
+              }
+              final adjustedIndex = index - offset;
+              if (expiredFolder != null && adjustedIndex == userFolders.length) {
                 return _buildExpiredFolderTile(expiredFolder, expiredCount);
               }
-              final folder = userFolders[index];
+              if (adjustedIndex >= userFolders.length) return const SizedBox.shrink();
+              final folder = userFolders[adjustedIndex];
               final stats = folderStats[folder.id] ?? {};
               final total = stats['total'] ?? 0;
               return ListTile(
@@ -596,6 +622,27 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
   }
 
+  Widget _buildLibraryFolderTile(Node folder, int count) {
+    return ListTile(
+      title: Text(
+        '📚 图书馆 ($count)',
+        style: TextStyle(
+          fontSize: 13,
+          color: Colors.blue.shade700,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        '所有导入的图书',
+        style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
+      ),
+      selected: _currentFolderId == folder.id,
+      onTap: () => _navigateToFolder(folder.id),
+      leading: const Icon(Icons.library_books, size: 18, color: Colors.blue),
+      dense: true,
+    );
+  }
+
   Widget _buildExpiredFolderTile(Node folder, int count) {
     return ListTile(
       title: Text(
@@ -617,76 +664,31 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
   }
 
-  Widget _buildGrid(List<Node> children, Map<String, Map<String, int>> folderStats, Node? expiredFolder, int expiredCount) {
+  Widget _buildGrid(
+    List<Node> children,
+    Map<String, Map<String, int>> folderStats,
+    Node? expiredFolder,
+    int expiredCount,
+    Node? libraryFolder,
+    int libraryCount,
+  ) {
     final crossAxisCount = _getCrossAxisCount();
     final aspectRatio = _getAspectRatio();
 
     List<Node> gridChildren = List.from(children);
-    if (expiredFolder != null) {
-      final expiredNode = Node(
-        id: expiredFolder.id,
-        title: '🗂️ 灵感过期 ($expiredCount)',
-        parentId: null,
-        isFolder: true,
-        nodeType: 'folder',
-        tags: ['系统', '过期'],
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      gridChildren.add(expiredNode);
-    }
 
     return GridView.builder(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount, crossAxisSpacing: 6, mainAxisSpacing: 6, childAspectRatio: aspectRatio,
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: 6,
+        mainAxisSpacing: 6,
+        childAspectRatio: aspectRatio,
       ),
       itemCount: gridChildren.length,
       itemBuilder: (context, index) {
         final node = gridChildren[index];
-        if (node.title.startsWith('🗂️ 灵感过期')) {
-          return _buildExpiredFolderCard(node, expiredCount);
-        }
         return RepaintBoundary(child: _buildCard(node, folderStats));
       },
-    );
-  }
-
-  // ✅ 修复：用 GestureDetector 包裹 Container
-  Widget _buildExpiredFolderCard(Node node, int count) {
-    return GestureDetector(
-      onTap: () => _navigateToFolder(node.id),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.shade300, width: 0.5),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.archive_outlined, size: 28, color: Colors.grey.shade500),
-              const SizedBox(height: 4),
-              Text(
-                '🗂️ 灵感过期',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey.shade600,
-                  fontStyle: FontStyle.italic,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              Text(
-                '$count 条',
-                style: TextStyle(
-                  fontSize: 9,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -713,31 +715,111 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     final cardHeight = 120.0;
     Widget cardContent;
 
+    final isSystemFolder = node.isFolder && node.parentId == null &&
+        (node.title == '图书馆' || node.title == '灵感过期' || node.title == '卡片盒' || node.title == '复盘');
+
     if (node.isFolder) {
       final stats = folderStats[node.id] ?? {};
-      cardContent = WisdomFolderCard(
-        node: node,
-        isSelectMode: _isSelectMode,
-        isSelected: _selectedIds.contains(node.id),
-        onEnterFolder: () => _navigateToFolder(node.id),
-        onCheckChanged: (checked) {
-          setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
-        },
-        cardWidth: cardWidth,
-        cardHeight: cardHeight,
-        isDescendantOf: (a, b) => false,
-        subFolderCount: stats['subFolders'] ?? 0,
-        noteCount: stats['notes'] ?? 0,
-        cardCount: stats['cards'] ?? 0,
-        onDataChanged: () {
-          _cache.invalidate(_cacheKeyNodes);
-          _cache.invalidate(_cacheKeyNotes);
-          _cache.invalidate(_cacheKeyBooks);
-          _cache.invalidate(_cacheKeyCards);
-          _folderStatsCache = null;
-          _loadData();
-        },
-      );
+      
+      if (node.title == '图书馆') {
+        final count = _libraryBookCount;
+        cardContent = GestureDetector(
+          onTap: () => _navigateToFolder(node.id),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade300, width: 1),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.library_books, size: 28, color: Colors.blue.shade700),
+                  const SizedBox(height: 4),
+                  Text(
+                    '📚 图书馆',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  Text(
+                    '$count 本',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.blue.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      } else if (node.title == '灵感过期') {
+        final count = _expiredNoteCount;
+        cardContent = GestureDetector(
+          onTap: () => _navigateToFolder(node.id),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300, width: 0.5),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.archive_outlined, size: 28, color: Colors.grey.shade500),
+                  const SizedBox(height: 4),
+                  Text(
+                    '🗂️ 灵感过期',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  Text(
+                    '$count 条',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      } else {
+        cardContent = WisdomFolderCard(
+          node: node,
+          isSelectMode: _isSelectMode,
+          isSelected: _selectedIds.contains(node.id),
+          onEnterFolder: () => _navigateToFolder(node.id),
+          onCheckChanged: (checked) {
+            setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
+          },
+          cardWidth: cardWidth,
+          cardHeight: cardHeight,
+          isDescendantOf: (a, b) => false,
+          subFolderCount: stats['subFolders'] ?? 0,
+          noteCount: stats['notes'] ?? 0,
+          cardCount: stats['cards'] ?? 0,
+          onDataChanged: () {
+            _cache.invalidate(_cacheKeyNodes);
+            _cache.invalidate(_cacheKeyNotes);
+            _cache.invalidate(_cacheKeyBooks);
+            _cache.invalidate(_cacheKeyCards);
+            _folderStatsCache = null;
+            _loadData();
+          },
+        );
+      }
     } else if (node.nodeType == 'note') {
       cardContent = WisdomNoteCard(
         node: node,
@@ -779,7 +861,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       );
     }
 
-    if (!_isSelectMode) {
+    if (!_isSelectMode && !isSystemFolder) {
       return WisdomDraggable(
         node: node,
         child: cardContent,

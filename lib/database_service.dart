@@ -1,5 +1,5 @@
 // lib/database_service.dart
-// 数据层 — 双引擎（Web/原生）支持 + 导出/导入 + 灵感过期归档
+// 数据层 — 双引擎（Web/原生）支持 + 导出/导入 + 灵感过期归档 + 图书馆文件夹
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -546,9 +546,10 @@ class DatabaseService {
   }
 
   // ============================================================
-  // 复盘专用方法
+  // 系统文件夹管理
   // ============================================================
 
+  /// 确保“复盘”文件夹存在，返回其ID（任务复盘归档用）
   Future<String> ensureReviewFolder() async {
     final allNodes = await getAllNodes();
     for (var node in allNodes) {
@@ -557,6 +558,22 @@ class DatabaseService {
       }
     }
     final folder = await createFolder(title: '复盘');
+    return folder.id;
+  }
+
+  /// ✅ 新增：确保“图书馆”文件夹存在，返回其ID（图书导入自动归类用）
+  Future<String> ensureLibraryFolder() async {
+    final allNodes = await getAllNodes();
+    for (var node in allNodes) {
+      if (node.title == '图书馆' && node.isFolder && node.parentId == null) {
+        return node.id;
+      }
+    }
+    final folder = await createFolder(
+      title: '图书馆',
+      parentId: null,
+      tags: ['系统', '图书'],
+    );
     return folder.id;
   }
 
@@ -619,7 +636,7 @@ class DatabaseService {
   }
 
   // ============================================================
-  // ✅ 导出/导入（合并后保留）
+  // ✅ 导出/导入
   // ============================================================
 
   /// 导出全部数据为 JSON 字符串
@@ -689,7 +706,7 @@ class DatabaseService {
   }
 
   // ============================================================
-  // 🆕 灵感笔记自动归档相关（保留您原有的）
+  // 🆕 灵感笔记自动归档相关
   // ============================================================
 
   /// 归档过期的灵感笔记（status='raw' 且超过 retentionDays 天未更新）

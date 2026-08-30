@@ -62,13 +62,13 @@ class _WisdomCardState extends State<WisdomCard> {
         final count = snapshot.data?.length ?? 0;
 
         final cardContent = DragTarget<String>(
-          onWillAccept: (data) {
+          onWillAcceptWithDetails: (data) {
             if (data == null) return false;
             if (data == widget.node.id) return false;
             if (widget.isDescendantOf(data, widget.node.id)) return false;
             return true;
           },
-          onAccept: (data) async {
+          onAcceptWithDetails: (data) async {
             await _db.moveNode(data, widget.node.id);
             WisdomLightToast.show(context, '✅ 已移动到「${widget.node.title}」');
             widget.onEnterFolder();
@@ -167,7 +167,7 @@ class _WisdomCardState extends State<WisdomCard> {
       onLongPress: widget.isSelectMode ? null : widget.onLongPress,
       child: Card(
         elevation: 2,
-        shadowColor: Colors.black.withOpacity(0.06),
+        shadowColor: Colors.black.withValues(alpha: 0.06),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),

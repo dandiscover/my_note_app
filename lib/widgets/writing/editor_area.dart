@@ -202,7 +202,7 @@ class EditorAreaState extends State<EditorArea> {
                   children: _tags.map((tag) => Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                     decoration: BoxDecoration(
-                      color: _getTagColor(tag).withOpacity(0.15),
+                      color: _getTagColor(tag).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
