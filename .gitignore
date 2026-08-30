@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# 自定义忽略
+*.zip
+.env
+list.txt
