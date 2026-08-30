@@ -4,6 +4,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';  // ✅ 新增
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'services/env_service.dart';  // ✅ 云上数据库
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'models/pet.dart';  // ✅ 必须有这个！
 // ─── Web 快捷键（条件导入） ──────────────────────────────────
@@ -53,29 +54,20 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // ✅ 使用 --dart-define 从命令行读取环境变量
-  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+ // ✅ 使用 EnvService 读取环境变量
+  final supabaseUrl = EnvService.supabaseUrl;
+  final supabaseAnonKey = EnvService.supabaseAnonKey;
 
-  // ✅ 如果命令行没有传入，使用硬编码默认值（方便测试）
-  final url = supabaseUrl.isEmpty
-      ? 'https://tbthjvgtcuqgfbjdswrz.supabase.co'
-      : supabaseUrl;
-  final anonKey = supabaseAnonKey.isEmpty
-      ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidGhqdmd0Y3VxZ2ZiamRzd3J6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MjYxNzksImV4cCI6MjEwMzUwMjE3OX0.IdWOeucWqZTR92FoRGvOAohsS2ewVKx9XQs0d1eWvNo'
-      : supabaseAnonKey;
-
-  print('🔑 Supabase URL: $url');
-  print('🔑 Supabase Key: ${anonKey.substring(0, 20)}...');
+  print('🔑 Supabase URL: $supabaseUrl');
+  print('🔑 Supabase Key: ${supabaseAnonKey.substring(0, 20)}...');
 
   await SupabaseService.init(
-    url: url,
-    anonKey: anonKey,
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
   );
 
   runApp(const MyApp());
 }
-
 // ═══════════════════════════════════════════════════════════════════
 // MyApp
 // ═══════════════════════════════════════════════════════════════════
