@@ -127,7 +127,7 @@ class _ReviewCardItemState extends State<ReviewCardItem> {
               margin: const EdgeInsets.only(top: 4),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: widget.card.typeColor.withOpacity(0.15),
+                color: widget.card.typeColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(

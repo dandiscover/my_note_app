@@ -2,10 +2,8 @@
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import '../database_service.dart';
 import '../models/note.dart';
-import '../models/node.dart';
 import '../models/card.dart';
 import '../services/card_service.dart';
 import '../widgets/fullscreen_editor.dart';

@@ -281,7 +281,7 @@ class DatabaseService {
     for (var map in noteMaps) {
       final note = NotebookEntry.fromMap(map);
       nodesToAdd.add(Node(
-        id: DateTime.now().millisecondsSinceEpoch.toString() + '_${note.id}',
+        id: '${DateTime.now().millisecondsSinceEpoch}_${note.id}',
         title: note.title,
         parentId: null,
         isFolder: false,
@@ -296,7 +296,7 @@ class DatabaseService {
     for (var map in bookMaps) {
       final book = Book.fromMap(map);
       nodesToAdd.add(Node(
-        id: DateTime.now().millisecondsSinceEpoch.toString() + '_${book.id}',
+        id: '${DateTime.now().millisecondsSinceEpoch}_${book.id}',
         title: book.title,
         parentId: null,
         isFolder: false,
@@ -620,13 +620,13 @@ class DatabaseService {
       final checkedMatch = RegExp(r'^-\s*\[x\]\s*(.+)$').firstMatch(line);
       if (uncheckedMatch != null) {
         results.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
+          'id': '${DateTime.now().millisecondsSinceEpoch}_${index++}',
           'title': uncheckedMatch.group(1)?.trim() ?? '未命名子任务',
           'isDone': false,
         });
       } else if (checkedMatch != null) {
         results.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString() + '_${index++}',
+          'id': '${DateTime.now().millisecondsSinceEpoch}_${index++}',
           'title': checkedMatch.group(1)?.trim() ?? '未命名子任务',
           'isDone': true,
         });
@@ -861,7 +861,7 @@ class DatabaseService {
   }
 
   // ============================================================
-  // 原生 SQLite 支持
+  // 原生 SQLite 支持（已修复：新增 tags 列）
   // ============================================================
 
   static Database? _database;
@@ -871,7 +871,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'notebook.db');
     _database = await openDatabase(
       path,
-      version: 5,
+      version: 6, // ✅ 版本升级到 6，触发迁移
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -883,32 +883,62 @@ class DatabaseService {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 3) {
-      await db.execute('ALTER TABLE books ADD COLUMN cover_image TEXT');
-      await db.execute('ALTER TABLE books ADD COLUMN pdf_path TEXT');
-      await db.execute('ALTER TABLE books ADD COLUMN file_type TEXT DEFAULT "none"');
-    }
+    // 版本 2：添加 status 列
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT "raw"');
+      try {
+        await db.execute('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT "raw"');
+      } catch (_) {}
     }
+
+    // 版本 3：books 表新增列
+    if (oldVersion < 3) {
+      try {
+        await db.execute('ALTER TABLE books ADD COLUMN cover_image TEXT');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE books ADD COLUMN pdf_path TEXT');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE books ADD COLUMN file_type TEXT DEFAULT "none"');
+      } catch (_) {}
+    }
+
+    // 版本 4：notes 表新增 editorMode
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE notes ADD COLUMN editorMode TEXT DEFAULT "plain"');
+      try {
+        await db.execute('ALTER TABLE notes ADD COLUMN editorMode TEXT DEFAULT "plain"');
+      } catch (_) {}
     }
-    if (oldVersion < 5) {
-      await db.execute('''
-        CREATE TABLE nodes(
-          id TEXT PRIMARY KEY,
-          title TEXT,
-          parent_id TEXT,
-          is_folder INTEGER DEFAULT 0,
-          node_type TEXT DEFAULT 'folder',
-          target_id TEXT,
-          sort_order INTEGER DEFAULT 0,
-          tags TEXT DEFAULT '',
-          created_at TEXT,
-          updated_at TEXT
-        )
-      ''');
+
+    // ✅ 版本 5 和 6：合并处理，确保 tags 列存在
+    if (oldVersion < 6) {
+      // 添加 tags 列（如果不存在）
+      try {
+        await db.execute('ALTER TABLE notes ADD COLUMN tags TEXT DEFAULT ""');
+      } catch (_) {}
+
+      // 添加 isLocked 列（如果不存在）
+      try {
+        await db.execute('ALTER TABLE notes ADD COLUMN isLocked INTEGER DEFAULT 0');
+      } catch (_) {}
+
+      // 创建 nodes 表（如果不存在）
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS nodes(
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            parent_id TEXT,
+            is_folder INTEGER DEFAULT 0,
+            node_type TEXT DEFAULT 'folder',
+            target_id TEXT,
+            sort_order INTEGER DEFAULT 0,
+            tags TEXT DEFAULT '',
+            created_at TEXT,
+            updated_at TEXT
+          )
+        ''');
+      } catch (_) {}
     }
   }
 
@@ -921,7 +951,8 @@ class DatabaseService {
         updatedAt TEXT,
         status TEXT DEFAULT 'raw',
         editorMode TEXT DEFAULT 'plain',
-        isLocked INTEGER DEFAULT 0
+        isLocked INTEGER DEFAULT 0,
+        tags TEXT DEFAULT ''   -- ✅ 新增 tags 列
       )
     ''');
     await db.execute('''

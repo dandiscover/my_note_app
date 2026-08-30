@@ -1,5 +1,5 @@
 // lib/widgets/wisdom/wisdom_folder_card.dart
-// 智库 - 文件夹卡片（支持拖放、卡片盒特殊处理）
+// 智库 - 文件夹卡片（修复 DragTarget 参数类型）
 
 import 'package:flutter/material.dart';
 import '../../database_service.dart';
@@ -51,7 +51,6 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
   String? _dragTargetId;
   bool _isHovered = false;
 
-  // ✅ 判断是否为卡片盒
   bool get _isCardBox => widget.node.title == '卡片盒' && widget.node.isFolder;
 
   @override
@@ -67,18 +66,17 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
           child: DragTarget<Node>(
             onWillAccept: (data) {
               if (data == null) return false;
-              // ✅ 修复：直接使用 data.id，而不是 data.data.id
+              // ✅ data 本身就是 Node
               if (data.id == widget.node.id) return false;
               if (widget.isDescendantOf(data.id, widget.node.id)) return false;
 
               if (_isCardBox) {
                 return false;
               }
-
               return true;
             },
             onAccept: (data) async {
-              // ✅ 修复：直接使用 data.id，而不是 data.data.id
+              // ✅ data 本身就是 Node
               await _db.moveNode(data.id, widget.node.id);
               WisdomLightToast.show(context, '✅ 已移动到「${widget.node.title}」');
               widget.onDataChanged?.call();

@@ -16,7 +16,7 @@ class ThinkingTemplateDialog extends StatelessWidget {
         height: 360,
         child: ListView.separated(
           itemCount: ThinkingTemplate.all.length,
-          separatorBuilder: (_, __) => const Divider(),
+          separatorBuilder: (_, _) => const Divider(),
           itemBuilder: (context, index) {
             final template = ThinkingTemplate.all[index];
             return ListTile(

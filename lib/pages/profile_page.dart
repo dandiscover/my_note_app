@@ -1,11 +1,10 @@
 // lib/pages/profile_page.dart
-// 我的页 — 完整功能 + Supabase 登录
+// 我的页 — 使用 FileService 统一文件操作
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
 import 'dart:developer';
-import 'dart:html' as html;
 import 'package:file_picker/file_picker.dart';
 import 'dart:io' as io;
 import '../services/settings_service.dart';
@@ -14,6 +13,11 @@ import '../services/keyboard_shortcut_manager.dart';
 import '../models/keyboard_shortcut.dart';
 import '../database_service.dart';
 import '../services/supabase_service.dart';
+import '../services/book_service.dart';
+import '../services/sync_manager.dart';
+import '../services/file_service.dart'; // ✅ 新增
+import '../models/book.dart';
+import '../models/book_note.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -27,6 +31,10 @@ class _ProfilePageState extends State<ProfilePage>
   final SettingsService _settings = SettingsService();
   final KeyboardShortcutManager _shortcutManager = KeyboardShortcutManager();
   final DatabaseService db = DatabaseService();
+  final BookService _bookService = BookService();
+  final SyncManager _syncManager = SyncManager();
+  final FileService _fileService = FileService(); // ✅ 新增
+
   UserSettings? _settingsData;
   bool _isLoading = true;
   List<KeyboardShortcut> _shortcuts = [];
@@ -38,10 +46,14 @@ class _ProfilePageState extends State<ProfilePage>
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
     _loadData();
+    _syncManager.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _syncManager.removeListener(() {});
     _tabController.dispose();
     super.dispose();
   }
@@ -67,65 +79,13 @@ class _ProfilePageState extends State<ProfilePage>
     await _settings.save(_settingsData!);
   }
 
-  // ============================================================
-  // 文件操作辅助
-  // ============================================================
-
-  void _downloadFile(String content, String fileName, String mimeType) {
-    final blob = html.Blob([content], mimeType);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..download = fileName
-      ..click();
-    html.Url.revokeObjectUrl(url);
-  }
-
-  Future<void> _saveFileDesktop(String content, String fileName) async {
-    final String? outputFile = await FilePicker.platform.saveFile(
-      dialogTitle: '保存文件',
-      fileName: fileName,
-    );
-    if (outputFile != null) {
-      final file = io.File(outputFile);
-      await file.writeAsString(content);
-    }
-  }
-
-  Future<String?> _pickFileDesktop() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-    );
-    if (result == null) return null;
-    final fileBytes = result.files.first.bytes;
-    return utf8.decode(fileBytes!);
-  }
-
-  Future<String?> _pickFileWeb() async {
-    final input = html.FileUploadInputElement()..accept = '.json';
-    input.click();
-    await input.onChange.first;
-    if (input.files!.isEmpty) return null;
-    final file = input.files!.first;
-    final reader = html.FileReader();
-    reader.readAsText(file);
-    await reader.onLoad.first;
-    return reader.result as String?;
-  }
-
-  // ============================================================
-  // 导出 / 导入
-  // ============================================================
+  // ─── 导出 / 导入（使用 FileService） ──────────────────────
 
   Future<void> _exportJson() async {
     try {
       final jsonData = await db.exportAllData();
       final fileName = 'cloudbrain_backup_${DateTime.now().toIso8601String()}.json';
-      if (kIsWeb) {
-        _downloadFile(jsonData, fileName, 'application/json');
-      } else {
-        await _saveFileDesktop(jsonData, fileName);
-      }
+      await _fileService.downloadFile(jsonData, fileName, 'application/json');
       _showSnackBar('✅ 导出成功');
     } catch (e) {
       _showSnackBar('❌ 导出失败：$e');
@@ -134,12 +94,7 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<void> _importJson() async {
     try {
-      String? jsonString;
-      if (kIsWeb) {
-        jsonString = await _pickFileWeb();
-      } else {
-        jsonString = await _pickFileDesktop();
-      }
+      final jsonString = await _fileService.pickJsonFile();
       if (jsonString == null) return;
 
       final confirmed = await showDialog<bool>(
@@ -195,11 +150,7 @@ class _ProfilePageState extends State<ProfilePage>
     try {
       final markdown = await db.exportNotesAsMarkdown();
       final fileName = 'cloudbrain_notes_${DateTime.now().toIso8601String()}.md';
-      if (kIsWeb) {
-        _downloadFile(markdown, fileName, 'text/markdown');
-      } else {
-        await _saveFileDesktop(markdown, fileName);
-      }
+      await _fileService.downloadFile(markdown, fileName, 'text/markdown');
       _showSnackBar('✅ Markdown 导出成功');
     } catch (e) {
       _showSnackBar('❌ 导出失败：$e');
@@ -212,9 +163,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ============================================================
-  // 登录相关
-  // ============================================================
+  // ─── 登录相关 ──────────────────────────────────────────────
 
   void _showLoginDialog() {
     final emailController = TextEditingController();
@@ -265,7 +214,6 @@ class _ProfilePageState extends State<ProfilePage>
                 onPressed: () async {
                   try {
                     if (isSignUp) {
-                      // ✅ 注册
                       await SupabaseService().signUp(
                         email: emailController.text.trim(),
                         password: passwordController.text.trim(),
@@ -275,16 +223,13 @@ class _ProfilePageState extends State<ProfilePage>
                       );
                       Navigator.pop(context);
                     } else {
-                      // ✅ 登录
                       await SupabaseService().signIn(
                         email: emailController.text.trim(),
                         password: passwordController.text.trim(),
                       );
                       Navigator.pop(context);
                       setState(() {});
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('✅ 登录成功！')),
-                      );
+                      _pullCloudData();
                     }
                   } catch (e) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -299,6 +244,45 @@ class _ProfilePageState extends State<ProfilePage>
         },
       ),
     );
+  }
+
+  Future<void> _pullCloudData() async {
+    try {
+      final result = await _syncManager.pullAll();
+      if (result != null) {
+        for (var book in result.books) {
+          await db.updateBook(book.toMap());
+        }
+        for (var note in result.bookNotes) {
+          await _bookService.saveNote(note);
+        }
+        _showSnackBar('☁️ 已从云端同步 ${result.books.length} 本图书');
+      }
+    } catch (e) {
+      print('☁️ 拉取云端数据失败: $e');
+    }
+  }
+
+  Future<void> _manualSync() async {
+    final bookMaps = await db.getAllBooks();
+    final books = bookMaps.map((m) => Book.fromMap(m)).toList();
+
+    final allNotes = <BookNote>[];
+    for (var book in books) {
+      final notes = await _bookService.getNotes(book.id);
+      allNotes.addAll(notes);
+    }
+
+    final success = await _syncManager.syncAll(
+      books: books,
+      bookNotes: allNotes,
+    );
+
+    if (success) {
+      _showSnackBar('☁️ 同步成功！${_syncManager.syncedBooks} 本图书，${_syncManager.syncedNotes} 条笔记');
+    } else {
+      _showSnackBar('❌ 同步失败: ${_syncManager.lastSyncError}');
+    }
   }
 
   Widget _buildAuthSection() {
@@ -347,6 +331,17 @@ class _ProfilePageState extends State<ProfilePage>
                   ),
                   const SizedBox(width: 8),
                   IconButton(
+                    icon: _syncManager.isSyncing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync, size: 20, color: Colors.blue),
+                    onPressed: _syncManager.isSyncing ? null : _manualSync,
+                    tooltip: '同步到云端',
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.logout, size: 20, color: Colors.red),
                     onPressed: () async {
                       await service.signOut();
@@ -381,9 +376,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ============================================================
-  // UI 构建
-  // ============================================================
+  // ─── UI 构建 ──────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -436,9 +429,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ============================================================
-  // Tab 1：个人资料
-  // ============================================================
+  // ─── Tab 1：个人资料 ──────────────────────────────────────
 
   Widget _buildProfileTab() {
     final settings = _settingsData!;
@@ -542,9 +533,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ============================================================
-  // Tab 2：设置
-  // ============================================================
+  // ─── Tab 2：设置 ──────────────────────────────────────────
 
   Widget _buildSettingsTab() {
     final settings = _settingsData!;
@@ -984,9 +973,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ============================================================
-  // Tab 3：快捷键
-  // ============================================================
+  // ─── Tab 3：快捷键 ──────────────────────────────────────────
 
   Widget _buildShortcutTab() {
     return SingleChildScrollView(
@@ -1141,9 +1128,7 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
-  // ============================================================
-  // Tab 4：数据管理
-  // ============================================================
+  // ─── Tab 4：数据管理 ────────────────────────────────────────
 
   Widget _buildDataTab() {
     return SingleChildScrollView(
@@ -1226,9 +1211,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ============================================================
-  // Tab 5：社交
-  // ============================================================
+  // ─── Tab 5：社交 ────────────────────────────────────────────
 
   Widget _buildSocialTab() {
     return SingleChildScrollView(
@@ -1318,9 +1301,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ============================================================
-  // 颜色工具
-  // ============================================================
+  // ─── 颜色工具 ──────────────────────────────────────────────
 
   Widget _buildColorPickerTile({
     required String title,

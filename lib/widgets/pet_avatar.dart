@@ -28,7 +28,7 @@ class _PetAvatarState extends State<PetAvatar>
   late AnimationController _breatheController;
   late Animation<double> _breatheAnimation;
   late AnimationController _blinkController;
-  bool _isBlinking = false;
+  final bool _isBlinking = false;
 
   @override
   void initState() {
@@ -126,8 +126,8 @@ class _PetAvatarState extends State<PetAvatar>
     final droplets = <Widget>[];
     final colors = [
       color,
-      color.withOpacity(0.7),
-      color.withOpacity(0.5),
+      color.withValues(alpha: 0.7),
+      color.withValues(alpha: 0.5),
     ];
 
     for (var i = 0; i < count && i < colors.length; i++) {
@@ -155,13 +155,13 @@ class _PetAvatarState extends State<PetAvatar>
       height: size * 1.2,
       decoration: BoxDecoration(
         gradient: RadialGradient(
-          colors: [color, color.withOpacity(0.3)],
+          colors: [color, color.withValues(alpha: 0.3)],
           center: const Alignment(0.3, 0.3),
         ),
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.3),
+            color: color.withValues(alpha: 0.3),
             blurRadius: size * 0.2,
             offset: const Offset(0, 4),
           ),
@@ -271,7 +271,7 @@ class _PetAvatarState extends State<PetAvatar>
             boxShadow: glow
                 ? [
                     BoxShadow(
-                      color: glowColor.withOpacity(0.4),
+                      color: glowColor.withValues(alpha: 0.4),
                       blurRadius: s * 0.4,
                       spreadRadius: s * 0.05,
                     ),
@@ -308,7 +308,7 @@ class _PetAvatarState extends State<PetAvatar>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.grey.withOpacity(0.1),
+                        color: Colors.grey.withValues(alpha: 0.1),
                         blurRadius: 4,
                       ),
                     ],
@@ -326,7 +326,7 @@ class _PetAvatarState extends State<PetAvatar>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.grey.withOpacity(0.1),
+                        color: Colors.grey.withValues(alpha: 0.1),
                         blurRadius: 4,
                       ),
                     ],
@@ -360,7 +360,7 @@ class _PetAvatarState extends State<PetAvatar>
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
+                          color: Colors.black.withValues(alpha: 0.2),
                           blurRadius: 2,
                         ),
                       ],
@@ -391,7 +391,7 @@ class _PetAvatarState extends State<PetAvatar>
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
+                          color: Colors.black.withValues(alpha: 0.2),
                           blurRadius: 2,
                         ),
                       ],
@@ -418,7 +418,7 @@ class _PetAvatarState extends State<PetAvatar>
                   width: s * 0.12,
                   height: s * 0.07,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFB6C1).withOpacity(0.4),
+                    color: const Color(0xFFFFB6C1).withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(s * 0.06),
                   ),
                 ),
@@ -430,7 +430,7 @@ class _PetAvatarState extends State<PetAvatar>
                   width: s * 0.12,
                   height: s * 0.07,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFB6C1).withOpacity(0.4),
+                    color: const Color(0xFFFFB6C1).withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(s * 0.06),
                   ),
                 ),
@@ -492,11 +492,11 @@ class _PetAvatarState extends State<PetAvatar>
                         width: s * 0.3,
                         height: s * 0.3,
                         decoration: BoxDecoration(
-                          color: Colors.indigo.withOpacity(opacity),
+                          color: Colors.indigo.withValues(alpha: opacity),
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.indigo.withOpacity(0.3),
+                              color: Colors.indigo.withValues(alpha: 0.3),
                               blurRadius: s * 0.3,
                               spreadRadius: s * 0.1,
                             ),

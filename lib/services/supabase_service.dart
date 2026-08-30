@@ -1,5 +1,5 @@
 // lib/services/supabase_service.dart
-// Supabase 云存储服务（包含上传进度回调）
+// Supabase 云存储服务（简化版，一次上传）
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:typed_data';
@@ -22,65 +22,25 @@ class SupabaseService {
 
   SupabaseClient get client => Supabase.instance.client;
 
-  /// 上传文件到 Storage（带进度回调）
+  /// 上传文件到 Storage
   Future<String> uploadFile({
     required String bucketName,
     required String path,
     required Uint8List fileBytes,
     required String contentType,
-    void Function(int sent, int total)? onProgress,  // ✅ 进度回调
+    void Function(int sent, int total)? onProgress,
   }) async {
     try {
       final totalBytes = fileBytes.length;
-      const chunkSize = 1024 * 1024; // 1MB 分块
 
-      // ✅ 文件小于 1MB，直接上传
-      if (totalBytes <= chunkSize) {
-        await client.storage.from(bucketName).uploadBinary(
-          path,
-          fileBytes,
-          fileOptions: FileOptions(contentType: contentType),
-        );
-        onProgress?.call(totalBytes, totalBytes);
-        return client.storage.from(bucketName).getPublicUrl(path);
-      }
-
-      // ✅ 大文件分块上传
-      int uploaded = 0;
-      final chunks = <Uint8List>[];
-
-      // 分块
-      for (var i = 0; i < totalBytes; i += chunkSize) {
-        final end = (i + chunkSize < totalBytes) ? i + chunkSize : totalBytes;
-        final chunk = Uint8List.sublistView(fileBytes, i, end);
-        chunks.add(chunk);
-      }
-
-      // 逐块上传
-      for (var i = 0; i < chunks.length; i++) {
-        final chunk = chunks[i];
-        final chunkPath = '$path.part$i';
-
-        await client.storage.from(bucketName).uploadBinary(
-          chunkPath,
-          chunk,
-          fileOptions: FileOptions(contentType: contentType),
-        );
-
-        uploaded += chunk.length;
-        onProgress?.call(uploaded, totalBytes);
-      }
-
-      // 合并分块（使用 Supabase 的 copy 操作）
-      // 由于 Supabase 没有直接的合并 API，我们采用另一种方式：
-      // 对于大文件，我们重新使用标准上传（Supabase SDK 内部处理分块）
-      // 但由于无法获取进度，我们用模拟进度让用户看到反馈
+      // ✅ 一次上传即可（Supabase SDK 内部处理大文件分块）
       await client.storage.from(bucketName).uploadBinary(
         path,
         fileBytes,
         fileOptions: FileOptions(contentType: contentType),
       );
 
+      // ✅ 上传完成回调
       onProgress?.call(totalBytes, totalBytes);
 
       return client.storage.from(bucketName).getPublicUrl(path);
@@ -95,8 +55,8 @@ class SupabaseService {
     required String path,
   }) async {
     try {
-      final data = await client.storage.from(bucketName).download(path);
-      return data;
+      final response = await client.storage.from(bucketName).download(path);
+      return response;
     } catch (e) {
       return null;
     }
@@ -116,22 +76,18 @@ class SupabaseService {
   String? get currentUserId => client.auth.currentUser?.id;
   String? get currentUserEmail => client.auth.currentUser?.email;
 
-  /// 登录
   Future<void> signIn({required String email, required String password}) async {
     await client.auth.signInWithPassword(email: email, password: password);
   }
 
-  /// 注册
   Future<void> signUp({required String email, required String password}) async {
     await client.auth.signUp(email: email, password: password);
   }
 
-  /// 登出
   Future<void> signOut() async {
     await client.auth.signOut();
   }
 
-  /// 确保 Storage Bucket 存在
   Future<void> ensureBucket(String bucketName) async {
     try {
       await client.storage.createBucket(

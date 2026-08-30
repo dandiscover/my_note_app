@@ -69,7 +69,7 @@ class InsightPageState extends State<InsightPage>
   bool _isReviewing = false;
 
   late TabController _tabController;
-  Set<String> _hoveredNodeIds = {};
+  final Set<String> _hoveredNodeIds = {};
 
   static const String _cacheKeyNodes = 'insight_nodes';
   static const String _cacheKeyNotes = 'insight_notes';
@@ -517,7 +517,7 @@ class InsightPageState extends State<InsightPage>
             borderRadius: BorderRadius.circular(8),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 4,
                 offset: const Offset(0, 1),
               ),
@@ -842,7 +842,7 @@ class InsightPageState extends State<InsightPage>
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
-                          color: _getTagColor(node.tags.first).withOpacity(0.15),
+                          color: _getTagColor(node.tags.first).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -906,7 +906,7 @@ class InsightPageState extends State<InsightPage>
       child: Card(
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(
@@ -1067,7 +1067,7 @@ class InsightPageState extends State<InsightPage>
               minScale: 0.2,
               maxScale: 3.0,
               constrained: false,
-              child: Container(
+              child: SizedBox(
                 width: graphWidth,
                 height: graphHeight,
                 child: KnowledgeGraphWidget(

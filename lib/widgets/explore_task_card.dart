@@ -188,7 +188,7 @@ class _ExploreTaskCardState extends State<ExploreTaskCard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -215,7 +215,7 @@ class _ExploreTaskCardState extends State<ExploreTaskCard> {
   }
 
   Widget _buildSubtaskItem(model.Subtask st) {
-    bool _isHovered = false;
+    bool isHovered = false;
 
     return StatefulBuilder(
       builder: (context, setState) {
@@ -236,8 +236,8 @@ class _ExploreTaskCardState extends State<ExploreTaskCard> {
                 )
               else
                 MouseRegion(
-                  onEnter: (_) => setState(() => _isHovered = true),
-                  onExit: (_) => setState(() => _isHovered = false),
+                  onEnter: (_) => setState(() => isHovered = true),
+                  onExit: (_) => setState(() => isHovered = false),
                   child: GestureDetector(
                     onTap: () => widget.onToggleSubtask(st),
                     child: Container(
@@ -246,12 +246,12 @@ class _ExploreTaskCardState extends State<ExploreTaskCard> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: _isHovered ? Colors.green : Colors.grey.shade400,
+                          color: isHovered ? Colors.green : Colors.grey.shade400,
                           width: 2,
                         ),
-                        color: _isHovered ? Colors.green.shade50 : Colors.transparent,
+                        color: isHovered ? Colors.green.shade50 : Colors.transparent,
                       ),
-                      child: _isHovered
+                      child: isHovered
                           ? Icon(Icons.check, size: 11, color: Colors.green.shade600)
                           : null,
                     ),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../database_service.dart';
 import '../../models/node.dart';
 import 'wisdom_light_toast.dart';
 
@@ -63,7 +62,7 @@ class WisdomBreadcrumb extends StatelessWidget {
                   ),
                 ],
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -78,12 +77,11 @@ class WisdomBreadcrumb extends StatelessWidget {
     required Future<void> Function(String) onDragAccept,
   }) {
     return DragTarget<String>(
-      onWillAccept: (data) {
-        if (data == null) return false;
+      onWillAcceptWithDetails: (data) {
         if (isLast) return false;
         return true;
       },
-      onAccept: (data) async {
+      onAcceptWithDetails: (data) async {
         await onDragAccept(data);
       },
       builder: (context, candidateData, rejectedData) {

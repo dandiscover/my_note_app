@@ -406,10 +406,10 @@ class KnowledgeGraphPainter extends CustomPainter {
     for (var node in graph.nodes) {
       final isHovered = hoveredNodeId == node.id;
       final radius = isHovered ? node.radius * 1.2 : node.radius;
-      final color = isHovered ? node.color.withOpacity(1.0) : node.color.withOpacity(0.8);
+      final color = isHovered ? node.color.withValues(alpha: 1.0) : node.color.withValues(alpha: 0.8);
 
       final shadowPaint = Paint()
-        ..color = Colors.black.withOpacity(0.1)
+        ..color = Colors.black.withValues(alpha: 0.1)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
       canvas.drawCircle(Offset(node.x + 2, node.y + 2), radius, shadowPaint);
@@ -457,7 +457,7 @@ class KnowledgeGraphPainter extends CustomPainter {
         final labelY = node.y + radius + 6;
 
         final bgPaint = Paint()
-          ..color = Colors.white.withOpacity(0.9)
+          ..color = Colors.white.withValues(alpha: 0.9)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
 
         canvas.drawRRect(

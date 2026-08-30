@@ -2,8 +2,6 @@ import 'dart:math'; // ✅ 新增导入
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/node.dart';
-import '../models/note.dart';
-import '../models/book.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
 
@@ -34,7 +32,7 @@ class _TagListPageState extends State<TagListPage> {
   }
 
   // 展开的标签
-  Set<String> _expandedTags = {};
+  final Set<String> _expandedTags = {};
 
   @override
   Widget build(BuildContext context) {
@@ -106,12 +104,12 @@ class _TagListPageState extends State<TagListPage> {
                           width: 28,
                           height: 28,
                           decoration: BoxDecoration(
-                            color: _getTagColor(tag).withOpacity(0.15),
+                            color: _getTagColor(tag).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Center(
                             child: Text(
-                              '#' + tag.substring(0, min(2, tag.length)), // ✅ min 现在可用
+                              '#${tag.substring(0, min(2, tag.length))}', // ✅ min 现在可用
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
@@ -186,7 +184,7 @@ class _TagListPageState extends State<TagListPage> {
                                 subtitle: Text(
                                   node.isFolder
                                       ? '📂 文件夹'
-                                      : '${node.nodeType == 'note' ? '📄 笔记' : '📘 图书'}',
+                                      : node.nodeType == 'note' ? '📄 笔记' : '📘 图书',
                                   style: TextStyle(
                                     fontSize: 10,
                                     color: Colors.grey.shade500,

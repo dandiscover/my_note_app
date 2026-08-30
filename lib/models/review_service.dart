@@ -1,7 +1,6 @@
 // lib/models/review_card.dart
 // 复习卡片模型 — SM-2算法
 
-import 'dart:math';
 
 class ReviewCard {
   final String id;

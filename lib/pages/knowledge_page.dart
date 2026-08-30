@@ -196,7 +196,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
         : ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: _entries.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final entry = _entries[index];
               final preview = entry.content.replaceAll('\n', ' ');

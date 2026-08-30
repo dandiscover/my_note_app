@@ -63,7 +63,6 @@ class _WisdomCardState extends State<WisdomCard> {
 
         final cardContent = DragTarget<String>(
           onWillAcceptWithDetails: (data) {
-            if (data == null) return false;
             if (data == widget.node.id) return false;
             if (widget.isDescendantOf(data, widget.node.id)) return false;
             return true;

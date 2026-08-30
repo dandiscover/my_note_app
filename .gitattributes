@@ -1,0 +1,9 @@
+# 自动检测文本文件，统一用 LF 存储到 Git 仓库
+* text=auto
+
+# 针对 Flutter 自动生成的文件，明确指定用 LF（消除警告）
+*.cc text eol=lf
+*.cmake text eol=lf
+*.swift text eol=lf
+pubspec.lock text eol=lf
+.metadata text eol=lf

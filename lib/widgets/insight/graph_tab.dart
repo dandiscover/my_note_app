@@ -208,7 +208,7 @@ class _GraphTabState extends State<GraphTab> {
               minScale: 0.2,
               maxScale: 3.0,
               constrained: false,
-              child: Container(
+              child: SizedBox(
                 width: graphWidth,
                 height: graphHeight,
                 child: LayoutBuilder(

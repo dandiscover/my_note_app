@@ -217,7 +217,7 @@ class _PetWidgetState extends State<PetWidget>
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
+                              color: Colors.black.withValues(alpha: 0.1),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -363,7 +363,7 @@ class _PetWidgetState extends State<PetWidget>
             top: pos.dy,
             child: _singleDroplet(
               size: dropletSize,
-              color: color.withOpacity(1.0 - i * 0.1),
+              color: color.withValues(alpha: 1.0 - i * 0.1),
               emotion: i == 0 ? emotion : null,
             ),
           ),
@@ -393,14 +393,14 @@ class _PetWidgetState extends State<PetWidget>
         gradient: RadialGradient(
           colors: [
             color,
-            color.withOpacity(0.3),
+            color.withValues(alpha: 0.3),
           ],
           center: const Alignment(0.3, 0.3),
         ),
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.3),
+            color: color.withValues(alpha: 0.3),
             blurRadius: size * 0.3,
             offset: const Offset(0, 4),
           ),
@@ -519,7 +519,7 @@ class _PetWidgetState extends State<PetWidget>
           width: size * 0.2,
           height: size * 0.2,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.8),
+            color: color.withValues(alpha: 0.8),
             shape: BoxShape.circle,
           ),
         ),
@@ -531,7 +531,7 @@ class _PetWidgetState extends State<PetWidget>
           width: size * 0.15,
           height: size * 0.15,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.8),
+            color: color.withValues(alpha: 0.8),
             shape: BoxShape.circle,
           ),
         ),
@@ -576,7 +576,7 @@ class _PetWidgetState extends State<PetWidget>
         boxShadow: glow
             ? [
                 BoxShadow(
-                  color: glowColor.withOpacity(0.3),
+                  color: glowColor.withValues(alpha: 0.3),
                   blurRadius: s * 0.3,
                   spreadRadius: s * 0.05,
                 ),

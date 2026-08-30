@@ -1,5 +1,5 @@
 // lib/pages/book_detail_page.dart
-// 书籍详情页
+// 书籍详情页 — 支持云端同步
 
 import 'dart:convert';
 import 'dart:io';
@@ -16,6 +16,8 @@ import '../models/book.dart';
 import '../models/book_note.dart';
 import '../models/node.dart';
 import '../services/book_service.dart';
+import '../services/supabase_service.dart';
+import '../services/cloud_data_service.dart';
 import '../utils/app_date_utils.dart';
 import '../utils/app_string_utils.dart';
 import 'pdf_reader_page.dart';
@@ -117,7 +119,7 @@ class _BookDetailPageState extends State<BookDetailPage>
       String progressText = '准备上传...';
 
       // ✅ 显示进度对话框
-      final progressDialog = showDialog(
+      showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => StatefulBuilder(

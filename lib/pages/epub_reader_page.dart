@@ -5,11 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:epubx/epubx.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
 
 import '../database_service.dart';
 import '../models/book.dart';
@@ -46,7 +43,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   Book? _book;
   EpubBook? _epubBook;
   List<EpubChapter>? _chapters;
-  List<String> _chapterContents = [];
+  final List<String> _chapterContents = [];
   bool _isLoading = true;
   String? _errorMessage;
   int _currentChapterIndex = 0;
@@ -682,7 +679,7 @@ class _CardTypeDialogState extends State<_CardTypeDialog> {
                   onSelected: (selected) {
                     setState(() => _selectedType = type);
                   },
-                  selectedColor: type.color.withOpacity(0.2),
+                  selectedColor: type.color.withValues(alpha: 0.2),
                 );
               }).toList(),
             ),

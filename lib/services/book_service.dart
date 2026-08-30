@@ -1,5 +1,5 @@
 // lib/services/book_service.dart
-// 图书服务层 — Windows 用本地文件，Web 用 Supabase
+// 图书服务层 — Windows 用本地文件，Web 用 Supabase，导入时同步云端
 
 import 'dart:convert';
 import 'dart:io';
@@ -12,6 +12,7 @@ import '../models/book.dart';
 import '../models/book_note.dart';
 import '../database_service.dart';
 import 'supabase_service.dart';
+import 'cloud_data_service.dart';
 
 class BookService {
   final DatabaseService _db = DatabaseService();
@@ -138,6 +139,16 @@ class BookService {
       parentId: folderId,
     );
 
+    // ✅ 同步到云端
+    if (SupabaseService().isLoggedIn) {
+      try {
+        await CloudDataService().syncBook(book);
+        print('☁️ 图书已同步到云端: ${book.title}');
+      } catch (e) {
+        print('☁️ 云端同步失败: $e');
+      }
+    }
+
     return book;
   }
 
@@ -153,6 +164,8 @@ class BookService {
     );
     await _db.moveNode(node.id, targetFolderId);
   }
+
+  // ─── 阅读笔记 ──────────────────────────────────────────────
 
   Future<List<BookNote>> getNotes(String bookId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -174,6 +187,15 @@ class BookService {
     final existing = await getNotes(note.bookId);
     final updated = [...existing, note];
     await prefs.setString(key, jsonEncode(updated.map((n) => n.toMap()).toList()));
+
+    // ✅ 同步到云端
+    if (SupabaseService().isLoggedIn) {
+      try {
+        await CloudDataService().syncBookNote(note);
+      } catch (e) {
+        // 同步失败不影响本地
+      }
+    }
   }
 
   Future<void> deleteNote(String bookId, String noteId) async {
@@ -182,6 +204,13 @@ class BookService {
     final prefs = await SharedPreferences.getInstance();
     final key = '$_notesKeyPrefix$bookId';
     await prefs.setString(key, jsonEncode(updated.map((n) => n.toMap()).toList()));
+
+    // ✅ 删除云端笔记
+    if (SupabaseService().isLoggedIn) {
+      try {
+        await CloudDataService().deleteBookNote(noteId);
+      } catch (e) {}
+    }
   }
 
   Future<void> deleteAllNotes(String bookId) async {

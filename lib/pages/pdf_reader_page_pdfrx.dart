@@ -1,12 +1,13 @@
 // lib/pages/pdf_reader_page.dart
-// PDF 阅读器
+// PDF 阅读器 — 使用 dart_pdf_editor（支持标注/批注/高亮）
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:printing/printing.dart';
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 
@@ -40,14 +41,14 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   final DatabaseService _db = DatabaseService();
 
   Book? _book;
-  Uint8List? _pdfBytes;
+  PdfFile? _pdfFile;
   bool _isLoading = true;
   String? _errorMessage;
   int _currentPage = 1;
   int _totalPages = 0;
 
-  String? _selectedText;
-  final TextEditingController _noteController = TextEditingController();
+  // 编辑器控制器
+  PdfEditorController? _controller;
 
   @override
   void initState() {
@@ -57,7 +58,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
 
   @override
   void dispose() {
-    _noteController.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -66,36 +67,53 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     await _loadPdf();
   }
 
+  // ─── 加载 PDF ────────────────────────────────────────────────
+
   Future<void> _loadPdf() async {
     setState(() => _isLoading = true);
 
     try {
+      Uint8List? pdfData;
       String? sourcePath = widget.filePath ?? _book?.filePath;
 
+      // ✅ Web 端：从 URL 加载（blob: 或 http:）
       if (widget.isWeb && widget.fileUrl != null && widget.fileUrl!.isNotEmpty) {
-        await _loadPdfFromUrl(widget.fileUrl!);
-        return;
+        pdfData = await _loadPdfFromUrl(widget.fileUrl!);
+        if (pdfData != null) {
+          _pdfFile = PdfFile.fromBytes(pdfData);
+          setState(() => _isLoading = false);
+          return;
+        }
       }
 
+      // ✅ Web 端：处理 blob: URL
       if (widget.isWeb && sourcePath != null && sourcePath.startsWith('blob:')) {
-        await _loadPdfFromUrl(sourcePath);
-        return;
+        pdfData = await _loadPdfFromUrl(sourcePath);
+        if (pdfData != null) {
+          _pdfFile = PdfFile.fromBytes(pdfData);
+          setState(() => _isLoading = false);
+          return;
+        }
       }
 
+      // ✅ Web 端：Base64 解码（小文件兼容）
       if (widget.isWeb && sourcePath != null && sourcePath.length > 200 &&
           !sourcePath.startsWith('/') && !sourcePath.startsWith('blob:') &&
           !sourcePath.startsWith('http') && !sourcePath.startsWith('data:')) {
         try {
-          _pdfBytes = base64Decode(sourcePath);
+          pdfData = base64Decode(sourcePath);
+          _pdfFile = PdfFile.fromBytes(pdfData);
           setState(() => _isLoading = false);
           return;
         } catch (_) {}
       }
 
+      // ✅ 桌面端：从文件系统加载
       if (sourcePath != null && sourcePath.isNotEmpty && !widget.isWeb) {
         final file = File(sourcePath);
         if (await file.exists()) {
-          _pdfBytes = await file.readAsBytes();
+          pdfData = await file.readAsBytes();
+          _pdfFile = PdfFile.fromBytes(pdfData);
           setState(() => _isLoading = false);
           return;
         }
@@ -114,135 +132,110 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     }
   }
 
-  Future<void> _loadPdfFromUrl(String url) async {
+  Future<Uint8List?> _loadPdfFromUrl(String url) async {
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
-        _pdfBytes = response.bodyBytes;
-        setState(() => _isLoading = false);
-      } else {
-        setState(() {
-          _errorMessage = '无法下载PDF: ${response.statusCode}';
-          _isLoading = false;
-        });
+        return response.bodyBytes;
       }
+      return null;
     } catch (e) {
-      setState(() {
-        _errorMessage = '下载失败: $e';
-        _isLoading = false;
-      });
+      return null;
     }
   }
 
-  Future<void> _saveProgress() async {
-    if (_book != null && _totalPages > 0) {
-      final progress = (_currentPage / _totalPages * 100).round();
+  // ─── 保存进度 ────────────────────────────────────────────────
+
+  Future<void> _saveProgress(int page, int total) async {
+    if (_book != null && total > 0) {
+      final progress = (page / total * 100).round();
       final updated = _book!.copyWith(
         readingProgress: progress,
-        totalPages: _totalPages,
+        totalPages: total,
         lastReadAt: DateTime.now(),
       );
       await _bookService.saveBook(updated);
       _book = updated;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('📖 已保存进度: $_currentPage / $_totalPages 页')),
-      );
     }
   }
 
-  Future<void> _saveNote() async {
-    final text = _noteController.text.trim();
-    if (text.isEmpty && _selectedText == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请选中文字或输入笔记内容')),
-      );
-      return;
-    }
+  // ─── 保存标注笔记 ────────────────────────────────────────────
+
+  Future<void> _saveAnnotation(String text, int page) async {
+    if (text.trim().isEmpty) return;
 
     final note = BookNote(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bookId: widget.bookId,
-      pageNumber: _currentPage,
-      selectedText: _selectedText ?? text,
-      comment: _selectedText != null ? text : '',
+      pageNumber: page,
+      selectedText: text,
+      comment: '',
       color: '#FFD93D',
     );
 
     await _bookService.saveNote(note);
-    _selectedText = null;
-    _noteController.clear();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('✅ 笔记已保存')),
+      const SnackBar(content: Text('✅ 批注已保存')),
     );
   }
 
-  void _showNoteInputDialog(String? selectedText) {
-    _selectedText = selectedText;
-    _noteController.clear();
+  // ─── 导出标注 ────────────────────────────────────────────────
 
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.note_add, color: Colors.blue),
-            const SizedBox(width: 8),
-            const Text('添加阅读笔记'),
+  Future<void> _exportAnnotations() async {
+    if (_controller == null) return;
+    try {
+      final annotations = await _controller!.getAllAnnotations();
+      if (annotations.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('没有标注可导出')),
+        );
+        return;
+      }
+
+      // 生成文本摘要
+      final buffer = StringBuffer();
+      buffer.writeln('# ${_book?.title ?? 'PDF'} 批注汇总');
+      buffer.writeln('导出时间: ${DateTime.now()}');
+      buffer.writeln('=' * 50);
+
+      for (var ann in annotations) {
+        buffer.writeln('📌 第 ${ann.page} 页');
+        buffer.writeln('   ${ann.text}');
+        if (ann.color != null) {
+          buffer.writeln('   颜色: ${ann.color}');
+        }
+        buffer.writeln();
+      }
+
+      // 复制到剪贴板或显示对话框
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('📝 批注汇总'),
+          content: SizedBox(
+            width: 400,
+            height: 300,
+            child: SingleChildScrollView(
+              child: Text(buffer.toString(), style: const TextStyle(fontSize: 13)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
           ],
         ),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (selectedText != null && selectedText.isNotEmpty) ...[
-                const Text('📖 选中文字：', style: TextStyle(fontWeight: FontWeight.w600)),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(selectedText, style: const TextStyle(fontSize: 14)),
-                ),
-                const Text('💭 我的想法（可选）：'),
-              ] else ...[
-                const Text('💭 笔记内容：'),
-              ],
-              const SizedBox(height: 4),
-              TextField(
-                controller: _noteController,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  hintText: '写下你的思考...',
-                  border: OutlineInputBorder(),
-                ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 8),
-              Text('📌 第 $_currentPage 页',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () { Navigator.pop(context); }, child: const Text('取消')),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-              _saveNote();
-            },
-            icon: const Icon(Icons.save),
-            label: const Text('保存笔记'),
-          ),
-        ],
-      ),
-    );
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导出失败: $e')),
+      );
+    }
   }
+
+  // ─── UI 构建 ──────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +259,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
       );
     }
 
-    if (_errorMessage != null || _pdfBytes == null) {
+    if (_errorMessage != null || _pdfFile == null) {
       return Scaffold(
         appBar: AppBar(
           title: Text(widget.fileName),
@@ -279,8 +272,10 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
             children: [
               Icon(Icons.picture_as_pdf, size: 64, color: Colors.grey.shade400),
               const SizedBox(height: 16),
-              Text(_errorMessage ?? '无法加载PDF',
-                  style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
+              Text(
+                _errorMessage ?? '无法加载PDF',
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+              ),
               const SizedBox(height: 12),
               ElevatedButton.icon(
                 onPressed: () => Navigator.pop(context),
@@ -294,62 +289,162 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: Text(widget.fileName),
         backgroundColor: Colors.grey.shade900,
         foregroundColor: Colors.white,
         actions: [
+          // 导出批注
           IconButton(
-            icon: const Icon(Icons.note_add),
-            onPressed: () => _showNoteInputDialog(null),
-            tooltip: '添加笔记',
+            icon: const Icon(Icons.notes),
+            onPressed: _exportAnnotations,
+            tooltip: '导出批注',
           ),
+          // 保存进度
           IconButton(
             icon: const Icon(Icons.bookmark_border),
-            onPressed: _saveProgress,
+            onPressed: () {
+              _saveProgress(_currentPage, _totalPages);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('📖 已保存进度: $_currentPage / $_totalPages 页')),
+              );
+            },
             tooltip: '保存进度',
           ),
         ],
       ),
-      body: PdfPreview(
-  build: (format) => _pdfBytes!,
-  allowPrinting: true,
-  allowSharing: true,
-  // ✅ 正确的回调签名
-  onPageChanged: (page) {
-    // 注意：PdfPreview 的 onPageChanged 只返回当前页，不返回总页数
-    // 总页数需要通过其他方式获取
-    setState(() {
-      _currentPage = page;
-    });
-  },
-  initialPage: _book?.readingProgress ?? 0,
-),
+      body: PdfEditorView(
+        file: _pdfFile!,
+        onController: (controller) {
+          _controller = controller;
+        },
+        onPageChanged: (page, total) {
+          setState(() {
+            _currentPage = page;
+            _totalPages = total;
+          });
+          // 每翻5页自动保存进度
+          if (page % 5 == 0) {
+            _saveProgress(page, total);
+          }
+        },
+        // 工具栏配置
+        toolbarConfig: PdfToolbarConfig(
+          showAnnotation: true,      // ✅ 显示批注工具
+          showHighlight: true,       // ✅ 显示高亮工具
+          showUnderline: true,       // ✅ 显示下划线工具
+          showStrikeout: true,       // ✅ 显示删除线工具
+          showShape: true,           // ✅ 显示形状工具
+          showText: true,            // ✅ 显示文本工具
+          showFreehand: true,        // ✅ 显示手绘工具
+          showUndoRedo: true,        // ✅ 显示撤销/重做
+          showPageNavigator: true,   // ✅ 显示页码导航
+          showZoom: true,            // ✅ 显示缩放工具
+        ),
+        theme: PdfTheme(
+          primaryColor: Colors.blue.shade700,
+          backgroundColor: Colors.grey.shade50,
+          toolbarColor: Colors.grey.shade900,
+          toolbarTextColor: Colors.white,
+        ),
+      ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         color: Colors.grey.shade900,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('第 $_currentPage / $_totalPages 页',
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(
+              '第 $_currentPage / $_totalPages 页',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
             Row(
               children: [
                 IconButton(
                   icon: const Icon(Icons.note_add, color: Colors.white70, size: 20),
-                  onPressed: () => _showNoteInputDialog(null),
-                  tooltip: '添加笔记',
+                  onPressed: () {
+                    _showAnnotationDialog();
+                  },
+                  tooltip: '添加批注',
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 ),
                 const SizedBox(width: 12),
-                Text('${_totalPages > 0 ? (_currentPage / _totalPages * 100).round() : 0}%',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                Text(
+                  '${_totalPages > 0 ? (_currentPage / _totalPages * 100).round() : 0}%',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ─── 批注对话框 ──────────────────────────────────────────────
+
+  void _showAnnotationDialog() {
+    final controller = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.note_add, color: Colors.blue),
+            const SizedBox(width: 8),
+            const Text('添加批注'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '📌 第 $_currentPage 页',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: '输入批注内容...',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                _saveAnnotation(controller.text.trim(), _currentPage);
+                // 添加批注到编辑器
+                if (_controller != null) {
+                  _controller!.addAnnotation(
+                    page: _currentPage,
+                    text: controller.text.trim(),
+                  );
+                }
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('请输入批注内容')),
+                );
+              }
+            },
+            icon: const Icon(Icons.save),
+            label: const Text('保存批注'),
+          ),
+        ],
       ),
     );
   }

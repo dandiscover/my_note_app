@@ -60,9 +60,9 @@ class QuadrantView extends StatelessWidget {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
       ),
       padding: const EdgeInsets.all(10),
       child: Column(
@@ -97,7 +97,7 @@ class QuadrantView extends StatelessWidget {
   }
 
   Widget _buildQuadrantTaskItem(Task task) {
-    bool _isHovered = false;
+    bool isHovered = false;
 
     return StatefulBuilder(
       key: ValueKey('quadrant_${task.id}'),
@@ -110,7 +110,7 @@ class QuadrantView extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.6),
+              color: Colors.white.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Row(
@@ -141,8 +141,8 @@ class QuadrantView extends StatelessWidget {
                 ],
                 const SizedBox(width: 4),
                 MouseRegion(
-                  onEnter: (_) => setState(() => _isHovered = true),
-                  onExit: (_) => setState(() => _isHovered = false),
+                  onEnter: (_) => setState(() => isHovered = true),
+                  onExit: (_) => setState(() => isHovered = false),
                   child: GestureDetector(
                     onTap: () {
                       if (task.type == TaskType.explore) {
@@ -152,9 +152,9 @@ class QuadrantView extends StatelessWidget {
                       }
                     },
                     child: Icon(
-                      _isHovered ? Icons.check_circle : Icons.check_circle_outline,
+                      isHovered ? Icons.check_circle : Icons.check_circle_outline,
                       size: 14,
-                      color: _isHovered ? Colors.green : Colors.grey,
+                      color: isHovered ? Colors.green : Colors.grey,
                     ),
                   ),
                 ),

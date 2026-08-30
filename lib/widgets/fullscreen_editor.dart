@@ -3,11 +3,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import '../database_service.dart';
 import '../models/note.dart';
 import '../models/card.dart';
 import '../services/card_service.dart';
-import '../services/review_service.dart';
 import '../widgets/note_card_dialog.dart';
 
 class FullscreenEditor extends StatefulWidget {
@@ -221,8 +219,12 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
                           ),
                           style: const TextStyle(fontSize: 13),
                           onSubmitted: (value) {
-                            if (value.contains(',')) { for (var tag in value.split(',')) _addTag(tag); }
-                            else _addTag(value);
+                            if (value.contains(',')) { for (var tag in value.split(',')) {
+                              _addTag(tag);
+                            } }
+                            else {
+                              _addTag(value);
+                            }
                           },
                           onChanged: (value) {
                             if (value.endsWith(',')) { final tag = value.substring(0, value.length - 1); _addTag(tag); }
@@ -237,9 +239,9 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
                       children: _tags.map((tag) => Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: _getTagColor(tag).withOpacity(0.15),
+                          color: _getTagColor(tag).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: _getTagColor(tag).withOpacity(0.3)),
+                          border: Border.all(color: _getTagColor(tag).withValues(alpha: 0.3)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -326,7 +328,7 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
                             Switch(
                               value: _isMarkdown,
                               onChanged: (value) { setState(() { _isMarkdown = value; }); },
-                              activeColor: Colors.blue,
+                              activeThumbColor: Colors.blue,
                               inactiveTrackColor: Colors.grey.shade300,
                               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),

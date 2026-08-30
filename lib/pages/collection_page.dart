@@ -3,32 +3,24 @@
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
-import '../models/task.dart';
 import '../services/task_service.dart';
 import '../services/cache_manager.dart';
 import '../services/settings_service.dart';
 import '../services/book_service.dart';
 import '../mixins/state_mixin.dart';
-import '../widgets/fullscreen_editor.dart';
 import '../widgets/collection/capture_card.dart';
 import '../widgets/collection/raw_note_item.dart';
 import '../widgets/collection/quick_note_dialog.dart';
 import 'creation_page.dart' as creation;
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
-import 'wisdom_page.dart';
 
 class CollectionPage extends StatefulWidget {
   final GlobalKey<creation.CreationPageState>? creationKey;

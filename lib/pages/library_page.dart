@@ -441,7 +441,7 @@ class _InsightPageState extends State<InsightPage>
       minScale: 0.3,
       maxScale: 2.0,
       constrained: false,
-      child: Container(
+      child: SizedBox(
         width: double.infinity,
         height: 600,
         child: LayoutBuilder(

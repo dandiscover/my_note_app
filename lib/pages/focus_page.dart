@@ -2,7 +2,6 @@
 // 专注模式页面 — 修复异步调用
 
 import 'dart:async';
-import 'dart:developer';
 import 'package:flutter/material.dart';
 import '../services/focus_service.dart';
 import '../widgets/pet_widget.dart';

@@ -3,7 +3,6 @@
 
 import 'package:flutter/material.dart';
 import '../models/user_settings.dart';
-import '../utils/app_date_utils.dart';
 
 class HeatmapWidget extends StatefulWidget {
   final Map<DateTime, int> data;
@@ -190,7 +189,7 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
               return GestureDetector(
                 onTap: () => widget.onDayTap(date, []),
                 child: Tooltip(
-                  message: '${date.month}/${date.day}: ${isWordMode ? count.toString() + ' 字' : count.toString() + ' 条'}',
+                  message: '${date.month}/${date.day}: ${isWordMode ? '$count 字' : '$count 条'}',
                   child: Container(
                     width: cellSize,
                     height: cellSize,

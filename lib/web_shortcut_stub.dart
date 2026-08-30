@@ -1,7 +1,6 @@
 // lib/web_shortcut_stub.dart
 // 桌面端快捷键桩（测试环境兼容）
 
-import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 class WebShortcutManager {

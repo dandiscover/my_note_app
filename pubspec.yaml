@@ -34,8 +34,11 @@ dependencies:
   # 社交分享
   share_plus: ^7.0.0
 
-  # PDF 阅读
-  printing: ^5.9.0
+  # ❌ 移除 printing（不再需要）
+  # printing: ^5.9.0
+
+  # ✅ PDF 编辑器（纯 Dart，跨平台，支持标注/批注/高亮）
+  dart_pdf_editor: ^2.0.0
 
   # EPUB 解析
   epubx: ^3.0.0
@@ -43,14 +46,14 @@ dependencies:
   # SVG 支持
   flutter_svg: ^2.0.0
 
-  # ✅ Supabase 云存储
+  # Supabase 云存储
   supabase_flutter: ^2.8.0
 
-  # ✅ 环境变量（保留，但不再使用 .env 文件）
+  # 环境变量
   flutter_dotenv: ^5.1.0
 
-  # ✅ HTML 渲染（EPUB 内容渲染）
-  flutter_widget_from_html: ^0.17.2
+  # HTML 渲染（EPUB）
+  flutter_widget_from_html: ^0.15.0
 
   cupertino_icons: ^1.0.8
 

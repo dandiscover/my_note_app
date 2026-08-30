@@ -1,7 +1,6 @@
 // lib/pages/pdf_reader_page.dart（更安全版本，移除了 web 特有功能）
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 class PdfReaderPage extends StatelessWidget {
   final String bookId;

@@ -1,8 +1,6 @@
 // lib/models/pet.dart
 // 宠物数据模型 — 8阶段成长：水滴→星云脑
 
-import 'dart:convert';
-import 'dart:developer';
 
 enum PetStage {
   droplet,   // 💧 水滴 (Lv.1)

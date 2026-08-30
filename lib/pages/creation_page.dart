@@ -18,7 +18,6 @@ import '../widgets/task/quadrant_view.dart';
 import '../widgets/writing/material_panel.dart';
 import 'writing_page.dart';
 import '../utils/app_date_utils.dart';
-import '../utils/app_string_utils.dart';
 
 enum ViewMode { list, quadrant }
 

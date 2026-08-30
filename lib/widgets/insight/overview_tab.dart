@@ -232,7 +232,7 @@ class _OverviewTabState extends State<OverviewTab> {
             borderRadius: BorderRadius.circular(8),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 4,
                 offset: const Offset(0, 1),
               ),
@@ -657,7 +657,7 @@ class _OverviewTabState extends State<OverviewTab> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
-                          color: _getTagColor(node.tags.first).withOpacity(0.15),
+                          color: _getTagColor(node.tags.first).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -735,7 +735,7 @@ class _OverviewTabState extends State<OverviewTab> {
       child: Card(
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(

@@ -28,7 +28,7 @@ class QuickNoteDialog extends StatefulWidget {
 class _QuickNoteDialogState extends State<QuickNoteDialog> {
   final TextEditingController _contentController = TextEditingController();
   final TextEditingController _tagController = TextEditingController();
-  List<String> _tags = [];
+  final List<String> _tags = [];
   bool _isTask = false;
   bool _isSaving = false;
 
@@ -237,9 +237,9 @@ class _QuickNoteDialogState extends State<QuickNoteDialog> {
             children: _tags.map((tag) => Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: _getTagColor(tag).withOpacity(0.15),
+                color: _getTagColor(tag).withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _getTagColor(tag).withOpacity(0.3)),
+                border: Border.all(color: _getTagColor(tag).withValues(alpha: 0.3)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,

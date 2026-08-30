@@ -4,7 +4,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/pet.dart';
-import '../models/user_settings.dart';
 
 class PetService {
   static const String _key = 'pet_data';

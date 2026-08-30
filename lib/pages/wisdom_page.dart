@@ -139,8 +139,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       final children = _nodes.where((n) => n.parentId == folderId).toList();
       int subFolderCount = 0, noteCount = 0, bookCount = 0, cardCount = 0;
       for (var child in children) {
-        if (child.isFolder) subFolderCount++;
-        else if (child.nodeType == 'note') { noteCount++; if (cardSourceIds.contains(child.targetId)) cardCount++; }
+        if (child.isFolder) {
+          subFolderCount++;
+        } else if (child.nodeType == 'note') { noteCount++; if (cardSourceIds.contains(child.targetId)) cardCount++; }
         else if (child.nodeType == 'book') { bookCount++; if (cardSourceIds.contains(child.targetId)) cardCount++; }
       }
       stats[folderId] = {
@@ -802,7 +803,11 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           isSelected: _selectedIds.contains(node.id),
           onEnterFolder: () => _navigateToFolder(node.id),
           onCheckChanged: (checked) {
-            setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
+            setState(() { if (checked == true) {
+              _selectedIds.add(node.id);
+            } else {
+              _selectedIds.remove(node.id);
+            } });
           },
           cardWidth: cardWidth,
           cardHeight: cardHeight,
@@ -827,7 +832,11 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         isSelected: _selectedIds.contains(node.id),
         onTap: () => _openNode(node),
         onCheckChanged: (checked) {
-          setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
+          setState(() { if (checked == true) {
+            _selectedIds.add(node.id);
+          } else {
+            _selectedIds.remove(node.id);
+          } });
         },
         cardWidth: cardWidth,
         cardHeight: cardHeight,
@@ -839,7 +848,11 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         isSelected: _selectedIds.contains(node.id),
         onTap: () => _openNode(node),
         onCheckChanged: (checked) {
-          setState(() { if (checked == true) _selectedIds.add(node.id); else _selectedIds.remove(node.id); });
+          setState(() { if (checked == true) {
+            _selectedIds.add(node.id);
+          } else {
+            _selectedIds.remove(node.id);
+          } });
         },
         cardWidth: cardWidth,
         cardHeight: cardHeight,
@@ -961,7 +974,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       children: [
         if (_fabExpanded)
           Positioned.fill(
-            child: GestureDetector(onTap: _closeFab, behavior: HitTestBehavior.translucent, child: Container(color: Colors.black.withOpacity(0.3)))),
+            child: GestureDetector(onTap: _closeFab, behavior: HitTestBehavior.translucent, child: Container(color: Colors.black.withValues(alpha: 0.3)))),
         AnimatedOpacity(
           opacity: _fabExpanded ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 200),
@@ -982,8 +995,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           onPressed: () => setState(() => _fabExpanded = !_fabExpanded),
           mini: true,
           backgroundColor: _fabExpanded ? Colors.grey.shade700 : Theme.of(context).primaryColor,
-          child: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _fabExpanded ? const AlwaysStoppedAnimation(1) : const AlwaysStoppedAnimation(0), color: Colors.white),
           tooltip: '创建',
+          child: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _fabExpanded ? const AlwaysStoppedAnimation(1) : const AlwaysStoppedAnimation(0), color: Colors.white),
         ),
       ],
     );
@@ -996,7 +1009,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white, borderRadius: BorderRadius.circular(30),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 2))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8, offset: const Offset(0, 2))],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

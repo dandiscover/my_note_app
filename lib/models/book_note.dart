@@ -1,8 +1,6 @@
 // lib/models/book_note.dart
 // 书籍阅读笔记模型
 
-import 'dart:convert';
-import 'dart:developer';
 
 class BookNote {
   final String id;

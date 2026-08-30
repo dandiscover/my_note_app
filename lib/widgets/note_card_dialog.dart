@@ -126,7 +126,7 @@ class _NoteCardDialogState extends State<NoteCardDialog> {
                         _selectedType = type;
                       });
                     },
-                    selectedColor: type.color.withOpacity(0.2),
+                    selectedColor: type.color.withValues(alpha: 0.2),
                     labelStyle: TextStyle(
                       color: _selectedType == type ? type.color : Colors.grey.shade700,
                     ),
@@ -157,7 +157,7 @@ class _NoteCardDialogState extends State<NoteCardDialog> {
                       },
                       selectedColor: Colors.blue.shade100,
                     );
-                  }).toList(),
+                  }),
                 ],
               ),
               const SizedBox(height: 8),
