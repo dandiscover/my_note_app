@@ -1,6 +1,7 @@
 // lib/pages/collection_page.dart
 // 采集页 — 灵感笔记自动归档提醒 + 图书导入入口（支持 Web/桌面）
 // ✅ 删除条件②重复逻辑，保留条件①
+// ✅ 新增：拍照记录（移动端可用，桌面端/Web 占位提示）
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,8 @@ import 'package:path/path.dart' as path;
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../database_service.dart';
 import '../models/note.dart';
@@ -283,10 +286,79 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     );
   }
 
-  void _takePhoto() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('拍照记录功能开发中...'), duration: Duration(seconds: 1)),
-    );
+  /// ✅ 拍照记录（移动端可用，桌面端/Web 占位提示）
+  Future<void> _takePhoto() async {
+    // 移动端以外（Web + 桌面）暂不支持
+    if (kIsWeb || Platform.isWindows || Platform.isLinux) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📷 拍照功能在移动端可用'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024,
+        imageQuality: 80,
+      );
+
+      if (image == null) return; // 用户取消
+
+      final bytes = await image.readAsBytes();
+      final imagePath = await _saveImageToLocal(bytes);
+
+      final entry = NotebookEntry(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: '照片笔记 ${DateTime.now().toLocal().toString().substring(0, 10)}',
+        content: imagePath,
+        status: 'raw',
+        tags: ['拍照'],
+        updatedAt: DateTime.now(),
+        // 注意：NotebookEntry 没有 createdAt 字段，仅保留 updatedAt
+      );
+
+      await _db.insertNote(entry.toMap());
+      _cache.invalidate(_cacheKeyRawNotes);
+      await _loadData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('📸 照片已保存'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ 拍照失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ 拍照失败: $e'),
+            backgroundColor: Colors.red.shade300,
+          ),
+        );
+      }
+    }
+  }
+
+  /// 保存图片到本地 photos/ 目录（仅移动端调用）
+  Future<String> _saveImageToLocal(Uint8List bytes) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final photosDir = Directory('${appDir.path}/photos');
+    if (!await photosDir.exists()) {
+      await photosDir.create(recursive: true);
+    }
+
+    final fileName = 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final file = File('${photosDir.path}/$fileName');
+    await file.writeAsBytes(bytes);
+    return file.path;
   }
 
   void _drawBoard() {
