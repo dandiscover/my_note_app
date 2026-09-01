@@ -2,6 +2,7 @@
 // 📚 智库页面 — 统一“已归档”文件夹 + 修复卡片盒 UI 更新 + 空列表安全
 // ✅ 新增：创建最小一步拐杖卡（异步保存）
 // ✅ 新增：卡片详情弹窗支持删除卡片
+// ✅ 修复：拐杖卡详情弹窗不显示“开始复习”按钮
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -1104,7 +1105,12 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             child: const Text('删除', style: TextStyle(color: Colors.red)),
           ),
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
-          if (!card.mastered) ElevatedButton(onPressed: () { Navigator.pop(context); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white), child: const Text('开始复习')),
+          if (card.kind == CardKind.atomic && !card.mastered)
+            ElevatedButton(
+              onPressed: () { Navigator.pop(context); },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
+              child: const Text('开始复习'),
+            ),
         ],
       ),
     );
