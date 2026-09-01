@@ -1,6 +1,8 @@
 // lib/widgets/wisdom/wisdom_card_box.dart
 // 卡片盒视图 — 显示所有卡片（含索引卡）
 // ✅ 新增：拐杖卡（kind == CardKind.scaffold）左上角显示 🧭 标记
+// ✅ 新增：“＋ 拐杖卡”按钮
+// ✅ 新增：空状态时也显示“＋ 拐杖卡”按钮
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -9,12 +11,14 @@ class WisdomCardBox extends StatefulWidget {
   final List<CardModel> cards;
   final Function(String) onSearch;
   final Function(CardModel) onCardTap;
+  final VoidCallback? onAddScaffold;
 
   const WisdomCardBox({
     super.key,
     required this.cards,
     required this.onSearch,
     required this.onCardTap,
+    this.onAddScaffold,
   });
 
   @override
@@ -82,17 +86,32 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
     final indexCount = widget.cards.where((c) => c.cardType == CardType.indexCard).length;
 
     if (widget.cards.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.credit_card_outlined, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            Text('📇 卡片盒是空的', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
-            const SizedBox(height: 8),
-            Text('在笔记详情或全屏编辑器中点击「✨生成卡片」创建复习卡', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-          ],
-        ),
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (widget.onAddScaffold != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: TextButton.icon(
+                onPressed: widget.onAddScaffold,
+                icon: const Icon(Icons.add, size: 14),
+                label: const Text('拐杖卡', style: TextStyle(fontSize: 11)),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  backgroundColor: Colors.purple.withValues(alpha: 0.1),
+                  foregroundColor: Colors.purple.shade700,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          Icon(Icons.credit_card_outlined, size: 48, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          Text('📇 卡片盒是空的', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+          const SizedBox(height: 8),
+          Text('在笔记详情或全屏编辑器中点击「✨生成卡片」创建复习卡', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+        ],
       );
     }
 
@@ -116,6 +135,23 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
                   const SizedBox(width: 12),
                   _buildStatChip('📚 索引卡', indexCount, Colors.teal),
                   const Spacer(),
+                  if (widget.onAddScaffold != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: TextButton.icon(
+                        onPressed: widget.onAddScaffold,
+                        icon: const Icon(Icons.add, size: 14),
+                        label: const Text('拐杖卡', style: TextStyle(fontSize: 11)),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          backgroundColor: Colors.purple.withValues(alpha: 0.1),
+                          foregroundColor: Colors.purple.shade700,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
                   Text('${grouped.keys.length} 个标签', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
                 ],
               ),

@@ -1,5 +1,6 @@
 // lib/services/card_service.dart
 // 卡片服务 — 集成云端同步
+// ✅ 复习相关方法过滤拐杖卡（kind == CardKind.scaffold）
 
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -100,21 +101,24 @@ class CardService {
 
   Future<List<CardModel>> getDueCards() async {
     final cards = await getAllCards();
-    return cards.where((c) => c.isDue && !c.mastered).toList();
+    final reviewable = cards.where((c) => c.kind == CardKind.atomic).toList();
+    return reviewable.where((c) => c.isDue && !c.mastered).toList();
   }
 
   Future<List<CardModel>> getMasteredCards() async {
     final cards = await getAllCards();
-    return cards.where((c) => c.mastered).toList();
+    final reviewable = cards.where((c) => c.kind == CardKind.atomic).toList();
+    return reviewable.where((c) => c.mastered).toList();
   }
 
   Future<Map<String, dynamic>> getStats() async {
     final cards = await getAllCards();
+    final reviewable = cards.where((c) => c.kind == CardKind.atomic).toList();
     final total = cards.length;
-    final mastered = cards.where((c) => c.mastered).length;
-    final learning = cards.where((c) => !c.mastered).length;
-    final due = cards.where((c) => c.isDue && !c.mastered).length;
-    final reviewCards = cards.where((c) => c.cardType == CardType.review).length;
+    final mastered = reviewable.where((c) => c.mastered).length;
+    final learning = reviewable.where((c) => !c.mastered).length;
+    final due = reviewable.where((c) => c.isDue && !c.mastered).length;
+    final reviewCards = reviewable.where((c) => c.cardType == CardType.review).length;
     final indexCards = cards.where((c) => c.cardType == CardType.indexCard).length;
     return {
       'total': total,

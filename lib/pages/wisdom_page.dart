@@ -1,5 +1,7 @@
 // lib/pages/wisdom_page.dart
 // 📚 智库页面 — 统一“已归档”文件夹 + 修复卡片盒 UI 更新 + 空列表安全
+// ✅ 新增：创建最小一步拐杖卡（异步保存）
+// ✅ 新增：卡片详情弹窗支持删除卡片
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -419,6 +421,33 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       ),
     );
     if (result == true) { _cache.invalidate(_cacheKeyNodes); _cache.invalidate(_cacheKeyNotes); _folderStatsCache = null; await _loadData(); }
+  }
+
+  /// ✅ 创建最小一步拐杖卡（异步保存）
+  Future<void> _createMinimalStepCard() async {
+    final card = CardModel(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      cardType: CardType.review,
+      sourceType: 'manual',
+      sourceId: 'scaffold_manual',
+      sourceTitle: '最小一步卡',
+      kind: CardKind.scaffold,
+      tags: ['拐杖', '最小一步'],
+      front: '最小一步卡',
+      back: '三个问题：\n1. 现在最困扰我的是什么？\n2. 我能做的最小一步是什么？\n3. 做完这一步会怎样？',
+      stage: 0,
+      nextReviewDate: DateTime.now(),
+    );
+
+    await _cardService.addCard(card);
+    setState(() {
+      _cards = [..._cards, card];
+    });
+    _cache.invalidate(_cacheKeyCards);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🧩 最小一步卡已创建')),
+    );
   }
 
   Future<void> _saveTask(Task task) async {
@@ -1017,7 +1046,12 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   Widget _buildCardBoxView() {
-    return WisdomCardBox(cards: _cards, onSearch: (query) {}, onCardTap: (card) => _showCardDetailDialog(card));
+    return WisdomCardBox(
+      cards: _cards,
+      onSearch: (query) {},
+      onCardTap: (card) => _showCardDetailDialog(card),
+      onAddScaffold: () => _createMinimalStepCard(),
+    );
   }
 
   void _showCardDetailDialog(CardModel card) {
@@ -1041,6 +1075,34 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('删除卡片'),
+                  content: const Text('确定要删除这张卡片吗？'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('删除', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true && mounted) {
+                Navigator.pop(context);
+                await _cardService.deleteCard(card.id);
+                _cache.invalidate(_cacheKeyCards);
+                await _loadData();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('🗑️ 卡片已删除')),
+                );
+              }
+            },
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
           if (!card.mastered) ElevatedButton(onPressed: () { Navigator.pop(context); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white), child: const Text('开始复习')),
         ],
