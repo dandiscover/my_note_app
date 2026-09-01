@@ -1,5 +1,6 @@
 // lib/models/card.dart
 // 卡片数据模型 — 支持多种类型
+// ✅ 新增 CardKind 枚举（atomic / scaffold），用于区分原子卡片和脚手架卡片
 
 import 'package:flutter/material.dart';
 
@@ -17,6 +18,11 @@ enum Importance {
   medium,
   high,
   critical,
+}
+
+enum CardKind {
+  atomic,
+  scaffold,
 }
 
 extension CardTypeExt on CardType {
@@ -79,6 +85,7 @@ class CardModel {
   final String sourceId;
   final String? sourceTitle;
   final List<String> tags;
+  final CardKind kind;
   final DateTime createdAt;
   DateTime updatedAt;
 
@@ -115,6 +122,7 @@ class CardModel {
     required this.sourceId,
     this.sourceTitle,
     this.tags = const [],
+    this.kind = CardKind.atomic,
     DateTime? createdAt,
     DateTime? updatedAt,
     this.front,
@@ -282,6 +290,7 @@ class CardModel {
     'sourceId': sourceId,
     'sourceTitle': sourceTitle,
     'tags': tags,
+    'kind': kind.toString().split('.').last,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'front': front,
@@ -316,6 +325,7 @@ class CardModel {
     sourceId: json['sourceId'] as String,
     sourceTitle: json['sourceTitle'] as String?,
     tags: (json['tags'] as List?)?.map((e) => e as String).toList() ?? [],
+    kind: _parseCardKind(json['kind'] as String?),
     createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt'] as String) : DateTime.now(),
     updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt'] as String) : DateTime.now(),
     front: json['front'] as String?,
@@ -377,6 +387,17 @@ class CardModel {
     }
   }
 
+  static CardKind _parseCardKind(String? value) {
+    switch (value) {
+      case 'atomic':
+        return CardKind.atomic;
+      case 'scaffold':
+        return CardKind.scaffold;
+      default:
+        return CardKind.atomic;
+    }
+  }
+
   CardModel copyWith({
     String? id,
     CardType? cardType,
@@ -384,6 +405,7 @@ class CardModel {
     String? sourceId,
     String? sourceTitle,
     List<String>? tags,
+    CardKind? kind,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? front,
@@ -416,6 +438,7 @@ class CardModel {
     sourceId: sourceId ?? this.sourceId,
     sourceTitle: sourceTitle ?? this.sourceTitle,
     tags: tags ?? this.tags,
+    kind: kind ?? this.kind,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     front: front ?? this.front,

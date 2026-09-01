@@ -71,7 +71,7 @@ dependency_overrides:
   archive: ^3.3.0
   image: ^4.0.0
   xml: ^6.0.0
-  webview_flutter: ^2.0.4
+  webview_flutter: ^4.0.0
 
 flutter:
   uses-material-design: true
