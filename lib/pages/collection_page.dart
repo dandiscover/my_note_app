@@ -1,6 +1,6 @@
 // lib/pages/collection_page.dart
 // 采集页 — 灵感笔记自动归档提醒 + 图书导入入口（支持 Web/桌面）
-// ✅ 新增系统人格触发
+// ✅ 删除条件②重复逻辑，保留条件①
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:shared_preferences/shared_preferences.dart';  // ✅ 新增
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database_service.dart';
 import '../models/note.dart';
@@ -22,7 +22,7 @@ import '../mixins/state_mixin.dart';
 import '../widgets/collection/capture_card.dart';
 import '../widgets/collection/raw_note_item.dart';
 import '../widgets/collection/quick_note_dialog.dart';
-import '../widgets/floating_pet.dart'; // ✅ 新增
+import '../widgets/floating_pet.dart';
 import 'creation_page.dart' as creation;
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
@@ -272,14 +272,8 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
       _cache.invalidate(_cacheKeyRawNotes);
       await _loadData();
 
-      // ✅ 条件②：水开始蒸发了。
-      // 用户编辑并保存了笔记，视为“整理动作”
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('last_organized_at', DateTime.now().toIso8601String());
-      // 如果笔记是从 raw 变为 active，触发话术
-      if (note.status == 'raw') {
-        floatingPetKey.currentState?.showMessage('水开始蒸发了。');
-      }
+      // ✅ 条件②已移至 NoteDetailPage._saveNote，此处不再重复触发
+      // 保留 last_organized_at 更新在 NoteDetailPage 中统一处理
     }
   }
 

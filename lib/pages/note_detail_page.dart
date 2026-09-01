@@ -1,13 +1,17 @@
 // lib/pages/note_detail_page.dart
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
+// ✅ 新增：采集页笔记保存时触发条件②
+// ✅ 修改：采集页进入时初始为编辑模式
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/card.dart';
 import '../services/card_service.dart';
 import '../widgets/fullscreen_editor.dart';
 import '../widgets/file_tree_panel.dart';
+import '../widgets/floating_pet.dart';
 import 'book_detail_page.dart';
 
 class NoteDetailPage extends StatefulWidget {
@@ -34,6 +38,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _isSaving = false;
   String? _errorMessage;
   bool _isReadMode = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // 来自采集页 → 初始为编辑模式；否则为阅读模式
+    _isReadMode = !widget.isFromCollection;
+  }
 
   // ─── 保存笔记 ─────────────────────────────
   Future<bool> _saveNote(
@@ -86,6 +97,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             tags: tags,
           );
         }
+      }
+
+      // ✅ 条件②：从采集页整理笔记时触发
+      if (widget.isFromCollection) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_organized_at', DateTime.now().toIso8601String());
+        floatingPetKey.currentState?.showMessage('水开始蒸发了。');
       }
 
       if (mounted) {
