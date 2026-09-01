@@ -1,6 +1,6 @@
 // lib/pages/creation_page.dart
 // 创作模块 — 添加云端同步
-// ✅ 新增系统人格触发
+// ✅ 修复复盘弹窗：取消“放弃”按钮，心情必须选择才能保存
 
 import '../models/card.dart';
 import 'dart:async';
@@ -185,6 +185,10 @@ class CreationPageState extends State<CreationPage>
     await _showQuickReviewDialog(task);
   }
 
+  /// ✅ 修复复盘弹窗：
+  /// - 取消“放弃”按钮
+  /// - 必须选择心情才能保存
+  /// - 总结可为空
   Future<void> _showQuickReviewDialog(Task task) async {
     String? selectedEmoji;
     final contentController = TextEditingController();
@@ -194,8 +198,17 @@ class CreationPageState extends State<CreationPage>
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          // ✅ 判断是否有选择心情
+          final bool hasSelectedEmoji = selectedEmoji != null;
+
           return AlertDialog(
-            title: Row(children: const [Icon(Icons.sentiment_satisfied, color: Colors.orange), SizedBox(width: 8), Text('心情复盘')]),
+            title: Row(
+              children: const [
+                Icon(Icons.sentiment_satisfied, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('心情复盘'),
+              ],
+            ),
             content: SizedBox(
               width: 400,
               child: Column(
@@ -203,24 +216,47 @@ class CreationPageState extends State<CreationPage>
                 children: [
                   Text('任务：${task.title}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [_buildEmojiButton('😊', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😐', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😞', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); })]),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildEmojiButton('😊', selectedEmoji, (emoji) {
+                        setDialogState(() => selectedEmoji = emoji);
+                      }),
+                      _buildEmojiButton('😐', selectedEmoji, (emoji) {
+                        setDialogState(() => selectedEmoji = emoji);
+                      }),
+                      _buildEmojiButton('😞', selectedEmoji, (emoji) {
+                        setDialogState(() => selectedEmoji = emoji);
+                      }),
+                    ],
+                  ),
                   const SizedBox(height: 16),
-                  TextField(controller: contentController, maxLines: 4, decoration: const InputDecoration(hintText: '一句话总结...', border: OutlineInputBorder())),
+                  TextField(
+                    controller: contentController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: '一句话总结...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
                 ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () {
-                  print('🔔 用户点击了放弃，即将触发小云说话');  // ✅ 调试日志
-                  floatingPetKey.currentState?.showMessage('做完了。但你还没想它。');
-                  Navigator.pop(dialogContext, null);
-                },
-                child: const Text('放弃', style: TextStyle(color: Colors.red)),
-              ),
+              // ✅ 只保留“保存复盘”按钮，且未选心情时置灰
               ElevatedButton(
-                onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                onPressed: hasSelectedEmoji
+                    ? () {
+                        Navigator.pop(dialogContext, {
+                          'emoji': selectedEmoji!,
+                          'content': contentController.text.trim(),
+                        });
+                      }
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: hasSelectedEmoji ? Colors.green : Colors.grey.shade300,
+                  foregroundColor: hasSelectedEmoji ? Colors.white : Colors.grey.shade600,
+                ),
                 child: const Text('保存复盘'),
               ),
             ],
@@ -251,7 +287,10 @@ class CreationPageState extends State<CreationPage>
         decoration: BoxDecoration(
           color: isSelected ? Colors.orange.shade100 : Colors.transparent,
           borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: isSelected ? Colors.orange : Colors.grey.shade300, width: isSelected ? 2 : 1),
+          border: Border.all(
+            color: isSelected ? Colors.orange : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
         ),
         child: Text(emoji, style: const TextStyle(fontSize: 32)),
       ),
@@ -272,8 +311,16 @@ class CreationPageState extends State<CreationPage>
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          final bool hasSelectedEmoji = selectedEmoji != null;
+
           return AlertDialog(
-            title: Row(children: const [Icon(Icons.subdirectory_arrow_right, color: Colors.purple), SizedBox(width: 8), Text('步骤复盘')]),
+            title: Row(
+              children: const [
+                Icon(Icons.subdirectory_arrow_right, color: Colors.purple),
+                SizedBox(width: 8),
+                Text('步骤复盘'),
+              ],
+            ),
             content: SizedBox(
               width: 400,
               child: Column(
@@ -281,24 +328,46 @@ class CreationPageState extends State<CreationPage>
                 children: [
                   Text('${parentTask.title} → ${subtask.title}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [_buildEmojiButton('😊', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😐', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😞', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); })]),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildEmojiButton('😊', selectedEmoji, (emoji) {
+                        setDialogState(() => selectedEmoji = emoji);
+                      }),
+                      _buildEmojiButton('😐', selectedEmoji, (emoji) {
+                        setDialogState(() => selectedEmoji = emoji);
+                      }),
+                      _buildEmojiButton('😞', selectedEmoji, (emoji) {
+                        setDialogState(() => selectedEmoji = emoji);
+                      }),
+                    ],
+                  ),
                   const SizedBox(height: 16),
-                  TextField(controller: contentController, maxLines: 4, decoration: const InputDecoration(hintText: '这个步骤做了什么？学到了什么？', border: OutlineInputBorder())),
+                  TextField(
+                    controller: contentController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: '这个步骤做了什么？学到了什么？',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
                 ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () {
-                  // ✅ 条件③：做完了。但你还没想它。
-                  floatingPetKey.currentState?.showMessage('做完了。但你还没想它。');
-                  Navigator.pop(dialogContext, null);
-                },
-                child: const Text('放弃', style: TextStyle(color: Colors.red)),
-              ),
               ElevatedButton(
-                onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
+                onPressed: hasSelectedEmoji
+                    ? () {
+                        Navigator.pop(dialogContext, {
+                          'emoji': selectedEmoji!,
+                          'content': contentController.text.trim(),
+                        });
+                      }
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: hasSelectedEmoji ? Colors.purple : Colors.grey.shade300,
+                  foregroundColor: hasSelectedEmoji ? Colors.white : Colors.grey.shade600,
+                ),
                 child: const Text('保存复盘'),
               ),
             ],
@@ -493,10 +562,23 @@ ${reviews.join('\n')}
       barrierDismissible: true,
       builder: (context) => AlertDialog(
         title: Row(children: const [Icon(Icons.alarm, color: Colors.orange), SizedBox(width: 8), Text('⏰ 任务提醒')]),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(task.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), const SizedBox(height: 8), Text('提醒时间到了！该完成任务了 🚀', style: TextStyle(color: Colors.grey.shade600)), const Text('⚡ 速通任务（建议30分钟内完成）', style: TextStyle(fontSize: 12, color: Colors.blue))]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(task.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 8),
+            Text('提醒时间到了！该完成任务了 🚀', style: TextStyle(color: Colors.grey.shade600)),
+            const Text('⚡ 速通任务（建议30分钟内完成）', style: TextStyle(fontSize: 12, color: Colors.blue)),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('知道了')),
-          ElevatedButton(onPressed: () { Navigator.pop(context); _completeQuickTask(task); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text('现在完成')),
+          ElevatedButton(
+            onPressed: () { Navigator.pop(context); _completeQuickTask(task); },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+            child: const Text('现在完成'),
+          ),
         ],
       ),
     );
@@ -526,10 +608,21 @@ ${reviews.join('\n')}
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('添加速通任务'),
-        content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(hintText: '输入任务标题...', border: OutlineInputBorder()), onSubmitted: (value) { _addQuickTask(value); Navigator.pop(context); }),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '输入任务标题...',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (value) { _addQuickTask(value); Navigator.pop(context); },
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          ElevatedButton(onPressed: () { _addQuickTask(controller.text); Navigator.pop(context); }, child: const Text('添加')),
+          ElevatedButton(
+            onPressed: () { _addQuickTask(controller.text); Navigator.pop(context); },
+            child: const Text('添加'),
+          ),
         ],
       ),
     );
@@ -551,7 +644,16 @@ ${reviews.join('\n')}
   Widget build(BuildContext context) {
     if (isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('创作模块'), bottom: TabBar(controller: _tabController, tabs: const [Tab(text: '📝 写作'), Tab(text: '✅ 任务')])),
+        appBar: AppBar(
+          title: const Text('创作模块'),
+          bottom: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(text: '📝 写作'),
+              Tab(text: '✅ 任务'),
+            ],
+          ),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -559,7 +661,16 @@ ${reviews.join('\n')}
     final filteredTasks = _getFilteredTasks();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('创作模块'), bottom: TabBar(controller: _tabController, tabs: const [Tab(text: '📝 写作'), Tab(text: '✅ 任务')])),
+      appBar: AppBar(
+        title: const Text('创作模块'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: '📝 写作'),
+            Tab(text: '✅ 任务'),
+          ],
+        ),
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [
@@ -582,10 +693,19 @@ ${reviews.join('\n')}
           const Text('进入全屏写作环境，调用素材库', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => WritingPage())); },
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => WritingPage(),
+                ),
+              );
+            },
             icon: const Icon(Icons.arrow_forward),
             label: const Text('开始写作'),
-            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            ),
           ),
         ],
       ),
@@ -646,7 +766,11 @@ ${reviews.join('\n')}
           const SizedBox(height: 8),
           Text('在采集页输入速通任务，或前往智库创建探究任务', style: TextStyle(color: Colors.grey.shade600)),
           const SizedBox(height: 16),
-          ElevatedButton.icon(onPressed: _showQuickAddDialog, icon: const Icon(Icons.add), label: const Text('添加速通任务')),
+          ElevatedButton.icon(
+            onPressed: _showQuickAddDialog,
+            icon: const Icon(Icons.add),
+            label: const Text('添加速通任务'),
+          ),
         ],
       ),
     );
