@@ -1,5 +1,6 @@
 // lib/widgets/wisdom/wisdom_card_box.dart
 // 卡片盒视图 — 显示所有卡片（含索引卡）
+// ✅ 新增：拐杖卡（kind == CardKind.scaffold）左上角显示 🧭 标记
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -242,23 +243,33 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
                 boxShadow: isHovered ? [BoxShadow(color: card.typeColor.withValues(alpha: 0.2), blurRadius: 16, offset: const Offset(0, 6))] : null,
               ),
               padding: const EdgeInsets.all(4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Stack(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    decoration: BoxDecoration(color: card.typeColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
-                    child: Text(card.typeIcon, style: const TextStyle(fontSize: 10)),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(color: card.typeColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                        child: Text(card.typeIcon, style: const TextStyle(fontSize: 10)),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _getCardThumbnail(card),
+                        style: TextStyle(fontSize: isHovered ? 10 : 7, color: isHovered ? Colors.black87 : Colors.grey.shade700),
+                        maxLines: isHovered ? 6 : 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                      if (card.mastered) const Text('✅', style: TextStyle(fontSize: 6)),
+                    ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _getCardThumbnail(card),
-                    style: TextStyle(fontSize: isHovered ? 10 : 7, color: isHovered ? Colors.black87 : Colors.grey.shade700),
-                    maxLines: isHovered ? 6 : 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                  ),
-                  if (card.mastered) const Text('✅', style: TextStyle(fontSize: 6)),
+                  if (card.kind == CardKind.scaffold)
+                    Positioned(
+                      top: 2,
+                      left: 4,
+                      child: Text('🧭', style: const TextStyle(fontSize: 12)),
+                    ),
                 ],
               ),
             ),
