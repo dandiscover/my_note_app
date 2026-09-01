@@ -1,2 +1,4 @@
 @echo off
-flutter run -d edge --dart-define-from-file=.env
+flutter run -d edge ^
+  --dart-define=SUPABASE_URL=https://tbthjvgtcuqgfbjdswrz.supabase.co ^
+  --dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidGhqdmd0Y3VxZ2ZiamRzd3J6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MjYxNzksImV4cCI6MjEwMzUwMjE3OX0.IdWOeucWqZTR92FoRGvOAohsS2ewVKx9XQs0d1eWvNo

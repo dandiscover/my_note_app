@@ -12,7 +12,8 @@ import '../models/book.dart';
 import '../models/book_note.dart';
 import '../database_service.dart';
 import 'supabase_service.dart';
-import 'cloud_data_service.dart';
+import 'sync/cloud_sync_service.dart';
+import 'sync/sync_manager.dart';
 
 class BookService {
   final DatabaseService _db = DatabaseService();
@@ -33,12 +34,26 @@ class BookService {
 
   Future<void> saveBook(Book book) async {
     await _db.updateBook(book.toMap());
+    if (SupabaseService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncBook(book);
+      } catch (_) {
+        SyncManager().markDirty();
+      }
+    }
   }
 
   Future<void> deleteBook(String bookId) async {
     await _db.deleteBook(bookId);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_notesKeyPrefix$bookId');
+    if (SupabaseService().isLoggedIn) {
+      try {
+        await CloudSyncService().deleteBook(bookId);
+      } catch (_) {
+        SyncManager().markDirty();
+      }
+    }
   }
 
   // ─── 图书导入 ──────────────────────────────────────────────
@@ -49,12 +64,15 @@ class BookService {
     required String filePath,
     required String fileType,
     required Uint8List fileBytes,
-    String? parentFolderId,
+    String? parentFolderId,  // ✅ 保留参数，但内部不再依赖它
+    required bool uploadToCloud,
     void Function(int sent, int total)? onProgress,
   }) async {
     final bookId = DateTime.now().millisecondsSinceEpoch.toString();
 
     String storedPath = filePath;
+
+    // ─── 1. 保存文件到本地（所有平台都执行） ──────────────
 
     if (!kIsWeb) {
       try {
@@ -80,7 +98,11 @@ class BookService {
       } catch (e) {
         throw Exception('保存文件失败: $e');
       }
-    } else {
+    }
+
+    // ─── 2. Web 端：始终上传到云端 ─────────────────────────
+
+    if (kIsWeb) {
       try {
         final service = SupabaseService();
 
@@ -90,7 +112,7 @@ class BookService {
 
         final userId = service.currentUserId!;
         final bucketName = 'book_files';
-        final filePath = 'users/$userId/books/$bookId.$fileType';
+        final cloudPath = 'users/$userId/books/$bookId.$fileType';
         final mimeType = fileType == 'pdf'
             ? 'application/pdf'
             : 'application/epub+zip';
@@ -99,7 +121,7 @@ class BookService {
 
         final url = await service.uploadFile(
           bucketName: bucketName,
-          path: filePath,
+          path: cloudPath,
           fileBytes: fileBytes,
           contentType: mimeType,
           onProgress: onProgress,
@@ -118,6 +140,44 @@ class BookService {
       }
     }
 
+    // ─── 3. Windows 端：根据 uploadToCloud 决定是否上传 ───
+
+    if (!kIsWeb && uploadToCloud) {
+      try {
+        final service = SupabaseService();
+
+        if (!service.isLoggedIn) {
+          print('⚠️ 未登录，跳过云端上传，仅保存本地');
+        } else {
+          final userId = service.currentUserId!;
+          final bucketName = 'book_files';
+          final cloudPath = 'users/$userId/books/$bookId.$fileType';
+          final mimeType = fileType == 'pdf'
+              ? 'application/pdf'
+              : 'application/epub+zip';
+
+          await service.ensureBucket(bucketName);
+
+          final url = await service.uploadFile(
+            bucketName: bucketName,
+            path: cloudPath,
+            fileBytes: fileBytes,
+            contentType: mimeType,
+            onProgress: onProgress,
+          );
+
+          storedPath = url;
+          print('☁️ 图书已上传到云端: $url');
+        }
+      } catch (e) {
+        print('⚠️ 云端上传失败（已保留本地文件）: $e');
+      }
+    } else if (!kIsWeb && !uploadToCloud) {
+      print('📥 仅导入到本地: $storedPath');
+    }
+
+    // ─── 4. 创建 Book 对象并保存到本地数据库 ──────────────
+
     final book = Book(
       id: bookId,
       title: title.isEmpty ? '未命名图书' : title,
@@ -132,20 +192,34 @@ class BookService {
 
     await _db.insertBook(book.toMap());
 
-    final folderId = parentFolderId ?? await _db.ensureLibraryFolder();
+    // ─── 5. 查找或创建"图书馆"文件夹（统一入口）─────────────
+
+    // ✅ 修复：不再依赖外部传入的 parentFolderId，内部自动获取
+    String? folderId = await _db.ensureLibraryFolder();
+    if (folderId == null) {
+      final folder = await _db.createFolder(
+        title: '图书馆',
+        parentId: null,
+        tags: ['系统', '图书'],
+      );
+      folderId = folder.id;
+    }
+
+    // ✅ 将图书挂到图书馆文件夹下
     await _db.attachBookToNode(
       bookId: book.id,
       title: book.title,
       parentId: folderId,
     );
 
-    // ✅ 同步到云端
-    if (SupabaseService().isLoggedIn) {
+    // ─── 6. 如果上传到云端，同时同步元数据 ─────────────────
+
+    if (uploadToCloud && SupabaseService().isLoggedIn) {
       try {
-        await CloudDataService().syncBook(book);
-        print('☁️ 图书已同步到云端: ${book.title}');
+        await CloudSyncService().syncBook(book);
+        print('☁️ 图书元数据已同步到云端: ${book.title}');
       } catch (e) {
-        print('☁️ 云端同步失败: $e');
+        print('☁️ 元数据同步失败: $e');
       }
     }
 
@@ -188,12 +262,11 @@ class BookService {
     final updated = [...existing, note];
     await prefs.setString(key, jsonEncode(updated.map((n) => n.toMap()).toList()));
 
-    // ✅ 同步到云端
     if (SupabaseService().isLoggedIn) {
       try {
-        await CloudDataService().syncBookNote(note);
-      } catch (e) {
-        // 同步失败不影响本地
+        await CloudSyncService().syncBookNote(note);
+      } catch (_) {
+        SyncManager().markDirty();
       }
     }
   }
@@ -205,11 +278,12 @@ class BookService {
     final key = '$_notesKeyPrefix$bookId';
     await prefs.setString(key, jsonEncode(updated.map((n) => n.toMap()).toList()));
 
-    // ✅ 删除云端笔记
     if (SupabaseService().isLoggedIn) {
       try {
-        await CloudDataService().deleteBookNote(noteId);
-      } catch (e) {}
+        await CloudSyncService().deleteBookNote(noteId);
+      } catch (_) {
+        SyncManager().markDirty();
+      }
     }
   }
 

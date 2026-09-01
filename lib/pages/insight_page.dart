@@ -1,5 +1,5 @@
 // lib/pages/insight_page.dart
-// 洞察页 — 完整版（修复空数据崩溃）
+// 📊 洞察页 — 完整版（3个Tab：概览/图谱/复习 + 宠物 + 云端同步）
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -15,6 +15,8 @@ import '../services/pet_service.dart';
 import '../services/card_service.dart';
 import '../services/settings_service.dart';
 import '../services/cache_manager.dart';
+import '../services/sync/cloud_sync_service.dart';
+import '../services/sync/sync_manager.dart';
 import '../widgets/pet_avatar.dart';
 import '../widgets/heatmap_widget.dart';
 import '../widgets/stats_card.dart';
@@ -77,19 +79,7 @@ class InsightPageState extends State<InsightPage>
   static const String _cacheKeySettings = 'insight_settings';
   static const String _cacheKeyPet = 'insight_pet';
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _loadData();
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
+  // ✅ 公开方法：刷新数据
   Future<void> refreshData() async {
     _cache.invalidate(_cacheKeyNodes);
     _cache.invalidate(_cacheKeyNotes);
@@ -97,6 +87,24 @@ class InsightPageState extends State<InsightPage>
     _cache.invalidate(_cacheKeySettings);
     _cache.invalidate(_cacheKeyPet);
     await _loadData();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.index == 1 && !_isGraphReady && !_isLoading) {
+        _prepareGraph();
+      }
+    });
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -352,6 +360,14 @@ class InsightPageState extends State<InsightPage>
       await _cardService.rateRemembered(card);
     } else {
       await _cardService.rateForgotten(card);
+    }
+
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncCard(card);
+      } catch (_) {
+        SyncManager().markDirty();
+      }
     }
 
     setState(() {
@@ -706,66 +722,72 @@ class InsightPageState extends State<InsightPage>
 
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.calendar_today, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${date.year}年${date.month}月${date.day}日',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(4),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_today, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${date.year}年${date.month}月${date.day}日',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     ),
-                    child: Text('${dayNotes.length}条', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: dayNotes.length,
-                itemBuilder: (context, index) {
-                  final note = dayNotes[index];
-                  final node = _allNodes.firstWhereOrNull(
-                    (n) => n.targetId == note.id,
-                  );
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    child: ListTile(
-                      leading: Text(node?.iconEmoji ?? '📄', style: const TextStyle(fontSize: 20)),
-                      title: Text(note.title),
-                      subtitle: Text(
-                        note.content.length > 60 ? '${note.content.substring(0, 60)}...' : note.content,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(4),
                       ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
-                        Navigator.pop(context);
-                      },
+                      child: Text(
+                        '${dayNotes.length}条',
+                        style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                      ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-      ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: dayNotes.length,
+                  itemBuilder: (context, index) {
+                    final note = dayNotes[index];
+                    final node = _allNodes.firstWhereOrNull(
+                      (n) => n.targetId == note.id,
+                    );
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: ListTile(
+                        leading: Text(node?.iconEmoji ?? '📄', style: const TextStyle(fontSize: 20)),
+                        title: Text(note.title),
+                        subtitle: Text(
+                          note.content.length > 60 ? '${note.content.substring(0, 60)}...' : note.content,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.pop(context);
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

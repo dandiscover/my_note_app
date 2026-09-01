@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
+import 'dart:io';
+import 'dart:typed_data';
 
 import '../database_service.dart';
 import '../models/note.dart';
@@ -196,13 +198,25 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     );
   }
 
+  /// ✅ 归档笔记 — 增加 try-catch + UI 反馈
   Future<void> _archiveNote(NotebookEntry note) async {
-    await _db.archiveNote(note.id);
-    _cache.invalidate(_cacheKeyRawNotes);
-    await _loadData();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('📦 已归档'), duration: Duration(seconds: 1)),
-    );
+    try {
+      await _db.archiveNote(note.id);
+      _cache.invalidate(_cacheKeyRawNotes);
+      await _loadData();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('📦 已归档'), duration: Duration(seconds: 1)),
+      );
+    } catch (e) {
+      print('❌ 归档失败: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ 归档失败，请稍后重试'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.red.shade300,
+        ),
+      );
+    }
   }
 
   Future<void> _editNote(NotebookEntry note) async {
@@ -239,8 +253,87 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     );
   }
 
-  // ✅ 真正的导入功能（支持 Web/桌面）
-  Future<void> _importBook() async {
+  // ============================================================
+  // 📥 图书导入（双入口：本地导入 + 云端上传）
+  // ============================================================
+
+  /// 显示导入方式选择对话框（仅 Windows 端）
+  Future<bool?> _showImportChoiceDialog() async {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.upload_file, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('导入图书'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('选择导入方式：'),
+            SizedBox(height: 16),
+          ],
+        ),
+        actions: [
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, false),
+            icon: const Icon(Icons.folder_open),
+            label: const Text('📥 导入到本地'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade200,
+              foregroundColor: Colors.black87,
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.cloud_upload),
+            label: const Text('☁️ 上传到云端'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ✅ 核心修复：Windows 端直接从文件路径读取内容
+  Future<Uint8List?> _readFileBytes(PlatformFile file) async {
+    if (kIsWeb) {
+      return file.bytes;
+    }
+
+    try {
+      final filePath = file.path;
+      if (filePath == null || filePath.isEmpty) {
+        print('❌ 文件路径为空');
+        return null;
+      }
+
+      print('📁 文件路径: $filePath');
+
+      final fileObj = File(filePath);
+      if (!await fileObj.exists()) {
+        print('❌ 文件不存在: $filePath');
+        return null;
+      }
+
+      final bytes = await fileObj.readAsBytes();
+      print('✅ 文件读取成功，大小: ${bytes.length} bytes');
+      return bytes;
+    } catch (e) {
+      print('❌ 读取文件失败: $e');
+      return null;
+    }
+  }
+
+  /// 通用导入逻辑
+  Future<void> _importBookWithMode({required bool uploadToCloud}) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -249,34 +342,49 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
       if (result == null) return;
 
       final file = result.files.first;
-      final extension = path.extension(file.name).toLowerCase().replaceFirst('.', '');
-      final bytes = file.bytes;
+      print('📁 文件名: ${file.name}');
+      print('📁 文件大小: ${file.size} bytes');
+
+      final bytes = await _readFileBytes(file);
 
       if (bytes == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('❌ 无法读取文件')),
+          const SnackBar(content: Text('❌ 无法读取文件内容，请检查文件是否损坏或被占用')),
         );
         return;
       }
 
-      // 使用 BookService 导入（自动放入“图书馆”文件夹）
+      if (bytes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ 文件内容为空')),
+        );
+        return;
+      }
+
+      final extension = path.extension(file.name).toLowerCase().replaceFirst('.', '');
+
       final newBook = await _bookService.importBook(
         title: file.name.replaceAll(RegExp(r'\.[^.]*$'), ''),
         author: '',
         filePath: kIsWeb ? '' : (file.path ?? ''),
         fileType: extension,
         fileBytes: bytes,
+        uploadToCloud: uploadToCloud,
       );
 
-      // 刷新最近导入列表
       _cache.invalidate(_cacheKeyRecentBooks);
       await _loadData();
 
+      final modeText = uploadToCloud ? '☁️ 上传到云端' : '📥 导入到本地';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('✅ 已导入「${newBook.title}」到图书馆')),
+        SnackBar(content: Text('✅ $modeText 成功：${newBook.title}')),
       );
 
-      // 跳转到图书详情页
+      // ✅ 通知所有页面刷新（智库、洞察、创作）
+      if (widget.creationKey != null) {
+        widget.creationKey?.currentState?.refreshTasks();
+      }
+
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -287,6 +395,24 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ 导入失败: $e')),
       );
+    }
+  }
+
+  Future<void> _importBookWindows() async {
+    final choice = await _showImportChoiceDialog();
+    if (choice == null) return;
+    await _importBookWithMode(uploadToCloud: choice);
+  }
+
+  Future<void> _importBookWeb() async {
+    await _importBookWithMode(uploadToCloud: true);
+  }
+
+  Future<void> _importBook() async {
+    if (kIsWeb) {
+      await _importBookWeb();
+    } else {
+      await _importBookWindows();
     }
   }
 

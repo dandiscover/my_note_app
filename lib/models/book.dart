@@ -1,32 +1,32 @@
 // lib/models/book.dart
-// 图书数据模型（添加 fileTypeLabel getter）
+// 图书模型
 
 class Book {
   final String id;
-  String title;
-  String author;
-  String isbn;
-  String coverUrl;
-  String filePath;
-  String fileType;
-  int fileSize;
-  String fileName;
-  String status;
-  int readingProgress;
-  int totalPages;
-  DateTime createdAt;
-  DateTime? lastReadAt;
+  final String title;
+  final String author;
+  final String isbn;
+  final String coverUrl;
+  final String filePath;
+  final String fileType;
+  final String fileName;
+  final int fileSize;
+  final String status;
+  final int readingProgress;
+  final int totalPages;
+  final DateTime createdAt;
+  final DateTime? lastReadAt;
 
-  Book({
+  const Book({
     required this.id,
     required this.title,
-    this.author = '',
+    required this.author,
     this.isbn = '',
     this.coverUrl = '',
     this.filePath = '',
     this.fileType = 'none',
-    this.fileSize = 0,
     this.fileName = '',
+    this.fileSize = 0,
     this.status = 'want',
     this.readingProgress = 0,
     this.totalPages = 0,
@@ -34,24 +34,23 @@ class Book {
     this.lastReadAt,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'title': title,
-      'author': author,
-      'isbn': isbn,
-      'cover_url': coverUrl,
-      'file_path': filePath,
-      'file_type': fileType,
-      'file_size': fileSize,
-      'file_name': fileName,
-      'status': status,
-      'reading_progress': readingProgress,
-      'total_pages': totalPages,
-      'created_at': createdAt.toIso8601String(),
-      'last_read_at': lastReadAt?.toIso8601String(),
-    };
-  }
+  /// ✅ 空对象（用于 orElse 安全返回）
+  static final Book empty = Book(
+    id: '',
+    title: '',
+    author: '',
+    isbn: '',
+    coverUrl: '',
+    filePath: '',
+    fileType: 'none',
+    fileName: '',
+    fileSize: 0,
+    status: 'want',
+    readingProgress: 0,
+    totalPages: 0,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+    lastReadAt: null,
+  );
 
   factory Book.fromMap(Map<String, dynamic> map) {
     return Book(
@@ -59,19 +58,36 @@ class Book {
       title: map['title'] ?? '',
       author: map['author'] ?? '',
       isbn: map['isbn'] ?? '',
-      coverUrl: map['cover_url'] ?? '',
-      filePath: map['file_path'] ?? '',
-      fileType: map['file_type'] ?? 'none',
-      fileSize: map['file_size'] ?? 0,
-      fileName: map['file_name'] ?? '',
+      coverUrl: map['coverUrl'] ?? '',
+      filePath: map['filePath'] ?? '',
+      fileType: map['fileType'] ?? 'none',
+      fileName: map['fileName'] ?? '',
+      fileSize: map['fileSize'] ?? 0,
       status: map['status'] ?? 'want',
-      readingProgress: map['reading_progress'] ?? 0,
-      totalPages: map['total_pages'] ?? 0,
-      createdAt: DateTime.tryParse(map['created_at'] ?? '') ?? DateTime.now(),
-      lastReadAt: map['last_read_at'] != null
-          ? DateTime.tryParse(map['last_read_at'])
-          : null,
+      readingProgress: map['readingProgress'] ?? 0,
+      totalPages: map['totalPages'] ?? 0,
+      createdAt: DateTime.parse(map['createdAt']),
+      lastReadAt: map['lastReadAt'] != null ? DateTime.parse(map['lastReadAt']) : null,
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'author': author,
+      'isbn': isbn,
+      'coverUrl': coverUrl,
+      'filePath': filePath,
+      'fileType': fileType,
+      'fileName': fileName,
+      'fileSize': fileSize,
+      'status': status,
+      'readingProgress': readingProgress,
+      'totalPages': totalPages,
+      'createdAt': createdAt.toIso8601String(),
+      'lastReadAt': lastReadAt?.toIso8601String(),
+    };
   }
 
   Book copyWith({
@@ -82,8 +98,8 @@ class Book {
     String? coverUrl,
     String? filePath,
     String? fileType,
-    int? fileSize,
     String? fileName,
+    int? fileSize,
     String? status,
     int? readingProgress,
     int? totalPages,
@@ -98,8 +114,8 @@ class Book {
       coverUrl: coverUrl ?? this.coverUrl,
       filePath: filePath ?? this.filePath,
       fileType: fileType ?? this.fileType,
-      fileSize: fileSize ?? this.fileSize,
       fileName: fileName ?? this.fileName,
+      fileSize: fileSize ?? this.fileSize,
       status: status ?? this.status,
       readingProgress: readingProgress ?? this.readingProgress,
       totalPages: totalPages ?? this.totalPages,
@@ -108,18 +124,33 @@ class Book {
     );
   }
 
+  bool get hasEbook => fileType != 'none' && filePath.isNotEmpty;
+
   String get statusLabel {
     switch (status) {
-      case 'want': return '想读';
-      case 'reading': return '在读';
-      case 'read': return '读完';
-      default: return status;
+      case 'want':
+        return '想读';
+      case 'reading':
+        return '在读';
+      case 'read':
+        return '读完';
+      default:
+        return '未知';
     }
   }
 
-  String get progressLabel => '$readingProgress%';
-  bool get hasEbook => filePath.isNotEmpty && fileType != 'none';
-
-  // ✅ 新增：文件类型标签（大写）
-  String get fileTypeLabel => fileType.toUpperCase();
+  String get fileTypeLabel {
+    switch (fileType) {
+      case 'pdf':
+        return 'PDF';
+      case 'epub':
+        return 'EPUB';
+      case 'mobi':
+        return 'MOBI';
+      case 'azw3':
+        return 'AZW3';
+      default:
+        return fileType.toUpperCase();
+    }
+  }
 }

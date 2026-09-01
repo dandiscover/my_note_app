@@ -1,9 +1,12 @@
 // lib/services/pet_service.dart
-// 宠物服务（修复保存/加载逻辑）
+// 宠物服务 — 集成云端同步
 
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/pet.dart';
+import '../models/user_settings.dart';
+import 'sync/cloud_sync_service.dart';
+import 'sync/sync_manager.dart';
 
 class PetService {
   static const String _key = 'pet_data';
@@ -15,14 +18,8 @@ class PetService {
       final String? data = prefs.getString(_key);
       if (data == null || data.isEmpty) return null;
       final map = Map<String, dynamic>.from(jsonDecode(data) as Map);
-      final pet = Pet.fromMap(map);
-      
-      // ✅ 调试日志（可移除）
-      print('📦 加载宠物: happiness=${pet.happiness}, level=${pet.level}');
-      
-      return pet;
+      return Pet.fromMap(map);
     } catch (e) {
-      print('加载宠物失败: $e');
       return null;
     }
   }
@@ -30,11 +27,7 @@ class PetService {
   Future<void> savePet(Pet pet) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final data = jsonEncode(pet.toMap());
-      await prefs.setString(_key, data);
-      
-      // ✅ 调试日志（可移除）
-      print('💾 保存宠物: happiness=${pet.happiness}, level=${pet.level}');
+      await prefs.setString(_key, jsonEncode(pet.toMap()));
     } catch (e) {
       print('保存宠物失败: $e');
     }
@@ -59,6 +52,13 @@ class PetService {
       lastFed: pet.lastFed,
     );
     await savePet(updated);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncPet(updated);
+      } catch (_) {}
+    }
   }
 
   Future<void> updatePetSkin(String skin) async {
@@ -96,12 +96,29 @@ class PetService {
     final pet = await getOrCreatePet();
     final updated = pet.completeTask();
     await savePet(updated);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncPet(updated);
+        SyncManager().markClean();
+      } catch (e) {
+        SyncManager().markDirty();
+      }
+    }
   }
 
   Future<void> petInteraction() async {
     final pet = await getOrCreatePet();
     final updated = pet.pet();
     await savePet(updated);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncPet(updated);
+      } catch (_) {}
+    }
   }
 
   Future<void> resetPet() async {

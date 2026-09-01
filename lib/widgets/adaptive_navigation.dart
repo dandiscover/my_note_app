@@ -1,14 +1,36 @@
 // lib/widgets/adaptive_navigation.dart
-// 自适应导航组件（修复版）
+// ✅ 自适应导航 — 完整修复（不依赖 core 外部方法）
 
 import 'package:flutter/material.dart';
-import '../core/page_registry.dart';
-import '../core/navigation_config.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import '../pages/collection_page.dart';
+import '../pages/wisdom_page.dart';
+import '../pages/insight_page.dart';
+import '../pages/creation_page.dart' as creation;
+import '../pages/profile_page.dart';
+import '../pages/writing_page.dart';
+
+/// 设备类型枚举
+enum DeviceType { mobile, tablet, desktop, web }
 
 class AdaptiveNavigation extends StatefulWidget {
-  final VoidCallback? onTabChange;
+  final void Function(int index)? onTabChange;
+  final VoidCallback? onLoginSuccess;
+  final GlobalKey<WisdomPageState>? wisdomKey;
+  final GlobalKey<InsightPageState>? insightKey;
+  final GlobalKey<creation.CreationPageState>? creationKey;
+  final VoidCallback? onRefreshAll;
 
-  const AdaptiveNavigation({super.key, this.onTabChange});
+  const AdaptiveNavigation({
+    super.key,
+    this.onTabChange,
+    this.onLoginSuccess,
+    this.wisdomKey,
+    this.insightKey,
+    this.creationKey,
+    this.onRefreshAll,
+  });
 
   @override
   State<AdaptiveNavigation> createState() => _AdaptiveNavigationState();
@@ -16,88 +38,132 @@ class AdaptiveNavigation extends StatefulWidget {
 
 class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
   int _currentIndex = 0;
-  late List<PageDefinition> _pages;
-  NavigationType _navType = NavigationType.bottomNavigation;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _pages = PageRegistry.getPages(context);
-    _navType = NavigationConfig.getNavigationType(context);
-    // 确保当前索引有效
-    if (_currentIndex >= _pages.length) {
-      _currentIndex = 0;
+  // ─── 内置平台检测 ──────────────────────────────────────────
+
+  DeviceType _getDeviceType(BuildContext context) {
+    if (kIsWeb) return DeviceType.web;
+    final width = MediaQuery.of(context).size.width;
+    if (width < 600) return DeviceType.mobile;
+    if (width < 900) return DeviceType.tablet;
+    return DeviceType.desktop;
+  }
+
+  List<Map<String, dynamic>> _getPages(DeviceType deviceType) {
+    final allPages = [
+      {'id': 'collection', 'label': '采集', 'icon': Icons.add_box_outlined},
+      {'id': 'wisdom', 'label': '智库', 'icon': Icons.shelves},
+      {'id': 'insight', 'label': '洞察', 'icon': Icons.insights},
+      {'id': 'creation', 'label': '创作', 'icon': Icons.create},
+      {'id': 'profile', 'label': '我的', 'icon': Icons.person_outline},
+      {'id': 'writing', 'label': '写作', 'icon': Icons.edit_note},
+    ];
+
+    if (deviceType == DeviceType.mobile || deviceType == DeviceType.tablet) {
+      return allPages.where((p) => p['id'] != 'writing').toList();
     }
+    return allPages;
+  }
+
+  // ─── Tab 切换 ──────────────────────────────────────────────
+
+  void _onTabChange(int index) {
+    setState(() => _currentIndex = index);
+    widget.onTabChange?.call(index);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_pages.isEmpty) {
-      return const Scaffold(
-        body: Center(child: Text('没有可用页面')),
-      );
-    }
+    final deviceType = _getDeviceType(context);
+    final pages = _getPages(deviceType);
 
-    if (_navType == NavigationType.sidebar) {
-      return _buildSidebarLayout();
-    } else {
-      return _buildBottomNavLayout();
-    }
-  }
+    final showBottomNav = deviceType == DeviceType.mobile ||
+        deviceType == DeviceType.tablet;
 
-  /// 底部导航（手机 / 平板）
-  Widget _buildBottomNavLayout() {
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _pages.map((p) => p.page()).toList(),
+    final showSidebar = deviceType == DeviceType.desktop ||
+        deviceType == DeviceType.web;
+
+    // ─── 构建页面列表 ──────────────────────────────────────
+
+    final children = <Widget>[
+      CollectionPage(
+        creationKey: widget.creationKey,
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-          widget.onTabChange?.call();
+      WisdomPage(
+        key: widget.wisdomKey,
+      ),
+      InsightPage(
+        key: widget.insightKey,
+        onTabChange: (tabIndex) => _onTabChange(1),
+        onRefreshWisdom: () {
+          widget.wisdomKey?.currentState?.refreshData();
         },
-        type: BottomNavigationBarType.fixed,
-        items: _pages.map((p) => BottomNavigationBarItem(
-          icon: Icon(p.icon),
-          activeIcon: Icon(p.activeIcon),
-          label: p.title,
-        )).toList(),
+        onSwitchToTaskTab: () {
+          _onTabChange(3);
+          widget.creationKey?.currentState?.switchToTaskTab();
+        },
+        onSwitchToFocusMode: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('🐾 专注模式开发中，敬请期待')),
+          );
+        },
       ),
-    );
-  }
+      creation.CreationPage(
+        key: widget.creationKey,
+      ),
+      ProfilePage(
+        key: const Key('profile_page'),
+        onLoginSuccess: widget.onLoginSuccess,
+      ),
+    ];
 
-  /// 侧边栏（桌面 / Web）
-  Widget _buildSidebarLayout() {
-    return Scaffold(
-      body: Row(
+    final pageWidgets = showSidebar
+        ? [...children, const WritingPage()]
+        : children;
+
+    final pageContent = IndexedStack(
+      index: _currentIndex,
+      children: pageWidgets,
+    );
+
+    // ─── 渲染 ──────────────────────────────────────────────
+
+    if (showBottomNav) {
+      return Scaffold(
+        body: pageContent,
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: _onTabChange,
+          type: BottomNavigationBarType.fixed,
+          items: pages.map((page) {
+            return BottomNavigationBarItem(
+              icon: Icon(page['icon'] as IconData),
+              label: page['label'] as String,
+            );
+          }).toList(),
+        ),
+      );
+    } else if (showSidebar) {
+      return Row(
         children: [
           NavigationRail(
             selectedIndex: _currentIndex,
-            onDestinationSelected: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
-              widget.onTabChange?.call();
-            },
+            onDestinationSelected: _onTabChange,
             labelType: NavigationRailLabelType.all,
-            destinations: _pages.map((p) => NavigationRailDestination(
-              icon: Icon(p.icon),
-              selectedIcon: Icon(p.activeIcon),
-              label: Text(p.title),
-            )).toList(),
+            destinations: pages.map((page) {
+              return NavigationRailDestination(
+                icon: Icon(page['icon'] as IconData),
+                label: Text(page['label'] as String),
+              );
+            }).toList(),
           ),
           Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: _pages.map((p) => p.page()).toList(),
-            ),
+            child: pageContent,
           ),
         ],
-      ),
-    );
+      );
+    }
+
+    return pageContent;
   }
 }

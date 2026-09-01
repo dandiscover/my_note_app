@@ -1,9 +1,11 @@
 // lib/services/card_service.dart
-// 卡片CRUD + 艾宾浩斯调度服务
+// 卡片服务 — 集成云端同步
 
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/card.dart';
+import 'sync/cloud_sync_service.dart';
+import 'sync/sync_manager.dart';
 
 class CardService {
   static const String _cardsKey = 'cards_data';
@@ -30,12 +32,31 @@ class CardService {
     final cards = await getAllCards();
     cards.add(card);
     await _saveCards(cards);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncCard(card);
+        SyncManager().markClean();
+      } catch (e) {
+        SyncManager().markDirty();
+      }
+    }
   }
 
   Future<void> addCards(List<CardModel> newCards) async {
     final cards = await getAllCards();
     cards.addAll(newCards);
     await _saveCards(cards);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      for (var card in newCards) {
+        try {
+          await CloudSyncService().syncCard(card);
+        } catch (_) {}
+      }
+    }
   }
 
   Future<void> updateCard(CardModel card) async {
@@ -44,6 +65,13 @@ class CardService {
     if (index != -1) {
       cards[index] = card;
       await _saveCards(cards);
+
+      // ✅ 同步到云端
+      if (CloudSyncService().isLoggedIn) {
+        try {
+          await CloudSyncService().syncCard(card);
+        } catch (_) {}
+      }
     }
   }
 
@@ -51,6 +79,13 @@ class CardService {
     final cards = await getAllCards();
     cards.removeWhere((c) => c.id == id);
     await _saveCards(cards);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().deleteCard(id);
+      } catch (_) {}
+    }
   }
 
   Future<List<CardModel>> getCardsByCardType(CardType type) async {
@@ -116,6 +151,13 @@ class CardService {
       );
       cards[index] = reset;
       await _saveCards(cards);
+
+      // ✅ 同步到云端
+      if (CloudSyncService().isLoggedIn) {
+        try {
+          await CloudSyncService().syncCard(reset);
+        } catch (_) {}
+      }
     }
   }
 }

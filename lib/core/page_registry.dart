@@ -1,14 +1,13 @@
 // lib/core/page_registry.dart
-// 页面注册表 — 定义每端显示哪些页面（修复版）
+// 页面注册表 — 定义每端显示哪些页面（使用相对导入）
 
 import 'package:flutter/material.dart';
-import 'package:my_note_app/pages/collection_page.dart';
-import 'package:my_note_app/pages/wisdom_page.dart';
-import 'package:my_note_app/pages/insight_page.dart';
-import 'package:my_note_app/pages/creation_page.dart' as creation;
-import 'package:my_note_app/pages/profile_page.dart';
-import 'package:my_note_app/pages/writing_page.dart';
-import 'package:my_note_app/pages/explore_page.dart';
+import '../pages/collection_page.dart';
+import '../pages/wisdom_page.dart';
+import '../pages/insight_page.dart';
+import '../pages/creation_page.dart' as creation;
+import '../pages/profile_page.dart';
+import '../pages/writing_page.dart';
 import 'platform_config.dart';
 
 /// 页面定义类
@@ -37,7 +36,6 @@ class PageDefinition {
 }
 
 class PageRegistry {
-  /// ✅ 所有页面注册（保留全部功能）
   static const List<PageDefinition> allPages = [
     PageDefinition(
       id: 'collection',
@@ -89,21 +87,10 @@ class PageRegistry {
       icon: Icons.edit_note,
       activeIcon: Icons.edit_note,
       page: WritingPage.new,
-      mobile: false,      // ❌ 手机端不显示写作
-      tablet: false,       // ❌ 平板端不显示写作
-      desktop: true,      // ✅ 桌面端显示
-      web: true,          // ✅ Web 端显示
-    ),
-    PageDefinition(
-      id: 'explore',
-      title: '探索',
-      icon: Icons.explore,
-      activeIcon: Icons.explore,
-      page: ExplorePage.new,
-      mobile: false,      // ❌ 手机端不显示探索
-      tablet: true,       // ✅ 平板端显示探索
-      desktop: true,      // ✅ 桌面端显示探索
-      web: true,          // ✅ Web 端显示探索
+      mobile: false,
+      tablet: false,
+      desktop: true,
+      web: true,
     ),
     PageDefinition(
       id: 'profile',
@@ -118,7 +105,6 @@ class PageRegistry {
     ),
   ];
 
-  /// 获取当前端显示的页面列表
   static List<PageDefinition> getPages(BuildContext context) {
     final deviceType = PlatformConfig.getDeviceType(context);
 
@@ -136,7 +122,6 @@ class PageRegistry {
     }).toList();
   }
 
-  /// 获取首页索引（默认采集页）
   static int getHomeIndex(BuildContext context) {
     final pages = getPages(context);
     for (var i = 0; i < pages.length; i++) {

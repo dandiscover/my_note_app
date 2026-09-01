@@ -1,21 +1,24 @@
+// lib/models/node.dart
+// 树形节点模型 — 标准格式（不处理脏数据）
+
 class Node {
   final String id;
-  String title;
-  String? parentId;
-  bool isFolder;
-  String nodeType; // 'folder' | 'note' | 'book'
-  String? targetId; // 如果 nodeType 是 note/book，关联到对应内容 ID
-  int sortOrder;
-  List<String> tags;
-  DateTime createdAt;
-  DateTime updatedAt;
+  final String title;
+  final String? parentId;
+  final bool isFolder;
+  final String nodeType;
+  final String? targetId;
+  final int sortOrder;
+  final List<String> tags;
+  final DateTime createdAt;
+  final DateTime updatedAt;
 
-  Node({
+  const Node({
     required this.id,
     required this.title,
     this.parentId,
-    this.isFolder = false,
-    this.nodeType = 'folder',
+    required this.isFolder,
+    required this.nodeType,
     this.targetId,
     this.sortOrder = 0,
     this.tags = const [],
@@ -23,34 +26,48 @@ class Node {
     required this.updatedAt,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'title': title,
-      'parent_id': parentId,
-      'is_folder': isFolder ? 1 : 0,
-      'node_type': nodeType,
-      'target_id': targetId,
-      'sort_order': sortOrder,
-      'tags': tags.join(','),
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt.toIso8601String(),
-    };
-  }
+  static final Node empty = Node(
+    id: '',
+    title: '',
+    parentId: null,
+    isFolder: false,
+    nodeType: 'folder',
+    targetId: null,
+    sortOrder: 0,
+    tags: const [],
+    createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+  );
 
+  /// ✅ fromMap 只接受标准格式（tags 已是 List，parentId 已是 null 或有效值）
   factory Node.fromMap(Map<String, dynamic> map) {
     return Node(
       id: map['id'] ?? '',
       title: map['title'] ?? '',
-      parentId: map['parent_id'],
-      isFolder: (map['is_folder'] ?? 0) == 1,
-      nodeType: map['node_type'] ?? 'folder',
-      targetId: map['target_id'],
-      sortOrder: map['sort_order'] ?? 0,
-      tags: (map['tags'] ?? '').toString().split(',').where((t) => t.isNotEmpty).toList(),
-      createdAt: DateTime.tryParse(map['created_at'] ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),
+      parentId: map['parentId'],
+      isFolder: (map['isFolder'] ?? 0) == 1,
+      nodeType: map['nodeType'] ?? 'folder',
+      targetId: map['targetId'],
+      sortOrder: map['sortOrder'] ?? 0,
+      tags: (map['tags'] as List?)?.cast<String>() ?? [],
+      createdAt: DateTime.parse(map['createdAt']),
+      updatedAt: DateTime.parse(map['updatedAt']),
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'parentId': parentId,
+      'isFolder': isFolder ? 1 : 0,
+      'nodeType': nodeType,
+      'targetId': targetId,
+      'sortOrder': sortOrder,
+      'tags': tags,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+    };
   }
 
   Node copyWith({
@@ -79,27 +96,22 @@ class Node {
     );
   }
 
-  /// 获取节点图标
+  bool get isSystemFolder {
+    return isFolder &&
+        parentId == null &&
+        ['图书馆', '已归档', '卡片盒', '复盘'].contains(title);
+  }
+
   String get iconEmoji {
-    switch (nodeType) {
-      case 'folder':
-        return '📁';
-      case 'note':
-        return '📄';
-      case 'book':
-        return '📘';
-      default:
-        return '📄';
+    if (isFolder) {
+      if (title == '图书馆') return '📚';
+      if (title == '已归档') return '📦';
+      if (title == '卡片盒') return '📇';
+      if (title == '复盘') return '📝';
+      return '📁';
     }
+    if (nodeType == 'note') return '📄';
+    if (nodeType == 'book') return '📖';
+    return '📄';
   }
-
-  /// 获取节点颜色（用于缩略图背景）
-  int get colorIndex {
-    // 根据 id 哈希生成稳定的颜色索引
-    final hash = id.hashCode.abs();
-    return hash % 8;
-  }
-
-  /// 是否为叶子节点（非文件夹）
-  bool get isLeaf => !isFolder;
 }

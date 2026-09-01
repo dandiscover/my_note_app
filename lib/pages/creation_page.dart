@@ -1,6 +1,7 @@
 // lib/pages/creation_page.dart
-// 创作模块 — 任务看板 + 写作素材库
-import '../models/card.dart'; 
+// 创作模块 — 添加云端同步
+
+import '../models/card.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -10,6 +11,8 @@ import '../models/note.dart';
 import '../models/task.dart';
 import '../services/task_service.dart';
 import '../services/card_service.dart';
+import '../services/sync/cloud_sync_service.dart';
+import '../services/sync/sync_manager.dart';
 import '../mixins/state_mixin.dart';
 import '../widgets/fullscreen_editor.dart';
 import '../widgets/task/task_toolbar.dart';
@@ -45,11 +48,7 @@ class CreationPageState extends State<CreationPage>
   String? _expandedTaskId;
 
   late TabController _tabController;
-
-  // ─── 素材面板需要的数据 ──────────────────────────────────
   List<CardModel> _indexCards = [];
-
-  // ─── 公开方法 ──────────────────────────────────────────────────
 
   void refreshTasks() {
     _loadTasks();
@@ -60,8 +59,6 @@ class CreationPageState extends State<CreationPage>
     _tabController.animateTo(1);
     _loadTasks();
   }
-
-  // ─── 生命周期 ──────────────────────────────────────────────
 
   @override
   void initState() {
@@ -83,15 +80,9 @@ class CreationPageState extends State<CreationPage>
   Future<void> _loadIndexCards() async {
     try {
       final allCards = await _cardService.getAllCards();
-      setState(() {
-        _indexCards = allCards.where((c) => c.cardType == CardType.indexCard).toList();
-      });
-    } catch (e) {
-      print('加载索引卡失败: $e');
-    }
+      setState(() { _indexCards = allCards.where((c) => c.cardType == CardType.indexCard).toList(); });
+    } catch (e) { print('加载索引卡失败: $e'); }
   }
-
-  // ─── 数据加载 ──────────────────────────────────────────────
 
   Future<void> _loadTasks() async {
     isLoading = true;
@@ -100,9 +91,7 @@ class CreationPageState extends State<CreationPage>
       _subtasks = await _taskService.loadAllSubtasks();
       _tasks = _tasks.where((t) => !t.isDone).toList();
       _tasks.sort((a, b) => _getPriorityScore(b).compareTo(_getPriorityScore(a)));
-    } catch (e) {
-      print('加载任务失败: $e');
-    }
+    } catch (e) { print('加载任务失败: $e'); }
     isLoading = false;
   }
 
@@ -150,13 +139,10 @@ class CreationPageState extends State<CreationPage>
     }
   }
 
-  // ─── 操作 ──────────────────────────────────────────────────
-
+  // ✅ 添加任务时同步
   Future<void> _addQuickTask(String title) async {
     if (title.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入任务内容'), duration: Duration(seconds: 1)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入任务内容'), duration: Duration(seconds: 1)));
       return;
     }
     final newTask = Task(
@@ -170,9 +156,7 @@ class CreationPageState extends State<CreationPage>
     await _taskService.addTask(newTask);
     await _loadTasks();
     _newTaskController.clear();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('✅ 任务已添加'), duration: Duration(seconds: 1)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 任务已添加'), duration: Duration(seconds: 1)));
   }
 
   Future<void> _deleteTask(String id) async {
@@ -184,19 +168,14 @@ class CreationPageState extends State<CreationPage>
         content: Text('确定要删除任务 "${task.title}" 吗？'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除', style: TextStyle(color: Colors.red)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除', style: TextStyle(color: Colors.red))),
         ],
       ),
     );
     if (confirm == true) {
       await _taskService.deleteTask(id);
       await _loadTasks();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已删除任务'), duration: Duration(seconds: 1)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已删除任务'), duration: Duration(seconds: 1)));
     }
   }
 
@@ -214,13 +193,7 @@ class CreationPageState extends State<CreationPage>
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.sentiment_satisfied, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('心情复盘'),
-              ],
-            ),
+            title: Row(children: const [Icon(Icons.sentiment_satisfied, color: Colors.orange), SizedBox(width: 8), Text('心情复盘')]),
             content: SizedBox(
               width: 400,
               child: Column(
@@ -228,50 +201,15 @@ class CreationPageState extends State<CreationPage>
                 children: [
                   Text('任务：${task.title}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildEmojiButton('😊', selectedEmoji, (emoji) {
-                        setDialogState(() => selectedEmoji = emoji);
-                      }),
-                      _buildEmojiButton('😐', selectedEmoji, (emoji) {
-                        setDialogState(() => selectedEmoji = emoji);
-                      }),
-                      _buildEmojiButton('😞', selectedEmoji, (emoji) {
-                        setDialogState(() => selectedEmoji = emoji);
-                      }),
-                    ],
-                  ),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [_buildEmojiButton('😊', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😐', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😞', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); })]),
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: contentController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: '一句话总结...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
+                  TextField(controller: contentController, maxLines: 4, decoration: const InputDecoration(hintText: '一句话总结...', border: OutlineInputBorder())),
                 ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, null),
-                child: const Text('放弃', style: TextStyle(color: Colors.red)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext, {
-                    'emoji': selectedEmoji ?? '😊',
-                    'content': contentController.text.trim(),
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('保存复盘'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(dialogContext, null), child: const Text('放弃', style: TextStyle(color: Colors.red))),
+              ElevatedButton(onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text('保存复盘')),
             ],
           );
         },
@@ -286,9 +224,7 @@ class CreationPageState extends State<CreationPage>
       );
       await _taskService.deleteTask(task.id);
       await _loadTasks();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 任务已完成，已归档到智库 → 复盘文件夹'), duration: Duration(seconds: 2)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 任务已完成，已归档到智库 → 复盘文件夹'), duration: Duration(seconds: 2)));
     }
   }
 
@@ -302,10 +238,7 @@ class CreationPageState extends State<CreationPage>
         decoration: BoxDecoration(
           color: isSelected ? Colors.orange.shade100 : Colors.transparent,
           borderRadius: BorderRadius.circular(30),
-          border: Border.all(
-            color: isSelected ? Colors.orange : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
-          ),
+          border: Border.all(color: isSelected ? Colors.orange : Colors.grey.shade300, width: isSelected ? 2 : 1),
         ),
         child: Text(emoji, style: const TextStyle(fontSize: 32)),
       ),
@@ -327,13 +260,7 @@ class CreationPageState extends State<CreationPage>
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.subdirectory_arrow_right, color: Colors.purple),
-                SizedBox(width: 8),
-                Text('步骤复盘'),
-              ],
-            ),
+            title: Row(children: const [Icon(Icons.subdirectory_arrow_right, color: Colors.purple), SizedBox(width: 8), Text('步骤复盘')]),
             content: SizedBox(
               width: 400,
               child: Column(
@@ -341,50 +268,15 @@ class CreationPageState extends State<CreationPage>
                 children: [
                   Text('${parentTask.title} → ${subtask.title}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildEmojiButton('😊', selectedEmoji, (emoji) {
-                        setDialogState(() => selectedEmoji = emoji);
-                      }),
-                      _buildEmojiButton('😐', selectedEmoji, (emoji) {
-                        setDialogState(() => selectedEmoji = emoji);
-                      }),
-                      _buildEmojiButton('😞', selectedEmoji, (emoji) {
-                        setDialogState(() => selectedEmoji = emoji);
-                      }),
-                    ],
-                  ),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [_buildEmojiButton('😊', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😐', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); }), _buildEmojiButton('😞', selectedEmoji, (emoji) { setDialogState(() => selectedEmoji = emoji); })]),
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: contentController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: '这个步骤做了什么？学到了什么？',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
+                  TextField(controller: contentController, maxLines: 4, decoration: const InputDecoration(hintText: '这个步骤做了什么？学到了什么？', border: OutlineInputBorder())),
                 ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, null),
-                child: const Text('放弃', style: TextStyle(color: Colors.red)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext, {
-                    'emoji': selectedEmoji ?? '😊',
-                    'content': contentController.text.trim(),
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('保存复盘'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(dialogContext, null), child: const Text('放弃', style: TextStyle(color: Colors.red))),
+              ElevatedButton(onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white), child: const Text('保存复盘')),
             ],
           );
         },
@@ -482,6 +374,17 @@ ${reviews.join('\n')}
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('subtask_review_${st.id}');
             }
+            // ✅ 同步到云端
+            if (CloudSyncService().isLoggedIn) {
+              try {
+                final note = NotebookEntry.fromMap(noteMap);
+                await CloudSyncService().syncNote(note);
+                final node = await _db.getNode(entry.id);
+                if (node != null) await CloudSyncService().syncNode(node);
+              } catch (_) {
+                SyncManager().markDirty();
+              }
+            }
             await _taskService.deleteTask(task.id);
             await _loadTasks();
             return true;
@@ -497,11 +400,7 @@ ${reviews.join('\n')}
     }
   }
 
-  Future<void> _saveToWisdom({
-    required String title,
-    required String content,
-    required List<String> tags,
-  }) async {
+  Future<void> _saveToWisdom({required String title, required String content, required List<String> tags}) async {
     try {
       final noteMap = {
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -514,9 +413,16 @@ ${reviews.join('\n')}
       await _db.insertNote(noteMap);
       final folderId = await _db.ensureReviewFolder();
       await _db.attachNoteToNode(noteId: noteMap['id'] as String, title: title, parentId: folderId, tags: tags);
-    } catch (e) {
-      print('保存到智库失败: $e');
-    }
+      // ✅ 同步到云端
+      if (CloudSyncService().isLoggedIn) {
+        try {
+          final note = NotebookEntry.fromMap(noteMap);
+          await CloudSyncService().syncNote(note);
+        } catch (_) {
+          SyncManager().markDirty();
+        }
+      }
+    } catch (e) { print('保存到智库失败: $e'); }
   }
 
   Future<void> _setReminder(Task task) async {
@@ -563,29 +469,15 @@ ${reviews.join('\n')}
       barrierDismissible: true,
       builder: (context) => AlertDialog(
         title: Row(children: const [Icon(Icons.alarm, color: Colors.orange), SizedBox(width: 8), Text('⏰ 任务提醒')]),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(task.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 8),
-            Text('提醒时间到了！该完成任务了 🚀', style: TextStyle(color: Colors.grey.shade600)),
-            const Text('⚡ 速通任务（建议30分钟内完成）', style: TextStyle(fontSize: 12, color: Colors.blue)),
-          ],
-        ),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(task.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), const SizedBox(height: 8), Text('提醒时间到了！该完成任务了 🚀', style: TextStyle(color: Colors.grey.shade600)), const Text('⚡ 速通任务（建议30分钟内完成）', style: TextStyle(fontSize: 12, color: Colors.blue))]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('知道了')),
-          ElevatedButton(
-            onPressed: () { Navigator.pop(context); _completeQuickTask(task); },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-            child: const Text('现在完成'),
-          ),
+          ElevatedButton(onPressed: () { Navigator.pop(context); _completeQuickTask(task); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text('现在完成')),
         ],
       ),
     );
   }
 
-  // ✅ 修复：传入 cards 参数
   void _openMaterialPanel() {
     showModalBottomSheet(
       context: context,
@@ -597,18 +489,8 @@ ${reviews.join('\n')}
         expand: false,
         builder: (context, scrollController) => MaterialPanel(
           cards: _indexCards,
-          onInsertText: (text) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('📝 已引用：$text'), duration: const Duration(seconds: 2)),
-            );
-            Navigator.pop(context);
-          },
-          onInsertCard: (card) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('📇 已插入卡片：${card.indexTitle ?? '未命名'}'), duration: const Duration(seconds: 2)),
-            );
-            Navigator.pop(context);
-          },
+          onInsertText: (text) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('📝 已引用：$text'), duration: const Duration(seconds: 2))); Navigator.pop(context); },
+          onInsertCard: (card) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('📇 已插入卡片：${card.indexTitle ?? '未命名'}'), duration: const Duration(seconds: 2))); Navigator.pop(context); },
         ),
       ),
     );
@@ -620,33 +502,32 @@ ${reviews.join('\n')}
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('添加速通任务'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '输入任务标题...', border: OutlineInputBorder()),
-          onSubmitted: (value) { _addQuickTask(value); Navigator.pop(context); },
-        ),
+        content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(hintText: '输入任务标题...', border: OutlineInputBorder()), onSubmitted: (value) { _addQuickTask(value); Navigator.pop(context); }),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          ElevatedButton(
-            onPressed: () { _addQuickTask(controller.text); Navigator.pop(context); },
-            child: const Text('添加'),
-          ),
+          ElevatedButton(onPressed: () { _addQuickTask(controller.text); Navigator.pop(context); }, child: const Text('添加')),
         ],
       ),
     );
   }
 
-  // ─── UI ──────────────────────────────────────────────────────
+  Future<void> _addSubtask(String taskId, String title) async {
+    if (title.trim().isEmpty) return;
+    final subtask = Subtask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      parentTaskId: taskId,
+      title: title.trim(),
+    );
+    await _taskService.addSubtask(subtask);
+    await _loadTasks();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('步骤已添加'), duration: Duration(seconds: 1)));
+  }
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('创作模块'),
-          bottom: TabBar(controller: _tabController, tabs: const [Tab(text: '📝 写作'), Tab(text: '✅ 任务')]),
-        ),
+        appBar: AppBar(title: const Text('创作模块'), bottom: TabBar(controller: _tabController, tabs: const [Tab(text: '📝 写作'), Tab(text: '✅ 任务')])),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -654,10 +535,7 @@ ${reviews.join('\n')}
     final filteredTasks = _getFilteredTasks();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('创作模块'),
-        bottom: TabBar(controller: _tabController, tabs: const [Tab(text: '📝 写作'), Tab(text: '✅ 任务')]),
-      ),
+      appBar: AppBar(title: const Text('创作模块'), bottom: TabBar(controller: _tabController, tabs: const [Tab(text: '📝 写作'), Tab(text: '✅ 任务')])),
       body: TabBarView(
         controller: _tabController,
         children: [
@@ -680,19 +558,10 @@ ${reviews.join('\n')}
           const Text('进入全屏写作环境，调用素材库', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => WritingPage(),
-                ),
-              );
-            },
+            onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => WritingPage())); },
             icon: const Icon(Icons.arrow_forward),
             label: const Text('开始写作'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-            ),
+            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
           ),
         ],
       ),
@@ -701,7 +570,6 @@ ${reviews.join('\n')}
 
   Widget _buildTaskTab(List<Task> filteredTasks) {
     if (_tasks.isEmpty) return _buildEmptyState();
-
     final allDone = _tasks.every((t) => t.isDone);
     if (allDone && _tasks.isNotEmpty) return _buildAllDoneState();
 
@@ -743,20 +611,6 @@ ${reviews.join('\n')}
     );
   }
 
-  Future<void> _addSubtask(String taskId, String title) async {
-    if (title.trim().isEmpty) return;
-    final subtask = Subtask(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      parentTaskId: taskId,
-      title: title.trim(),
-    );
-    await _taskService.addSubtask(subtask);
-    await _loadTasks();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('步骤已添加'), duration: Duration(seconds: 1)),
-    );
-  }
-
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -768,11 +622,7 @@ ${reviews.join('\n')}
           const SizedBox(height: 8),
           Text('在采集页输入速通任务，或前往智库创建探究任务', style: TextStyle(color: Colors.grey.shade600)),
           const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _showQuickAddDialog,
-            icon: const Icon(Icons.add),
-            label: const Text('添加速通任务'),
-          ),
+          ElevatedButton.icon(onPressed: _showQuickAddDialog, icon: const Icon(Icons.add), label: const Text('添加速通任务')),
         ],
       ),
     );

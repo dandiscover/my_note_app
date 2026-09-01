@@ -1,5 +1,5 @@
 // lib/pages/book_detail_page.dart
-// 书籍详情页 — 支持云端同步
+// 书籍详情页 — 支持云端同步 + Windows 双入口
 
 import 'dart:convert';
 import 'dart:io';
@@ -17,7 +17,7 @@ import '../models/book_note.dart';
 import '../models/node.dart';
 import '../services/book_service.dart';
 import '../services/supabase_service.dart';
-import '../services/cloud_data_service.dart';
+import '../services/sync/cloud_sync_service.dart';
 import '../utils/app_date_utils.dart';
 import '../utils/app_string_utils.dart';
 import 'pdf_reader_page.dart';
@@ -87,7 +87,84 @@ class _BookDetailPageState extends State<BookDetailPage>
     setState(() => _isLoading = false);
   }
 
-  // ─── 导入书籍（带进度） ──────────────────────────────────────
+  // ============================================================
+  // 📥 导入书籍（Windows 端使用 File 直接读取）
+  // ============================================================
+
+  /// 显示导入方式选择对话框（仅 Windows 端）
+  Future<bool?> _showImportChoiceDialog() async {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.upload_file, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('导入图书'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('选择导入方式：'),
+            SizedBox(height: 16),
+          ],
+        ),
+        actions: [
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, false),
+            icon: const Icon(Icons.folder_open),
+            label: const Text('📥 导入到本地'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade200,
+              foregroundColor: Colors.black87,
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.cloud_upload),
+            label: const Text('☁️ 上传到云端'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ✅ 核心修复：Windows 端直接从文件路径读取内容
+  Future<Uint8List?> _readFileBytes(PlatformFile file) async {
+    if (kIsWeb) {
+      return file.bytes;
+    }
+
+    try {
+      final filePath = file.path;
+      if (filePath == null || filePath.isEmpty) {
+        print('❌ 文件路径为空');
+        return null;
+      }
+
+      print('📁 文件路径: $filePath');
+
+      final fileObj = File(filePath);
+      if (!await fileObj.exists()) {
+        print('❌ 文件不存在: $filePath');
+        return null;
+      }
+
+      final bytes = await fileObj.readAsBytes();
+      print('✅ 文件读取成功，大小: ${bytes.length} bytes');
+      return bytes;
+    } catch (e) {
+      print('❌ 读取文件失败: $e');
+      return null;
+    }
+  }
 
   Future<void> _importBook() async {
     if (_isImporting) return;
@@ -104,21 +181,41 @@ class _BookDetailPageState extends State<BookDetailPage>
       }
 
       final file = result.files.first;
-      final extension = path.extension(file.name).toLowerCase().replaceFirst('.', '');
-      final bytes = file.bytes;
+      print('📁 文件名: ${file.name}');
+      print('📁 文件大小: ${file.size} bytes');
+
+      final bytes = await _readFileBytes(file);
 
       if (bytes == null) {
         setState(() => _isImporting = false);
-        _showSnackBar('❌ 无法读取文件');
+        _showSnackBar('❌ 无法读取文件内容，请检查文件是否损坏或被占用');
         return;
       }
 
-      // 进度状态
+      if (bytes.isEmpty) {
+        setState(() => _isImporting = false);
+        _showSnackBar('❌ 文件内容为空');
+        return;
+      }
+
+      final extension = path.extension(file.name).toLowerCase().replaceFirst('.', '');
+
+      bool uploadToCloud;
+      if (kIsWeb) {
+        uploadToCloud = true;
+      } else {
+        final choice = await _showImportChoiceDialog();
+        if (choice == null) {
+          setState(() => _isImporting = false);
+          return;
+        }
+        uploadToCloud = choice;
+      }
+
       double progressValue = 0.0;
       int uploadedBytes = 0;
       String progressText = '准备上传...';
 
-      // ✅ 显示进度对话框
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -170,6 +267,20 @@ class _BookDetailPageState extends State<BookDetailPage>
                       _formatFileSize(uploadedBytes, bytes.length),
                       style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                     ),
+                    if (!kIsWeb && !uploadToCloud) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          '📥 仅保存到本地',
+                          style: TextStyle(fontSize: 10, color: Colors.blue),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -188,21 +299,22 @@ class _BookDetailPageState extends State<BookDetailPage>
         ),
       );
 
-      // ✅ 执行导入（带进度回调）
       final newBook = await _bookService.importBook(
         title: file.name.replaceAll(RegExp(r'\.[^.]*$'), ''),
         author: '',
         filePath: kIsWeb ? '' : (file.path ?? ''),
         fileType: extension,
         fileBytes: bytes,
+        uploadToCloud: uploadToCloud,
         onProgress: (sent, total) {
           progressValue = sent / total;
           uploadedBytes = sent;
-          progressText = '上传中... ${(progressValue * 100).toInt()}%';
+          progressText = uploadToCloud
+              ? '上传中... ${(progressValue * 100).toInt()}%'
+              : '保存中... ${(progressValue * 100).toInt()}%';
         },
       );
 
-      // ✅ 关闭进度对话框
       if (mounted) Navigator.pop(context);
 
       _book = newBook;
@@ -211,7 +323,9 @@ class _BookDetailPageState extends State<BookDetailPage>
       _selectedStatus = _book!.status;
 
       setState(() => _isImporting = false);
-      _showSnackBar('✅ 导入成功！已放入"图书馆"文件夹');
+
+      final modeText = uploadToCloud ? '☁️ 已上传到云端' : '📥 已导入到本地';
+      _showSnackBar('✅ 导入成功！$modeText');
 
       _openReader(_book!.filePath, _book!.fileType, isWeb: kIsWeb);
 
@@ -654,7 +768,7 @@ class _BookDetailPageState extends State<BookDetailPage>
               Text(note.comment),
             ],
             const SizedBox(height: 8),
-            Text('${AppDateUtils.formatFull(note.createdAt)}',
+            Text(AppDateUtils.formatFull(note.createdAt),
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
           ],
         ),

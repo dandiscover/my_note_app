@@ -14,13 +14,22 @@ import '../models/keyboard_shortcut.dart';
 import '../database_service.dart';
 import '../services/supabase_service.dart';
 import '../services/book_service.dart';
-import '../services/sync_manager.dart';
-import '../services/file_service.dart'; // ✅ 新增
+import '../services/sync/sync_manager.dart';
+import '../services/file_service.dart';
 import '../models/book.dart';
 import '../models/book_note.dart';
+import '../models/note.dart';           // ✅ 新增：NotebookEntry
+import '../services/pet_service.dart';  // ✅ 新增：PetService
+import '../models/pet.dart';            // ✅ 新增：Pet 模型
+import '../models/node.dart';           // ✅ 新增：Node 模型
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final VoidCallback? onLoginSuccess;
+
+  const ProfilePage({
+    super.key,
+    this.onLoginSuccess,
+  });
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -33,7 +42,7 @@ class _ProfilePageState extends State<ProfilePage>
   final DatabaseService db = DatabaseService();
   final BookService _bookService = BookService();
   final SyncManager _syncManager = SyncManager();
-  final FileService _fileService = FileService(); // ✅ 新增
+  final FileService _fileService = FileService();
 
   UserSettings? _settingsData;
   bool _isLoading = true;
@@ -230,6 +239,9 @@ class _ProfilePageState extends State<ProfilePage>
                       Navigator.pop(context);
                       setState(() {});
                       _pullCloudData();
+
+                      // ✅ 登录成功后触发回调
+                      widget.onLoginSuccess?.call();
                     }
                   } catch (e) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -246,6 +258,7 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
+  // ✅ 修复：SyncResult 没有 bookNotes 字段，使用 books
   Future<void> _pullCloudData() async {
     try {
       final result = await _syncManager.pullAll();
@@ -253,9 +266,10 @@ class _ProfilePageState extends State<ProfilePage>
         for (var book in result.books) {
           await db.updateBook(book.toMap());
         }
-        for (var note in result.bookNotes) {
-          await _bookService.saveNote(note);
-        }
+        // ✅ 如果 SyncResult 有 notes 字段，可以同步笔记
+        // for (var note in result.notes) {
+        //   await db.updateNote(note.toMap());
+        // }
         _showSnackBar('☁️ 已从云端同步 ${result.books.length} 本图书');
       }
     } catch (e) {
@@ -263,23 +277,32 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
+  // ✅ 修复：syncAll 不需要 bookNotes 参数
   Future<void> _manualSync() async {
     final bookMaps = await db.getAllBooks();
     final books = bookMaps.map((m) => Book.fromMap(m)).toList();
 
-    final allNotes = <BookNote>[];
-    for (var book in books) {
-      final notes = await _bookService.getNotes(book.id);
-      allNotes.addAll(notes);
-    }
+    // 获取其他数据
+    final noteMaps = await db.getAllNotes(includeDeleted: false);
+    final notes = noteMaps.map((m) => NotebookEntry.fromMap(m)).toList();
 
+    final nodes = await db.getAllNodes();
+
+    // 任务和卡片（从各自服务获取）
+    // 简化：仅同步图书和笔记
     final success = await _syncManager.syncAll(
+      notes: notes,
+      nodes: nodes,
       books: books,
-      bookNotes: allNotes,
+      cards: [], // 暂不同步卡片
+      tasks: [], // 暂不同步任务
+      subtasks: [], // 暂不同步子任务
+      pet: await PetService().getOrCreatePet(),
+      settings: await SettingsService().load(),
     );
 
     if (success) {
-      _showSnackBar('☁️ 同步成功！${_syncManager.syncedBooks} 本图书，${_syncManager.syncedNotes} 条笔记');
+      _showSnackBar('☁️ 同步成功！');
     } else {
       _showSnackBar('❌ 同步失败: ${_syncManager.lastSyncError}');
     }
@@ -1423,7 +1446,7 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   String _colorToHex(Color color) {
-    return '#${color.value.toRadixString(16).substring(2)}';
+    return '#${color.toARGB32().toRadixString(16).substring(2)}';
   }
 
   Widget _buildSettingSection({

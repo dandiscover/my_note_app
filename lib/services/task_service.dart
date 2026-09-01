@@ -1,9 +1,13 @@
 // lib/services/task_service.dart
-// 任务数据服务（统一管理任务 CRUD）
+// 任务数据服务 — 集成云端同步
+
 import 'dart:async';
+import 'dart:developer';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
+import 'sync/cloud_sync_service.dart';
+import 'sync/sync_manager.dart';
 
 class TaskService {
   static const String _tasksKey = 'tasks';
@@ -49,6 +53,16 @@ class TaskService {
     final tasks = await loadAllTasks();
     tasks.add(task);
     await saveAllTasks(tasks);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncTask(task);
+        SyncManager().markClean();
+      } catch (e) {
+        SyncManager().markDirty();
+      }
+    }
   }
 
   // ─── 更新任务 ──────────────────────────────────────────────
@@ -59,6 +73,13 @@ class TaskService {
     if (index != -1) {
       tasks[index] = task;
       await saveAllTasks(tasks);
+
+      // ✅ 同步到云端
+      if (CloudSyncService().isLoggedIn) {
+        try {
+          await CloudSyncService().syncTask(task);
+        } catch (_) {}
+      }
     }
   }
 
@@ -69,6 +90,13 @@ class TaskService {
     tasks.removeWhere((t) => t.id == taskId);
     await saveAllTasks(tasks);
     await deleteSubtasksForTask(taskId);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().deleteTask(taskId);
+      } catch (_) {}
+    }
   }
 
   // ─── 子任务操作 ────────────────────────────────────────────
@@ -104,7 +132,7 @@ class TaskService {
       final jsonList = subtasks.map((s) => jsonEncode(s.toJson())).toList();
       await prefs.setStringList(_subtasksKey, jsonList);
     } catch (e) {
-    print('保存子任务失败: $e');
+      print('保存子任务失败: $e');
     }
   }
 
@@ -112,6 +140,13 @@ class TaskService {
     final all = await loadAllSubtasks();
     all.add(subtask);
     await saveAllSubtasks(all);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncSubtask(subtask);
+      } catch (_) {}
+    }
   }
 
   Future<void> updateSubtask(Subtask subtask) async {
@@ -120,6 +155,13 @@ class TaskService {
     if (index != -1) {
       all[index] = subtask;
       await saveAllSubtasks(all);
+
+      // ✅ 同步到云端
+      if (CloudSyncService().isLoggedIn) {
+        try {
+          await CloudSyncService().syncSubtask(subtask);
+        } catch (_) {}
+      }
     }
   }
 
@@ -127,6 +169,13 @@ class TaskService {
     final all = await loadAllSubtasks();
     all.removeWhere((s) => s.id == subtaskId);
     await saveAllSubtasks(all);
+
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().deleteSubtask(subtaskId);
+      } catch (_) {}
+    }
   }
 
   Future<void> deleteSubtasksForTask(String taskId) async {

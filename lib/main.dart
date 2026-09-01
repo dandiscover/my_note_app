@@ -1,60 +1,41 @@
 // lib/main.dart
-// ✅ 云脑计划 — 使用 --dart-define 传递环境变量
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';  // ✅ 新增
+// ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步
+
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'services/env_service.dart';  // ✅ 云上数据库
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'models/pet.dart';  // ✅ 必须有这个！
-// ─── Web 快捷键（条件导入） ──────────────────────────────────
+import 'models/pet.dart';
 
 import 'web_shortcut.dart'
     if (dart.library.html) 'web_shortcut.dart'
     if (dart.library.io) 'web_shortcut_stub.dart';
 
-// ─── 服务层 ──────────────────────────────────────────────────
-
 import 'services/supabase_service.dart';
 import 'services/keyboard_shortcut_manager.dart';
 import 'services/pet_service.dart';
+import 'services/env_service.dart';
+import 'services/sync/sync_manager.dart';
+import 'database_service.dart';
 import 'widgets/fullscreen_editor.dart';
-
-// ─── 核心配置 ──────────────────────────────────────────────────
-
-import 'core/platform_config.dart';
-
-// ─── 自适应导航 ──────────────────────────────────────────────
-
 import 'widgets/adaptive_navigation.dart';
 import 'widgets/floating_pet.dart';
 import 'widgets/sync_indicator.dart';
-
-// ─── ✅ 所有页面（完整保留，不删任何功能） ──────────────────
 
 import 'pages/collection_page.dart';
 import 'pages/wisdom_page.dart';
 import 'pages/insight_page.dart';
 import 'pages/creation_page.dart' as creation;
-import 'pages/profile_page.dart';
-
-// ─── ✅ 导入写作页面（桌面端显示，手机端隐藏） ──────────────
-
-import 'pages/writing_page.dart';
-
-// ═══════════════════════════════════════════════════════════════════
-// 主入口
-// ═══════════════════════════════════════════════════════════════════
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-   // ✅ Windows 桌面端初始化 SQLite
+
   if (!kIsWeb) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
 
- // ✅ 使用 EnvService 读取环境变量
   final supabaseUrl = EnvService.supabaseUrl;
   final supabaseAnonKey = EnvService.supabaseAnonKey;
 
@@ -68,9 +49,6 @@ void main() async {
 
   runApp(const MyApp());
 }
-// ═══════════════════════════════════════════════════════════════════
-// MyApp
-// ═══════════════════════════════════════════════════════════════════
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -99,7 +77,7 @@ class MyApp extends StatelessWidget {
         return Scaffold(
           body: Stack(
             children: [
-              if (child != null) child,
+              ?child,
               const _FloatingPetOverlay(),
             ],
           ),
@@ -110,9 +88,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// 悬浮宠物覆盖层
-// ═══════════════════════════════════════════════════════════════════
+// ─── 悬浮宠物覆盖层 ──────────────────────────────────────────
 
 class _FloatingPetOverlay extends StatefulWidget {
   const _FloatingPetOverlay();
@@ -198,9 +174,7 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// NotebookPage — 自适应导航 + 同步指示器
-// ═══════════════════════════════════════════════════════════════════
+// ─── NotebookPage ─────────────────────────────────────────────
 
 class NotebookPage extends StatefulWidget {
   const NotebookPage({super.key});
@@ -214,13 +188,13 @@ class _NotebookPageState extends State<NotebookPage> {
   KeyboardShortcutManager? _shortcutManager;
   WebShortcutManager? _webShortcutManager;
 
-  // ✅ 保留所有 GlobalKey（引用所有页面，用于刷新数据）
+  // ✅ 所有页面的 GlobalKey（用于跨页面刷新）
   final GlobalKey<WisdomPageState> _wisdomKey = GlobalKey<WisdomPageState>();
   final GlobalKey<InsightPageState> _insightKey = GlobalKey<InsightPageState>();
   final GlobalKey<creation.CreationPageState> _creationKey =
       GlobalKey<creation.CreationPageState>();
 
-  // ─── 生命周期 ──────────────────────────────────────────────
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -331,7 +305,66 @@ class _NotebookPageState extends State<NotebookPage> {
     return null;
   }
 
-  // ─── 键盘监听 ──────────────────────────────────────────────
+  // ─── Tab 切换刷新 ────────────────────────────────────────
+
+  void _onTabChange(int index) {
+    setState(() => _currentIndex = index);
+    if (index == 1) {
+      _wisdomKey.currentState?.refreshData();
+    }
+    if (index == 2) {
+      _insightKey.currentState?.refreshData();
+    }
+    if (index == 3) {
+      _creationKey.currentState?.refreshTasks();
+    }
+  }
+
+  // ✅ 刷新所有页面（图书导入后调用）
+  void _refreshAllPages() {
+    _wisdomKey.currentState?.refreshData();
+    _insightKey.currentState?.refreshData();
+    _creationKey.currentState?.refreshTasks();
+  }
+
+  // ✅ 登录后自动同步
+  void _syncAfterLogin() async {
+    final syncManager = SyncManager();
+    try {
+      final cloudData = await syncManager.pullAll();
+      if (cloudData != null) {
+        final db = DatabaseService();
+
+        for (var note in cloudData.notes) {
+          await db.updateNote(note.toMap());
+        }
+        for (var node in cloudData.nodes) {
+          await db.updateNode(node);
+        }
+        for (var book in cloudData.books) {
+          await db.updateBook(book.toMap());
+        }
+        if (cloudData.pet != null) {
+          final petService = PetService();
+          await petService.savePet(cloudData.pet!);
+        }
+
+        _refreshAllPages();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('☁️ 数据已从云端同步')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('⚠️ 同步失败: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -389,7 +422,6 @@ class _NotebookPageState extends State<NotebookPage> {
           title: const Text('云脑计划'),
           centerTitle: true,
           actions: [
-            // ✅ 同步指示器
             const SyncIndicator(),
             IconButton(
               tooltip: '关于',
@@ -407,9 +439,12 @@ class _NotebookPageState extends State<NotebookPage> {
           ],
         ),
         body: AdaptiveNavigation(
-          onTabChange: () {
-            // Tab 切换时刷新数据
-          },
+          onTabChange: _onTabChange,
+          onLoginSuccess: _syncAfterLogin,
+          wisdomKey: _wisdomKey,
+          insightKey: _insightKey,
+          creationKey: _creationKey,
+          onRefreshAll: _refreshAllPages,
         ),
       ),
     );

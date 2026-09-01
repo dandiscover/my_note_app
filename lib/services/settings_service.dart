@@ -1,6 +1,12 @@
+// lib/services/settings_service.dart
+// 设置服务 — 添加云端同步
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:developer';
 import '../models/user_settings.dart';
+import 'sync/cloud_sync_service.dart';
+import 'sync/sync_manager.dart';
 
 class SettingsService {
   static const String _key = 'user_settings';
@@ -22,6 +28,14 @@ class SettingsService {
   Future<void> save(UserSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, jsonEncode(settings.toMap()));
+    // ✅ 同步到云端
+    if (CloudSyncService().isLoggedIn) {
+      try {
+        await CloudSyncService().syncSettings(settings);
+      } catch (_) {
+        SyncManager().markDirty();
+      }
+    }
   }
 
   Future<void> update(Future<void> Function(UserSettings) updater) async {
