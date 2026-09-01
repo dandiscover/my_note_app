@@ -1,5 +1,6 @@
 // lib/pages/creation_page.dart
 // 创作模块 — 添加云端同步
+// ✅ 新增系统人格触发
 
 import '../models/card.dart';
 import 'dart:async';
@@ -19,6 +20,7 @@ import '../widgets/task/task_toolbar.dart';
 import '../widgets/task/task_list_view.dart';
 import '../widgets/task/quadrant_view.dart';
 import '../widgets/writing/material_panel.dart';
+import '../widgets/floating_pet.dart';
 import 'writing_page.dart';
 import '../utils/app_date_utils.dart';
 
@@ -208,8 +210,19 @@ class CreationPageState extends State<CreationPage>
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, null), child: const Text('放弃', style: TextStyle(color: Colors.red))),
-              ElevatedButton(onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text('保存复盘')),
+              TextButton(
+                onPressed: () {
+                  print('🔔 用户点击了放弃，即将触发小云说话');  // ✅ 调试日志
+                  floatingPetKey.currentState?.showMessage('做完了。但你还没想它。');
+                  Navigator.pop(dialogContext, null);
+                },
+                child: const Text('放弃', style: TextStyle(color: Colors.red)),
+              ),
+              ElevatedButton(
+                onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                child: const Text('保存复盘'),
+              ),
             ],
           );
         },
@@ -275,8 +288,19 @@ class CreationPageState extends State<CreationPage>
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, null), child: const Text('放弃', style: TextStyle(color: Colors.red))),
-              ElevatedButton(onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white), child: const Text('保存复盘')),
+              TextButton(
+                onPressed: () {
+                  // ✅ 条件③：做完了。但你还没想它。
+                  floatingPetKey.currentState?.showMessage('做完了。但你还没想它。');
+                  Navigator.pop(dialogContext, null);
+                },
+                child: const Text('放弃', style: TextStyle(color: Colors.red)),
+              ),
+              ElevatedButton(
+                onPressed: () { Navigator.pop(dialogContext, { 'emoji': selectedEmoji ?? '😊', 'content': contentController.text.trim() }); },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
+                child: const Text('保存复盘'),
+              ),
             ],
           );
         },

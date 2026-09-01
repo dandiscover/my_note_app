@@ -1,5 +1,6 @@
 // lib/pages/collection_page.dart
 // 采集页 — 灵感笔记自动归档提醒 + 图书导入入口（支持 Web/桌面）
+// ✅ 新增系统人格触发
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';  // ✅ 新增
 
 import '../database_service.dart';
 import '../models/note.dart';
@@ -20,6 +22,7 @@ import '../mixins/state_mixin.dart';
 import '../widgets/collection/capture_card.dart';
 import '../widgets/collection/raw_note_item.dart';
 import '../widgets/collection/quick_note_dialog.dart';
+import '../widgets/floating_pet.dart'; // ✅ 新增
 import 'creation_page.dart' as creation;
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
@@ -132,6 +135,42 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
 
       await _checkExpiry();
       await _archiveExpired();
+
+      // ✅ 条件①：水已经漫过脚踝了。
+      // 触发条件：存在 raw 笔记 + 最后整理时间 ≥ 3天前 + 今日未显示
+      if (_rawNotes.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final lastOrganizedStr = prefs.getString('last_organized_at');
+        final lastShownDate = prefs.getString('last_shown_water_warning');
+        final today = DateTime.now().toIso8601String().substring(0, 10);
+
+        bool shouldShow = true;
+
+        // 检查今日是否已显示
+        if (lastShownDate == today) {
+          shouldShow = false;
+        }
+
+        // 检查最后整理时间
+        if (lastOrganizedStr != null) {
+          try {
+            final lastTime = DateTime.parse(lastOrganizedStr);
+            final daysSince = DateTime.now().difference(lastTime).inDays;
+            if (daysSince < 3) {
+              shouldShow = false;
+            }
+          } catch (_) {
+            // 解析失败，不触发
+            shouldShow = false;
+          }
+        }
+        // 如果 lastOrganizedStr == null（从未整理），shouldShow 保持 true
+
+        if (shouldShow) {
+          floatingPetKey.currentState?.showMessage('水已经漫过脚踝了。');
+          await prefs.setString('last_shown_water_warning', today);
+        }
+      }
     } catch (e) {
       print('加载采集数据失败: $e');
     }
@@ -232,6 +271,15 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     if (result == true) {
       _cache.invalidate(_cacheKeyRawNotes);
       await _loadData();
+
+      // ✅ 条件②：水开始蒸发了。
+      // 用户编辑并保存了笔记，视为“整理动作”
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_organized_at', DateTime.now().toIso8601String());
+      // 如果笔记是从 raw 变为 active，触发话术
+      if (note.status == 'raw') {
+        floatingPetKey.currentState?.showMessage('水开始蒸发了。');
+      }
     }
   }
 

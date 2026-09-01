@@ -1,5 +1,5 @@
 // lib/main.dart
-// ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步
+// ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步 + 系统人格
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
@@ -20,7 +20,7 @@ import 'services/sync/sync_manager.dart';
 import 'database_service.dart';
 import 'widgets/fullscreen_editor.dart';
 import 'widgets/adaptive_navigation.dart';
-import 'widgets/floating_pet.dart';
+import 'widgets/floating_pet.dart';  // ✅ 导出 floatingPetKey
 import 'widgets/sync_indicator.dart';
 
 import 'pages/collection_page.dart';
@@ -77,7 +77,7 @@ class MyApp extends StatelessWidget {
         return Scaffold(
           body: Stack(
             children: [
-              ?child,
+              if (child != null) child,
               const _FloatingPetOverlay(),
             ],
           ),
@@ -162,6 +162,7 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
       child: IgnorePointer(
         ignoring: false,
         child: FloatingPet(
+          key: floatingPetKey,  // ✅ 新增：挂载 GlobalKey
           pet: _pet!,
           size: 70,
           onTap: _interact,
