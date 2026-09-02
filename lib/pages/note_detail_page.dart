@@ -2,6 +2,8 @@
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
 // ✅ 新增：采集页笔记保存时触发条件②
 // ✅ 修改：采集页进入时初始为编辑模式
+// ✅ 新增：“🧭 探究”入口按钮
+// ✅ 重构：用 _entry 可变状态替代 widget.entry
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +15,7 @@ import '../widgets/fullscreen_editor.dart';
 import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
 import 'book_detail_page.dart';
+import 'inquiry_page.dart';
 
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
@@ -38,12 +41,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _isSaving = false;
   String? _errorMessage;
   bool _isReadMode = true;
+  late NotebookEntry _entry;
 
   @override
   void initState() {
     super.initState();
-    // 来自采集页 → 初始为编辑模式；否则为阅读模式
     _isReadMode = !widget.isFromCollection;
+    _entry = widget.entry;
   }
 
   // ─── 保存笔记 ─────────────────────────────
@@ -62,10 +66,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     });
 
     try {
-      final newStatus = widget.isFromCollection ? 'active' : widget.entry.status;
+      final newStatus = widget.isFromCollection ? 'active' : _entry.status;
 
       final updated = NotebookEntry(
-        id: widget.entry.id,
+        id: _entry.id,
         title: title.isEmpty ? '无标题' : title,
         content: content.isEmpty ? '暂无内容' : content,
         updatedAt: DateTime.now(),
@@ -87,11 +91,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       if (widget.isFromCollection && newStatus == 'active') {
         final existingNodes = await _db.getAllNodes();
         final alreadyHasNode = existingNodes.any(
-          (n) => n.targetId == widget.entry.id && n.nodeType == 'note',
+          (n) => n.targetId == _entry.id && n.nodeType == 'note',
         );
         if (!alreadyHasNode) {
           await _db.attachNoteToNode(
-            noteId: widget.entry.id,
+            noteId: _entry.id,
             title: updated.title,
             parentId: null,
             tags: tags,
@@ -105,6 +109,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         await prefs.setString('last_organized_at', DateTime.now().toIso8601String());
         floatingPetKey.currentState?.showMessage('水开始蒸发了。');
       }
+
+      // ✅ 保存成功后更新 _entry
+      setState(() {
+        _entry = updated;
+      });
 
       if (mounted) {
         setState(() => _isSaving = false);
@@ -161,7 +170,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: TextEditingController(text: widget.entry.title),
+              controller: TextEditingController(text: _entry.title),
               decoration: const InputDecoration(
                 labelText: '标题',
                 border: OutlineInputBorder(),
@@ -195,10 +204,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         cardType: CardType.indexCard,
         sourceType: 'note',
-        sourceId: widget.entry.id,
-        sourceTitle: widget.entry.title,
-        tags: widget.entry.tags,
-        indexTitle: widget.entry.title,
+        sourceId: _entry.id,
+        sourceTitle: _entry.title,
+        tags: _entry.tags,
+        indexTitle: _entry.title,
         highlight: selectedText,
         stage: 0,
         nextReviewDate: DateTime.now().add(const Duration(minutes: 20)),
@@ -217,10 +226,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   // ─── 生成卡片（完整类型选择） ─────────────────────────────
   Future<void> _generateCard() async {
     CardType selectedType = CardType.review;
-    String frontText = widget.entry.title;
-    String backText = widget.entry.content.length > 200
-        ? '${widget.entry.content.substring(0, 200)}...'
-        : widget.entry.content;
+    String frontText = _entry.title;
+    String backText = _entry.content.length > 200
+        ? '${_entry.content.substring(0, 200)}...'
+        : _entry.content;
     Importance selectedImportance = Importance.medium;
 
     final result = await showDialog<bool>(
@@ -289,7 +298,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
                     if (selectedType == CardType.indexCard) ...[
                       TextField(
-                        controller: TextEditingController(text: widget.entry.title),
+                        controller: TextEditingController(text: _entry.title),
                         decoration: const InputDecoration(labelText: '标题', border: OutlineInputBorder()),
                         onChanged: (v) => frontText = v,
                       ),
@@ -302,9 +311,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       const SizedBox(height: 8),
                       TextField(
                         controller: TextEditingController(
-                          text: widget.entry.content.length > 100
-                              ? '${widget.entry.content.substring(0, 100)}...'
-                              : widget.entry.content,
+                          text: _entry.content.length > 100
+                              ? '${_entry.content.substring(0, 100)}...'
+                              : _entry.content,
                         ),
                         decoration: const InputDecoration(labelText: '高光句', border: OutlineInputBorder()),
                         maxLines: 3,
@@ -450,9 +459,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         cardType: selectedType,
         sourceType: 'note',
-        sourceId: widget.entry.id,
-        sourceTitle: widget.entry.title,
-        tags: widget.entry.tags,
+        sourceId: _entry.id,
+        sourceTitle: _entry.title,
+        tags: _entry.tags,
         importance: selectedImportance,
         stage: 0,
         nextReviewDate: DateTime.now().add(const Duration(minutes: 20)),
@@ -517,7 +526,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               width: MediaQuery.of(context).size.width / 3,
               child: FileTreePanel(
                 currentNodeId: widget.nodeId,
-                currentNodeName: widget.entry.title,
+                currentNodeName: _entry.title,
                 currentFolderId: widget.currentNodeId,
                 onNodeTap: (targetNodeId, nodeType) {
                   Navigator.pop(context);
@@ -574,6 +583,21 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
+  // ─── 探究入口 ─────────────────────────────
+  Future<void> _openInquiry() async {
+    final updatedEntry = await Navigator.push<NotebookEntry>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InquiryPage(entry: _entry),
+      ),
+    );
+    if (updatedEntry != null && mounted) {
+      setState(() {
+        _entry = updatedEntry;
+      });
+    }
+  }
+
   // ─── UI ─────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -581,13 +605,20 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: Text(
-          _isReadMode ? '📖 ${widget.entry.title}' : '✏️ ${widget.entry.title}',
+          _isReadMode ? '📖 ${_entry.title}' : '✏️ ${_entry.title}',
         ),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         actions: [
+          // ✅ 新增：探究入口
+          if (!widget.isFromCollection)
+            IconButton(
+              icon: const Icon(Icons.explore, color: Colors.purple),
+              tooltip: '🧭 探究',
+              onPressed: _openInquiry,
+            ),
           IconButton(
             icon: Icon(_isReadMode ? Icons.edit : Icons.remove_red_eye),
             tooltip: _isReadMode ? '切换到修改模式' : '切换到阅读模式',
@@ -619,10 +650,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (widget.entry.tags.isNotEmpty)
+            if (_entry.tags.isNotEmpty)
               Wrap(
                 spacing: 4,
-                children: widget.entry.tags.map((tag) => Chip(
+                children: _entry.tags.map((tag) => Chip(
                   label: Text(tag),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 )).toList(),
@@ -630,7 +661,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             const SizedBox(height: 12),
             SelectableText.rich(
               TextSpan(
-                text: widget.entry.content,
+                text: _entry.content,
                 style: const TextStyle(fontSize: 16, height: 1.6),
               ),
               contextMenuBuilder: (context, editableTextState) {
@@ -654,7 +685,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              '更新于 ${widget.entry.updatedAt.toLocal().toString().substring(0, 16)}',
+              '更新于 ${_entry.updatedAt.toLocal().toString().substring(0, 16)}',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
             ),
           ],
@@ -684,7 +715,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
           Expanded(
             child: FullscreenEditor(
-              entry: widget.entry,
+              entry: _entry,
               isFromCollection: widget.isFromCollection,
               onSave: _saveNote,
               isSaving: _isSaving,
