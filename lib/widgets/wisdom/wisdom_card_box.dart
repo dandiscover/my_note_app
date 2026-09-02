@@ -5,6 +5,8 @@
 // ✅ 新增：空状态时也显示“＋ 拐杖卡”按钮
 // ✅ 修复：统计栏 reviewCount 和 indexCount 过滤拐杖卡
 // ✅ 重构：去掉标签分组，改为平铺 + 标签下拉筛选
+// ✅ 新增：分类筛选独立一行（ChoiceChip）
+// ✅ 新增：_selectedFilter 状态变量，_filteredCards 增加类型筛选层
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -30,6 +32,7 @@ class WisdomCardBox extends StatefulWidget {
 class _WisdomCardBoxState extends State<WisdomCardBox> {
   String _searchQuery = '';
   String _selectedTag = '全部';
+  String _selectedFilter = 'all'; // 'all' | 'review' | 'index' | 'scaffold'
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -44,11 +47,26 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
         ? widget.cards
         : widget.cards.where((card) => card.tags.contains(_selectedTag)).toList();
 
-    // 2. 按搜索关键词筛选
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return tagFiltered;
+    // 2. 按类型筛选
+    final typeFiltered = tagFiltered.where((card) {
+      switch (_selectedFilter) {
+        case 'review':
+          return card.kind == CardKind.atomic && card.cardType == CardType.review;
+        case 'index':
+          return card.kind == CardKind.atomic && card.cardType == CardType.indexCard;
+        case 'scaffold':
+          return card.kind == CardKind.scaffold;
+        case 'all':
+        default:
+          return true;
+      }
+    }).toList();
 
-    return tagFiltered.where((card) {
+    // 3. 按搜索关键词筛选
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return typeFiltered;
+
+    return typeFiltered.where((card) {
       if (card.tags.any((t) => t.toLowerCase().contains(query))) return true;
       if (card.front?.toLowerCase().contains(query) == true) return true;
       if (card.back?.toLowerCase().contains(query) == true) return true;
@@ -83,6 +101,7 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
     final totalCards = widget.cards.length;
     final reviewCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.review).length;
     final indexCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.indexCard).length;
+    final scaffoldCount = widget.cards.where((c) => c.kind == CardKind.scaffold).length;
 
     if (widget.cards.isEmpty) {
       return Column(
@@ -152,6 +171,19 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
                         ),
                       ),
                     ),
+                ],
+              ),
+              // 分类筛选行（独立一行）
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  _buildFilterChip('📇 总卡片', 'all', Colors.blue),
+                  const SizedBox(width: 4),
+                  _buildFilterChip('📄 复习卡', 'review', Colors.purple),
+                  const SizedBox(width: 4),
+                  _buildFilterChip('📚 索引卡', 'index', Colors.teal),
+                  const SizedBox(width: 4),
+                  _buildFilterChip('🧭 拐杖卡', 'scaffold', Colors.orange),
                 ],
               ),
               // 标签下拉筛选行（独立一行）
@@ -245,6 +277,29 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
           Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
         ],
       ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value, Color color) {
+    final isSelected = _selectedFilter == value;
+    return ChoiceChip(
+      label: Text(label, style: const TextStyle(fontSize: 11)),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _selectedFilter = selected ? value : 'all';
+        });
+      },
+      selectedColor: color.withValues(alpha: 0.25),
+      backgroundColor: Colors.grey.shade100,
+      labelStyle: TextStyle(
+        color: isSelected ? color : Colors.grey.shade700,
+      ),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      side: isSelected
+          ? BorderSide(color: color, width: 1)
+          : const BorderSide(color: Colors.grey, width: 0.5),
     );
   }
 
