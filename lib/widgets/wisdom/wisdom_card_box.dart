@@ -5,6 +5,7 @@
 // ✅ 新增：空状态时也显示“＋ 拐杖卡”按钮
 // ✅ 修复：统计栏 reviewCount 和 indexCount 过滤拐杖卡
 // ✅ 重构：去掉标签分组，改为平铺 + 标签下拉筛选
+// ✅ 新增：统计栏 Chip 可点击筛选（总卡片/复习卡/索引卡/拐杖卡）
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -30,6 +31,7 @@ class WisdomCardBox extends StatefulWidget {
 class _WisdomCardBoxState extends State<WisdomCardBox> {
   String _searchQuery = '';
   String _selectedTag = '全部';
+  String _selectedFilter = 'all'; // 'all' | 'review' | 'index' | 'scaffold'
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -44,11 +46,26 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
         ? widget.cards
         : widget.cards.where((card) => card.tags.contains(_selectedTag)).toList();
 
-    // 2. 按搜索关键词筛选
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return tagFiltered;
+    // 2. 按类型筛选
+    final typeFiltered = tagFiltered.where((card) {
+      switch (_selectedFilter) {
+        case 'review':
+          return card.kind == CardKind.atomic && card.cardType == CardType.review;
+        case 'index':
+          return card.kind == CardKind.atomic && card.cardType == CardType.indexCard;
+        case 'scaffold':
+          return card.kind == CardKind.scaffold;
+        case 'all':
+        default:
+          return true;
+      }
+    }).toList();
 
-    return tagFiltered.where((card) {
+    // 3. 按搜索关键词筛选
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return typeFiltered;
+
+    return typeFiltered.where((card) {
       if (card.tags.any((t) => t.toLowerCase().contains(query))) return true;
       if (card.front?.toLowerCase().contains(query) == true) return true;
       if (card.back?.toLowerCase().contains(query) == true) return true;
@@ -83,6 +100,7 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
     final totalCards = widget.cards.length;
     final reviewCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.review).length;
     final indexCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.indexCard).length;
+    final scaffoldCount = widget.cards.where((c) => c.kind == CardKind.scaffold).length;
 
     if (widget.cards.isEmpty) {
       return Column(
@@ -126,14 +144,40 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
           ),
           child: Column(
             children: [
-              // 统计栏
+              // 统计栏 — 四个可点击 Chip
               Row(
                 children: [
-                  _buildStatChip('📇 总卡片', totalCards, Colors.blue),
+                  _buildFilterChip(
+                    label: '总卡片',
+                    count: totalCards,
+                    icon: '📇',
+                    filterValue: 'all',
+                    color: Colors.blue,
+                  ),
                   const SizedBox(width: 12),
-                  _buildStatChip('📄 复习卡', reviewCount, Colors.purple),
+                  _buildFilterChip(
+                    label: '复习卡',
+                    count: reviewCount,
+                    icon: '📄',
+                    filterValue: 'review',
+                    color: Colors.purple,
+                  ),
                   const SizedBox(width: 12),
-                  _buildStatChip('📚 索引卡', indexCount, Colors.teal),
+                  _buildFilterChip(
+                    label: '索引卡',
+                    count: indexCount,
+                    icon: '📚',
+                    filterValue: 'index',
+                    color: Colors.teal,
+                  ),
+                  const SizedBox(width: 12),
+                  _buildFilterChip(
+                    label: '拐杖卡',
+                    count: scaffoldCount,
+                    icon: '🧭',
+                    filterValue: 'scaffold',
+                    color: Colors.orange,
+                  ),
                   const Spacer(),
                   if (widget.onAddScaffold != null)
                     Padding(
@@ -233,17 +277,66 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
     );
   }
 
-  Widget _buildStatChip(String label, int count, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(16)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(count.toString(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-        ],
+  Widget _buildFilterChip({
+    required String label,
+    required int count,
+    required String icon,
+    required String filterValue,
+    required Color color,
+  }) {
+    final isSelected = _selectedFilter == filterValue;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          // 点击当前已选中的 Chip → 回到 'all'（取消筛选）
+          // 点击其他 Chip → 切换到对应筛选
+          _selectedFilter = isSelected ? 'all' : filterValue;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.25) : color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  icon,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+            if (isSelected)
+              Container(
+                margin: const EdgeInsets.only(top: 1),
+                height: 1.5,
+                width: double.infinity,
+                color: color,
+              ),
+          ],
+        ),
       ),
     );
   }
