@@ -4,6 +4,7 @@
 // ✅ 新增：“＋ 拐杖卡”按钮
 // ✅ 新增：空状态时也显示“＋ 拐杖卡”按钮
 // ✅ 修复：统计栏 reviewCount 和 indexCount 过滤拐杖卡
+// ✅ 重构：去掉标签分组，改为平铺 + 标签下拉筛选
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -28,6 +29,7 @@ class WisdomCardBox extends StatefulWidget {
 
 class _WisdomCardBoxState extends State<WisdomCardBox> {
   String _searchQuery = '';
+  String _selectedTag = '全部';
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -37,9 +39,16 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
   }
 
   List<CardModel> get _filteredCards {
-    if (_searchQuery.trim().isEmpty) return widget.cards;
+    // 1. 按标签筛选
+    final tagFiltered = _selectedTag == '全部'
+        ? widget.cards
+        : widget.cards.where((card) => card.tags.contains(_selectedTag)).toList();
+
+    // 2. 按搜索关键词筛选
     final query = _searchQuery.trim().toLowerCase();
-    return widget.cards.where((card) {
+    if (query.isEmpty) return tagFiltered;
+
+    return tagFiltered.where((card) {
       if (card.tags.any((t) => t.toLowerCase().contains(query))) return true;
       if (card.front?.toLowerCase().contains(query) == true) return true;
       if (card.back?.toLowerCase().contains(query) == true) return true;
@@ -50,23 +59,13 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
     }).toList();
   }
 
-  Map<String, List<CardModel>> get _groupedCards {
-    final groups = <String, List<CardModel>>{};
-    for (var card in _filteredCards) {
-      if (card.tags.isEmpty) {
-        groups.putIfAbsent('未分类', () => []).add(card);
-      } else {
-        for (var tag in card.tags) {
-          groups.putIfAbsent(tag, () => []).add(card);
-        }
-      }
+  List<String> get _uniqueTags {
+    final tagSet = <String>{};
+    for (var card in widget.cards) {
+      tagSet.addAll(card.tags);
     }
-    final sortedKeys = groups.keys.toList()..sort();
-    final sortedGroups = <String, List<CardModel>>{};
-    for (var key in sortedKeys) {
-      sortedGroups[key] = groups[key]!;
-    }
-    return sortedGroups;
+    final sorted = tagSet.toList()..sort();
+    return ['全部', ...sorted];
   }
 
   Color _getTagColor(String tag) {
@@ -81,7 +80,6 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
 
   @override
   Widget build(BuildContext context) {
-    final grouped = _groupedCards;
     final totalCards = widget.cards.length;
     final reviewCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.review).length;
     final indexCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.indexCard).length;
@@ -128,6 +126,7 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
           ),
           child: Column(
             children: [
+              // 统计栏
               Row(
                 children: [
                   _buildStatChip('📇 总卡片', totalCards, Colors.blue),
@@ -153,10 +152,34 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
                         ),
                       ),
                     ),
-                  Text('${grouped.keys.length} 个标签', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                ],
+              ),
+              // 标签下拉筛选行（独立一行）
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  DropdownButton<String>(
+                    value: _selectedTag,
+                    items: _uniqueTags.map((tag) => DropdownMenuItem(
+                      value: tag,
+                      child: Text(tag, style: const TextStyle(fontSize: 11)),
+                    )).toList(),
+                    onChanged: (newTag) {
+                      setState(() {
+                        _selectedTag = newTag!;
+                      });
+                    },
+                    underline: const SizedBox.shrink(),
+                    icon: const Icon(Icons.arrow_drop_down, size: 18),
+                    style: const TextStyle(fontSize: 11, color: Colors.black87),
+                    isDense: true,
+                  ),
+                  const SizedBox(width: 4),
+                  Text('${_uniqueTags.length - 1} 个标签', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
                 ],
               ),
               const SizedBox(height: 8),
+              // 搜索框
               TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
@@ -191,55 +214,19 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
           )
         else
           Expanded(
-            child: SingleChildScrollView(
+            child: GridView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: grouped.entries.map((entry) {
-                  final tag = entry.key;
-                  final cards = entry.value;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        margin: const EdgeInsets.only(top: 8, bottom: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _getTagColor(tag).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.local_offer, size: 14, color: _getTagColor(tag)),
-                            const SizedBox(width: 4),
-                            Text(tag, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _getTagColor(tag))),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(color: _getTagColor(tag).withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-                              child: Text('${cards.length}', style: TextStyle(fontSize: 10, color: _getTagColor(tag))),
-                            ),
-                          ],
-                        ),
-                      ),
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 6, crossAxisSpacing: 4, mainAxisSpacing: 4, childAspectRatio: 2.0,
-                        ),
-                        itemCount: cards.length,
-                        itemBuilder: (context, index) {
-                          final card = cards[index];
-                          return _buildCardItem(card);
-                        },
-                      ),
-                      const SizedBox(height: 4),
-                    ],
-                  );
-                }).toList(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 6,
+                crossAxisSpacing: 4,
+                mainAxisSpacing: 4,
+                childAspectRatio: 0.85,
               ),
+              itemCount: _filteredCards.length,
+              itemBuilder: (context, index) {
+                final card = _filteredCards[index];
+                return _buildCardItem(card);
+              },
             ),
           ),
       ],
