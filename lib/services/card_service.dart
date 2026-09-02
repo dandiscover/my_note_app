@@ -1,6 +1,7 @@
 // lib/services/card_service.dart
 // 卡片服务 — 集成云端同步
 // ✅ 复习相关方法过滤拐杖卡（kind == CardKind.scaffold）
+// ✅ 统计口径与按类型查询统一过滤拐杖卡
 
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -91,7 +92,7 @@ class CardService {
 
   Future<List<CardModel>> getCardsByCardType(CardType type) async {
     final cards = await getAllCards();
-    return cards.where((c) => c.cardType == type).toList();
+    return cards.where((c) => c.cardType == type && c.kind == CardKind.atomic).toList();
   }
 
   Future<List<CardModel>> getCardsBySource(String sourceId) async {
@@ -114,12 +115,12 @@ class CardService {
   Future<Map<String, dynamic>> getStats() async {
     final cards = await getAllCards();
     final reviewable = cards.where((c) => c.kind == CardKind.atomic).toList();
-    final total = cards.length;
+    final total = reviewable.length;
     final mastered = reviewable.where((c) => c.mastered).length;
     final learning = reviewable.where((c) => !c.mastered).length;
     final due = reviewable.where((c) => c.isDue && !c.mastered).length;
     final reviewCards = reviewable.where((c) => c.cardType == CardType.review).length;
-    final indexCards = cards.where((c) => c.cardType == CardType.indexCard).length;
+    final indexCards = reviewable.where((c) => c.cardType == CardType.indexCard).length;
     return {
       'total': total,
       'mastered': mastered,

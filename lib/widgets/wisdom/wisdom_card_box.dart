@@ -3,6 +3,7 @@
 // ✅ 新增：拐杖卡（kind == CardKind.scaffold）左上角显示 🧭 标记
 // ✅ 新增：“＋ 拐杖卡”按钮
 // ✅ 新增：空状态时也显示“＋ 拐杖卡”按钮
+// ✅ 修复：统计栏 reviewCount 和 indexCount 过滤拐杖卡
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -82,8 +83,8 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
   Widget build(BuildContext context) {
     final grouped = _groupedCards;
     final totalCards = widget.cards.length;
-    final reviewCount = widget.cards.where((c) => c.cardType == CardType.review).length;
-    final indexCount = widget.cards.where((c) => c.cardType == CardType.indexCard).length;
+    final reviewCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.review).length;
+    final indexCount = widget.cards.where((c) => c.kind == CardKind.atomic && c.cardType == CardType.indexCard).length;
 
     if (widget.cards.isEmpty) {
       return Column(
