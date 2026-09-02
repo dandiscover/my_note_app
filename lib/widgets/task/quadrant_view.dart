@@ -1,5 +1,6 @@
 // lib/widgets/task/quadrant_view.dart
 // 四象限视图
+// ✅ 删除 explore 分支，统一为速通任务
 
 import 'package:flutter/material.dart';
 import '../../models/task.dart';
@@ -102,9 +103,6 @@ class QuadrantView extends StatelessWidget {
     return StatefulBuilder(
       key: ValueKey('quadrant_${task.id}'),
       builder: (context, setState) {
-        final taskSubtasks = subtasks.where((s) => s.parentTaskId == task.id).toList();
-        final doneCount = taskSubtasks.where((s) => s.isDone).length;
-
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
           child: Container(
@@ -117,13 +115,7 @@ class QuadrantView extends StatelessWidget {
               children: [
                 Expanded(
                   child: InkWell(
-                    onTap: () {
-                      if (task.type == TaskType.explore) {
-                        onToggleExpand(expandedTaskId == task.id ? null : task.id);
-                      } else {
-                        onCompleteQuick(task);
-                      }
-                    },
+                    onTap: () => onCompleteQuick(task),
                     child: Text(
                       task.title,
                       style: const TextStyle(fontSize: 11),
@@ -132,25 +124,12 @@ class QuadrantView extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (task.type == TaskType.explore) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    '$doneCount/${taskSubtasks.length}',
-                    style: const TextStyle(fontSize: 9, color: Colors.grey),
-                  ),
-                ],
                 const SizedBox(width: 4),
                 MouseRegion(
                   onEnter: (_) => setState(() => isHovered = true),
                   onExit: (_) => setState(() => isHovered = false),
                   child: GestureDetector(
-                    onTap: () {
-                      if (task.type == TaskType.explore) {
-                        onToggleExpand(expandedTaskId == task.id ? null : task.id);
-                      } else {
-                        onCompleteQuick(task);
-                      }
-                    },
+                    onTap: () => onCompleteQuick(task),
                     child: Icon(
                       isHovered ? Icons.check_circle : Icons.check_circle_outline,
                       size: 14,

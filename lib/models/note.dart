@@ -1,5 +1,62 @@
 // lib/models/note.dart
 // 笔记模型 — 标准格式（不处理脏数据）
+// ✅ 新增：inquiryQuestion（探究问题）、scaffoldSessions（拐杖记录）、subtasks（子任务列表）
+
+class NoteSubtask {
+  final String id;
+  final String title;
+  final bool isDone;
+  final DateTime? completedAt;
+  final DateTime createdAt;
+
+  NoteSubtask({
+    required this.id,
+    required this.title,
+    this.isDone = false,
+    this.completedAt,
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
+
+  factory NoteSubtask.fromMap(Map<String, dynamic> map) {
+    return NoteSubtask(
+      id: map['id'] as String,
+      title: map['title'] as String,
+      isDone: map['isDone'] as bool? ?? false,
+      completedAt: map['completedAt'] != null
+          ? DateTime.parse(map['completedAt'] as String)
+          : null,
+      createdAt: map['createdAt'] != null
+          ? DateTime.parse(map['createdAt'] as String)
+          : DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'isDone': isDone,
+      'completedAt': completedAt?.toIso8601String(),
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+
+  NoteSubtask copyWith({
+    String? id,
+    String? title,
+    bool? isDone,
+    DateTime? completedAt,
+    DateTime? createdAt,
+  }) {
+    return NoteSubtask(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      isDone: isDone ?? this.isDone,
+      completedAt: completedAt ?? this.completedAt,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+}
 
 class NotebookEntry {
   final String id;
@@ -10,6 +67,9 @@ class NotebookEntry {
   final String editorMode;
   final List<String> tags;
   final bool isLocked;
+  final String? inquiryQuestion;
+  final List<Map<String, dynamic>> scaffoldSessions;
+  final List<NoteSubtask> subtasks;
 
   const NotebookEntry({
     required this.id,
@@ -20,6 +80,9 @@ class NotebookEntry {
     this.editorMode = 'plain',
     this.tags = const [],
     this.isLocked = false,
+    this.inquiryQuestion,
+    this.scaffoldSessions = const [],
+    this.subtasks = const [],
   });
 
   static final NotebookEntry empty = NotebookEntry(
@@ -31,6 +94,9 @@ class NotebookEntry {
     editorMode: 'plain',
     tags: const [],
     isLocked: false,
+    inquiryQuestion: null,
+    scaffoldSessions: const [],
+    subtasks: const [],
   );
 
   factory NotebookEntry.fromMap(Map<String, dynamic> map) {
@@ -43,6 +109,13 @@ class NotebookEntry {
       editorMode: map['editorMode'] ?? 'plain',
       tags: (map['tags'] as List?)?.cast<String>() ?? [],
       isLocked: (map['isLocked'] ?? 0) == 1,
+      inquiryQuestion: map['inquiryQuestion'] as String?,
+      scaffoldSessions: (map['scaffoldSessions'] as List?)
+          ?.map((e) => Map<String, dynamic>.from(e as Map))
+          .toList() ?? [],
+      subtasks: (map['subtasks'] as List?)
+          ?.map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>))
+          .toList() ?? [],
     );
   }
 
@@ -56,6 +129,9 @@ class NotebookEntry {
       'editorMode': editorMode,
       'isLocked': isLocked ? 1 : 0,
       'tags': tags,
+      'inquiryQuestion': inquiryQuestion,
+      'scaffoldSessions': scaffoldSessions,
+      'subtasks': subtasks,
     };
   }
 
@@ -68,6 +144,9 @@ class NotebookEntry {
     String? editorMode,
     List<String>? tags,
     bool? isLocked,
+    String? inquiryQuestion,
+    List<Map<String, dynamic>>? scaffoldSessions,
+    List<NoteSubtask>? subtasks,
   }) {
     return NotebookEntry(
       id: id ?? this.id,
@@ -78,6 +157,9 @@ class NotebookEntry {
       editorMode: editorMode ?? this.editorMode,
       tags: tags ?? this.tags,
       isLocked: isLocked ?? this.isLocked,
+      inquiryQuestion: inquiryQuestion ?? this.inquiryQuestion,
+      scaffoldSessions: scaffoldSessions ?? this.scaffoldSessions,
+      subtasks: subtasks ?? this.subtasks,
     );
   }
 }

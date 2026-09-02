@@ -46,7 +46,7 @@ void main() async {
     url: supabaseUrl,
     anonKey: supabaseAnonKey,
   );
-
+  await DatabaseService.ensureMigrationAndCleanup();
   runApp(const MyApp());
 }
 

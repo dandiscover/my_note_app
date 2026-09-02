@@ -1,5 +1,7 @@
 // test/services/task_service_test.dart
 // TaskService 完整单元测试
+// ✅ 删除 TaskType.explore 相关测试用例
+// ✅ 子任务测试先创建父任务，再添加子任务
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -102,30 +104,43 @@ void main() {
 
   group('子任务操作', () {
     test('添加子任务后应关联到父任务', () async {
-      final parentId = 'parent_1';
+      // ✅ 先创建父任务
+      final parentTask = Task(
+        id: 'parent_1',
+        title: '父任务',
+        type: TaskType.quick,
+      );
+      await taskService.addTask(parentTask);
+
       final subtask = Subtask(
         id: 'sub_1',
-        parentTaskId: parentId,
+        parentTaskId: parentTask.id,
         title: '子任务1',
       );
 
       await taskService.addSubtask(subtask);
-      final subtasks = await taskService.loadSubtasksForTask(parentId);
+      final subtasks = await taskService.loadSubtasksForTask(parentTask.id);
 
       expect(subtasks.length, 1);
       expect(subtasks.first.title, '子任务1');
-      expect(subtasks.first.parentTaskId, parentId);
+      expect(subtasks.first.parentTaskId, parentTask.id);
     });
 
     test('更新子任务应修改状态', () async {
-      final parentId = 'parent_2';
+      // ✅ 先创建父任务
+      final parentTask = Task(
+        id: 'parent_2',
+        title: '父任务',
+        type: TaskType.quick,
+      );
+      await taskService.addTask(parentTask);
+
       final subtask = Subtask(
         id: 'sub_2',
-        parentTaskId: parentId,
+        parentTaskId: parentTask.id,
         title: '原始子任务',
         isDone: false,
       );
-
       await taskService.addSubtask(subtask);
 
       final updated = subtask.copyWith(
@@ -135,40 +150,53 @@ void main() {
       );
       await taskService.updateSubtask(updated);
 
-      final subtasks = await taskService.loadSubtasksForTask(parentId);
+      final subtasks = await taskService.loadSubtasksForTask(parentTask.id);
       expect(subtasks.first.title, '更新子任务');
       expect(subtasks.first.isDone, true);
     });
 
     test('删除子任务应从列表移除', () async {
-      final parentId = 'parent_3';
+      // ✅ 先创建父任务
+      final parentTask = Task(
+        id: 'parent_3',
+        title: '父任务',
+        type: TaskType.quick,
+      );
+      await taskService.addTask(parentTask);
+
       final subtask = Subtask(
         id: 'sub_3',
-        parentTaskId: parentId,
+        parentTaskId: parentTask.id,
         title: '待删除子任务',
       );
-
       await taskService.addSubtask(subtask);
+
       await taskService.deleteSubtask('sub_3');
 
-      final subtasks = await taskService.loadSubtasksForTask(parentId);
+      final subtasks = await taskService.loadSubtasksForTask(parentTask.id);
       expect(subtasks, isEmpty);
     });
 
     test('删除父任务应同时删除所有子任务', () async {
-      final parentId = 'parent_4';
+      // ✅ 先创建父任务
+      final parentTask = Task(
+        id: 'parent_4',
+        title: '父任务',
+        type: TaskType.quick,
+      );
+      await taskService.addTask(parentTask);
 
       for (var i = 0; i < 5; i++) {
         await taskService.addSubtask(Subtask(
           id: 'sub_bulk_$i',
-          parentTaskId: parentId,
+          parentTaskId: parentTask.id,
           title: '子任务 $i',
         ));
       }
 
-      await taskService.deleteTask(parentId);
+      await taskService.deleteTask(parentTask.id);
 
-      final subtasks = await taskService.loadSubtasksForTask(parentId);
+      final subtasks = await taskService.loadSubtasksForTask(parentTask.id);
       expect(subtasks, isEmpty);
     });
   });
@@ -254,30 +282,6 @@ void main() {
     test('获取不存在的父任务的子任务返回空列表', () async {
       final subtasks = await taskService.loadSubtasksForTask('not_exist_parent');
       expect(subtasks, isEmpty);
-    });
-  });
-
-  // ─── 组5：任务类型筛选 ──────────────────────────────────
-
-  group('任务类型筛选', () {
-    test('速通任务和探究任务应能区分', () async {
-      final quickTask = Task(
-        id: 'type_1',
-        title: '速通任务',
-        type: TaskType.quick,
-      );
-      final exploreTask = Task(
-        id: 'type_2',
-        title: '探究任务',
-        type: TaskType.explore,
-      );
-
-      await taskService.addTask(quickTask);
-      await taskService.addTask(exploreTask);
-
-      final all = await taskService.loadAllTasks();
-      expect(all.where((t) => t.type == TaskType.quick).length, 1);
-      expect(all.where((t) => t.type == TaskType.explore).length, 1);
     });
   });
 }

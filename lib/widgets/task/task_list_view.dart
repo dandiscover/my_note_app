@@ -1,10 +1,10 @@
 // lib/widgets/task/task_list_view.dart
 // 任务列表视图
+// ✅ 删除探究任务区块，只保留速通任务
 
 import 'package:flutter/material.dart';
 import '../../models/task.dart';
 import '../quick_task_card.dart';
-import '../explore_task_card.dart';
 
 class TaskListView extends StatelessWidget {
   final List<Task> tasks;
@@ -15,7 +15,7 @@ class TaskListView extends StatelessWidget {
   final ValueChanged<String> onDeleteTask;
   final ValueChanged<Task> onSetReminder;
   final ValueChanged<Subtask> onToggleSubtask;
-  final ValueChanged<String> onAddSubtask;  // ✅ 修改：只接收 taskId
+  final ValueChanged<String> onAddSubtask;
 
   const TaskListView({
     super.key,
@@ -33,27 +33,10 @@ class TaskListView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final quickTasks = tasks.where((t) => t.type == TaskType.quick).toList();
-    final exploreTasks = tasks.where((t) => t.type == TaskType.explore).toList();
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       children: [
-        if (exploreTasks.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 6),
-            child: Text('🔍 探究任务', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-          ),
-          ...exploreTasks.map((task) => ExploreTaskCard(
-            key: ValueKey('explore_${task.id}'),
-            task: task,
-            subtasks: subtasks.where((s) => s.parentTaskId == task.id).toList(),
-            onToggleExpand: () => onToggleExpand(expandedTaskId == task.id ? null : task.id),
-            onToggleSubtask: onToggleSubtask,
-            onDelete: () => onDeleteTask(task.id),
-            onAddSubtask: (title) => onAddSubtask(task.id),  // ✅ 只传 taskId
-          )),
-          const SizedBox(height: 8),
-        ],
         if (quickTasks.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 6),

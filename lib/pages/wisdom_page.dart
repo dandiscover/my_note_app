@@ -3,6 +3,7 @@
 // ✅ 新增：创建最小一步拐杖卡（异步保存）
 // ✅ 新增：卡片详情弹窗支持删除卡片
 // ✅ 修复：拐杖卡详情弹窗不显示“开始复习”按钮
+// ✅ 删除：_createExploreTask 方法及 AppBar 中对应的按钮
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -396,34 +397,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
   }
 
-  Future<void> _createExploreTask() async {
-    _closeFab();
-    final tempNote = NotebookEntry(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: '探究任务',
-      content: '# 探究任务\n\n## 🎯 目标\n\n## 📋 步骤\n\n## 📎 参考资料\n\n',
-      tags: ['探究'], updatedAt: DateTime.now(), editorMode: 'markdown',
-    );
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => FullscreenEditor(
-          entry: tempNote,
-          isFromCollection: true,
-          onSave: (entry, title, content, mode, tags) async {
-            final noteMap = { 'id': entry.id, 'title': title, 'content': content, 'status': 'active', 'editorMode': mode, 'updatedAt': DateTime.now().toIso8601String(), 'isLocked': 0 };
-            await _db.insertNote(noteMap);
-            final task = Task(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, type: TaskType.explore, description: content, difficulty: Difficulty.medium, urgency: Urgency.medium, necessity: Necessity.important, noteId: entry.id);
-            await _saveTask(task);
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 探究任务已创建，可在「创作 → 任务」中查看'), duration: Duration(seconds: 2)));
-            return true;
-          },
-        ),
-      ),
-    );
-    if (result == true) { _cache.invalidate(_cacheKeyNodes); _cache.invalidate(_cacheKeyNotes); _folderStatsCache = null; await _loadData(); }
-  }
-
   /// ✅ 创建最小一步拐杖卡（异步保存）
   Future<void> _createMinimalStepCard() async {
     final card = CardModel(
@@ -565,7 +538,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       leading: _isCardBoxView ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => _navigateToFolder(null), tooltip: '返回智库') : null,
       actions: [
         IconButton(icon: const Icon(Icons.search), onPressed: _toggleSearch, tooltip: '搜索'),
-        IconButton(icon: const Icon(Icons.explore, color: Colors.purple), onPressed: _createExploreTask, tooltip: '探究任务'),
         IconButton(icon: const Icon(Icons.bubble_chart, color: Colors.teal), onPressed: _openClueBoard, tooltip: '🧩 线索墙'),
       ],
     );

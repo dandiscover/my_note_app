@@ -1,5 +1,9 @@
 // lib/database_service.dart
 // 数据层 — 统一字段标准：代码层驼峰，数据库层下划线，tags 统一 List<String> 进模型，String 入库
+// ✅ 数据库版本 8 → 9：新增 inquiry_question / scaffold_sessions / subtasks 三列
+// ✅ _prepareNoteForDb / _cleanNoteMap 支持新字段序列化/反序列化
+// ✅ Web 端读取 notes_data 时补默认值
+// ✅ 新增 ensureMigrationAndCleanup() 清理旧探究任务数据
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -16,6 +20,62 @@ class DatabaseService {
   DatabaseService._internal();
 
   bool get _isWeb => kIsWeb;
+
+  // ═══════════════════════════════════════════════════════════════
+  // 0. 清理旧探究任务数据（迁移入口）
+  // ═══════════════════════════════════════════════════════════════
+
+  static Future<void> ensureMigrationAndCleanup() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cleaned = prefs.getBool('legacy_explore_tasks_cleaned') ?? false;
+    if (!cleaned) {
+      await _clearLegacyExploreTasks();
+      await prefs.setBool('legacy_explore_tasks_cleaned', true);
+    }
+  }
+
+  static Future<void> _clearLegacyExploreTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. 读取所有任务
+    final tasksJson = prefs.getStringList('tasks') ?? [];
+
+    // 2. 分离 explore 任务和普通任务
+    final exploreTaskIds = <String>[];
+    final remainingTasks = <String>[];
+
+    for (var json in tasksJson) {
+      try {
+        final map = jsonDecode(json) as Map<String, dynamic>;
+        if (map['type'] == 'explore') {
+          exploreTaskIds.add(map['id'] as String);
+        } else {
+          remainingTasks.add(json);
+        }
+      } catch (_) {
+        // 格式异常的条目，保留（不丢失数据）
+        remainingTasks.add(json);
+      }
+    }
+
+    // 3. 写回剩余任务
+    await prefs.setStringList('tasks', remainingTasks);
+
+    // 4. 清理属于已删除探究任务的子任务
+    if (exploreTaskIds.isNotEmpty) {
+      final subtasksJson = prefs.getStringList('subtasks') ?? [];
+      final remainingSubtasks = subtasksJson.where((json) {
+        try {
+          final map = jsonDecode(json) as Map<String, dynamic>;
+          final parentId = map['parentTaskId'] as String?;
+          return parentId == null || !exploreTaskIds.contains(parentId);
+        } catch (_) {
+          return true;
+        }
+      }).toList();
+      await prefs.setStringList('subtasks', remainingSubtasks);
+    }
+  }
 
   // ============================================================
   // 节点 CRUD
@@ -369,6 +429,14 @@ class DatabaseService {
       if (data == null || data.isEmpty) return [];
       final List<dynamic> list = jsonDecode(data);
       final allNotes = list.map((e) => _cleanNoteMap(Map<String, dynamic>.from(e))).toList();
+
+      // ✅ Web 端：自动补默认值
+      for (var note in allNotes) {
+        if (!note.containsKey('inquiryQuestion')) note['inquiryQuestion'] = null;
+        if (!note.containsKey('scaffoldSessions')) note['scaffoldSessions'] = [];
+        if (!note.containsKey('subtasks')) note['subtasks'] = [];
+      }
+
       if (includeDeleted) return allNotes;
       return allNotes.where((n) => n['status'] != 'deleted').toList();
     } else {
@@ -383,6 +451,7 @@ class DatabaseService {
   Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
     final cleaned = Map<String, dynamic>.from(map);
 
+    // tags: String → List<String>
     final tagsRaw = cleaned['tags'];
     if (tagsRaw is String) {
       cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
@@ -392,12 +461,57 @@ class DatabaseService {
       cleaned['tags'] = [];
     }
 
+    // ✅ scaffoldSessions: String → List<Map>
+    final sessionsRaw = cleaned['scaffoldSessions'];
+    if (sessionsRaw is String && sessionsRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(sessionsRaw);
+        cleaned['scaffoldSessions'] = (decoded as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      } catch (_) {
+        cleaned['scaffoldSessions'] = [];
+      }
+    } else if (sessionsRaw is List) {
+      cleaned['scaffoldSessions'] = sessionsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } else {
+      cleaned['scaffoldSessions'] = [];
+    }
+
+    // ✅ subtasks: String → List<NoteSubtask>
+    final subtasksRaw = cleaned['subtasks'];
+    if (subtasksRaw is String && subtasksRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(subtasksRaw);
+        cleaned['subtasks'] = (decoded as List).map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>)).toList();
+      } catch (_) {
+        cleaned['subtasks'] = [];
+      }
+    } else if (subtasksRaw is List) {
+      cleaned['subtasks'] = (subtasksRaw as List).map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>)).toList();
+    } else {
+      cleaned['subtasks'] = [];
+    }
+
+    // inquiryQuestion: 直接透传
+    cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
+
     return cleaned;
   }
 
   Map<String, dynamic> _prepareNoteForDb(Map<String, dynamic> map) {
     final tags = map['tags'];
     final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
+
+    // ✅ scaffoldSessions: List<Map> → String
+    final sessions = map['scaffoldSessions'];
+    final sessionsStr = sessions is List && sessions.isNotEmpty
+        ? jsonEncode(sessions)
+        : '[]';
+
+    // ✅ subtasks: List<NoteSubtask> → String
+    final subtasks = map['subtasks'];
+    final subtasksStr = subtasks is List && subtasks.isNotEmpty
+        ? jsonEncode(subtasks.map((e) => e.toMap()).toList())
+        : '[]';
 
     return {
       'id': map['id'],
@@ -408,6 +522,9 @@ class DatabaseService {
       'editorMode': map['editorMode'] ?? 'plain',
       'isLocked': map['isLocked'] is bool ? (map['isLocked'] == true ? 1 : 0) : (map['isLocked'] ?? 0),
       'tags': tagsStr,
+      'inquiryQuestion': map['inquiryQuestion'] as String?,
+      'scaffoldSessions': sessionsStr,
+      'subtasks': subtasksStr,
     };
   }
 
@@ -955,7 +1072,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'notebook.db');
     _database = await openDatabase(
       path,
-      version: 8,
+      version: 9,  // ✅ 版本 8 → 9
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -1023,6 +1140,15 @@ class DatabaseService {
         ''');
       } catch (_) {}
     }
+
+    // ✅ 版本 8 → 9：新增 inquiry_question / scaffold_sessions / subtasks 三列
+    if (oldVersion < 9) {
+      try {
+        await db.execute('ALTER TABLE notes ADD COLUMN inquiry_question TEXT');
+        await db.execute('ALTER TABLE notes ADD COLUMN scaffold_sessions TEXT DEFAULT "[]"');
+        await db.execute('ALTER TABLE notes ADD COLUMN subtasks TEXT DEFAULT "[]"');
+      } catch (_) {}
+    }
   }
 
   Future<void> _createTables(Database db) async {
@@ -1035,7 +1161,10 @@ class DatabaseService {
         status TEXT DEFAULT 'raw',
         editorMode TEXT DEFAULT 'plain',
         isLocked INTEGER DEFAULT 0,
-        tags TEXT DEFAULT ''
+        tags TEXT DEFAULT '',
+        inquiry_question TEXT,
+        scaffold_sessions TEXT DEFAULT '[]',
+        subtasks TEXT DEFAULT '[]'
       )
     ''');
 

@@ -1,12 +1,11 @@
 // lib/models/task.dart
 // 任务数据模型 — 难度/紧急性/必要性 + 子任务 + 复盘关联 + 提醒时间
-
+// ✅ 删除 TaskType.explore，只保留 quick
 
 // ─── 枚举定义 ─────────────────────────────
 
 enum TaskType {
   quick,   // 速通：简单小任务
-  explore, // 探究：复杂任务，可拆分子任务
 }
 
 enum Difficulty {
@@ -34,8 +33,6 @@ extension TaskTypeExt on TaskType {
     switch (this) {
       case TaskType.quick:
         return 'quick';
-      case TaskType.explore:
-        return 'explore';
     }
   }
 
@@ -43,8 +40,6 @@ extension TaskTypeExt on TaskType {
     switch (value) {
       case 'quick':
         return TaskType.quick;
-      case 'explore':
-        return TaskType.explore;
       default:
         return TaskType.quick;
     }

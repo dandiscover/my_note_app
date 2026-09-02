@@ -1,5 +1,7 @@
 // lib/services/task_service.dart
 // 任务数据服务 — 集成云端同步
+// ✅ loadAllTasks() 过滤 type == 'explore' 的任务，只返回 quick
+// ✅ addSubtask() 增加防御性检查：父任务必须存在且为 quick
 
 import 'dart:async';
 import 'dart:developer';
@@ -19,7 +21,7 @@ class TaskService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonList = prefs.getStringList(_tasksKey) ?? [];
-      return jsonList
+      final allTasks = jsonList
           .map((json) {
             try {
               final map = jsonDecode(json) as Map<String, dynamic>;
@@ -30,6 +32,9 @@ class TaskService {
           })
           .whereType<Task>()
           .toList();
+
+      // ✅ 过滤掉 type == 'explore' 的任务，只返回 quick
+      return allTasks.where((task) => task.type == TaskType.quick).toList();
     } catch (_) {
       return [];
     }
@@ -137,6 +142,16 @@ class TaskService {
   }
 
   Future<void> addSubtask(Subtask subtask) async {
+    // ✅ 防御性检查：父任务必须存在且为 quick
+    final allTasks = await loadAllTasks();
+    final parentTask = allTasks.firstWhere(
+      (t) => t.id == subtask.parentTaskId,
+      orElse: () => throw Exception('父任务不存在或已被删除'),
+    );
+    if (parentTask.type != TaskType.quick) {
+      throw Exception('只有速通任务（quick）可以添加子任务');
+    }
+
     final all = await loadAllSubtasks();
     all.add(subtask);
     await saveAllSubtasks(all);
