@@ -6,6 +6,7 @@
 // ✅ 删除：_createExploreTask 方法及 AppBar 中对应的按钮
 // ✅ 删除：_taskService、_saveTask、_rootFolders、_libraryBookCount、_archivedNoteCount
 // ✅ 删除：未使用的 import（dart:convert, shared_preferences, task, task_service）
+// ✅ 删除：未使用的 getter（_libraryFolder、_archivedFolder）
 
 import 'package:flutter/material.dart';
 
@@ -289,24 +290,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       }
     }
     return result;
-  }
-
-  Node? get _libraryFolder {
-    final folder = _nodes.firstWhere(
-      (n) => n.title == '图书馆' && n.isFolder && n.parentId == null,
-      orElse: () => Node.empty,
-    );
-    if (folder.id.isEmpty) return null;
-    return folder;
-  }
-
-  Node? get _archivedFolder {
-    final folder = _nodes.firstWhere(
-      (n) => n.title == '已归档' && n.isFolder && n.parentId == null,
-      orElse: () => Node.empty,
-    );
-    if (folder.id.isEmpty) return null;
-    return folder;
   }
 
   void _navigateToFolder(String? folderId) {
