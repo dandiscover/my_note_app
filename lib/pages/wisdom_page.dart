@@ -4,19 +4,17 @@
 // ✅ 新增：卡片详情弹窗支持删除卡片
 // ✅ 修复：拐杖卡详情弹窗不显示“开始复习”按钮
 // ✅ 删除：_createExploreTask 方法及 AppBar 中对应的按钮
+// ✅ 删除：_taskService、_saveTask、_rootFolders、_libraryBookCount、_archivedNoteCount
+// ✅ 删除：未使用的 import（dart:convert, shared_preferences, task, task_service）
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
 import '../models/node.dart';
 import '../models/card.dart';
-import '../models/task.dart';
 import '../services/card_service.dart';
-import '../services/task_service.dart';
 import '../services/cache_manager.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
@@ -45,7 +43,6 @@ class WisdomPage extends StatefulWidget {
 class WisdomPageState extends State<WisdomPage> with StateMixin {
   final DatabaseService _db = DatabaseService();
   final CardService _cardService = CardService();
-  final TaskService _taskService = TaskService();
   final CacheManager _cache = CacheManager();
 
   List<Node> _nodes = [];
@@ -253,8 +250,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     return result;
   }
 
-  List<Node> get _rootFolders => _nodes.where((n) => n.isFolder && n.parentId == null).toList();
-
   List<Node> get _userFolders {
     return _nodes.where((n) =>
       n.isFolder &&
@@ -305,11 +300,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     return folder;
   }
 
-  int get _libraryBookCount {
-    if (_libraryFolder == null) return 0;
-    return _nodes.where((n) => n.parentId == _libraryFolder!.id && n.nodeType == 'book').length;
-  }
-
   Node? get _archivedFolder {
     final folder = _nodes.firstWhere(
       (n) => n.title == '已归档' && n.isFolder && n.parentId == null,
@@ -317,11 +307,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
     if (folder.id.isEmpty) return null;
     return folder;
-  }
-
-  int get _archivedNoteCount {
-    if (_archivedFolder == null) return 0;
-    return _nodes.where((n) => n.parentId == _archivedFolder!.id && !n.isFolder).length;
   }
 
   void _navigateToFolder(String? folderId) {
@@ -422,13 +407,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('🧩 最小一步卡已创建')),
     );
-  }
-
-  Future<void> _saveTask(Task task) async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonList = prefs.getStringList('tasks') ?? [];
-    jsonList.add(jsonEncode(task.toJson()));
-    await prefs.setStringList('tasks', jsonList);
   }
 
   void _toggleSelectMode() {
