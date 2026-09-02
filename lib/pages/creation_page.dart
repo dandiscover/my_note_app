@@ -719,14 +719,16 @@ ${reviews.join('\n')}
 
     return Column(
       children: [
-        TaskToolbar(
+        TaskToolbar(textController: _newTaskController,
           viewMode: _viewMode,
           onViewModeChanged: (mode) => setState(() => _viewMode = mode),
           urgencyFilter: _urgencyFilter,
           onUrgencyFilterChanged: (value) => setState(() => _urgencyFilter = value),
           necessityFilter: _necessityFilter,
           onNecessityFilterChanged: (value) => setState(() => _necessityFilter = value),
-          onAddTask: () => _addQuickTask(_newTaskController.text),
+          onAddTask: (value) => _addQuickTask(value)
+
+,
         ),
         Expanded(
           child: filteredTasks.isEmpty

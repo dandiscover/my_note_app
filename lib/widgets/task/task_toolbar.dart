@@ -1,5 +1,5 @@
-// lib/widgets/task/task_toolbar.dart
 // 任务工具栏 — 筛选 + 视图切换
+// ✅ 修复：TextField 绑定 controller，onAddTask 改为 ValueChanged<String>
 
 import 'package:flutter/material.dart';
 import '../../pages/creation_page.dart';
@@ -11,7 +11,8 @@ class TaskToolbar extends StatelessWidget {
   final ValueChanged<String> onUrgencyFilterChanged;
   final String necessityFilter;
   final ValueChanged<String> onNecessityFilterChanged;
-  final VoidCallback onAddTask;
+  final ValueChanged<String> onAddTask;
+  final TextEditingController textController;
 
   const TaskToolbar({
     super.key,
@@ -22,6 +23,7 @@ class TaskToolbar extends StatelessWidget {
     required this.necessityFilter,
     required this.onNecessityFilterChanged,
     required this.onAddTask,
+    required this.textController,
   });
 
   @override
@@ -42,6 +44,7 @@ class TaskToolbar extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
+                  controller: textController,
                   decoration: InputDecoration(
                     hintText: '⚡ 添加速通任务...',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
@@ -49,12 +52,23 @@ class TaskToolbar extends StatelessWidget {
                     isDense: true,
                   ),
                   textInputAction: TextInputAction.done,
-                  onSubmitted: (value) => onAddTask(),
+                  onSubmitted: (value) {
+                    if (value.trim().isNotEmpty) {
+                      onAddTask(value.trim());
+                      textController.clear();
+                    }
+                  },
                 ),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
-                onPressed: onAddTask,
+                onPressed: () {
+                  final text = textController.text.trim();
+                  if (text.isNotEmpty) {
+                    onAddTask(text);
+                    textController.clear();
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue.shade100,
                   foregroundColor: Colors.blue.shade800,
