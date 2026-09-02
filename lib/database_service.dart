@@ -150,22 +150,30 @@ class DatabaseService {
   }
 
   Map<String, dynamic> _prepareNodeForDb(Map<String, dynamic> map) {
-    final tags = map['tags'];
-    final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
+  final tags = map['tags'];
+  final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
 
-    return {
-      'id': map['id'],
-      'title': map['title'],
-      'parent_id': map['parentId'],
-      'is_folder': map['isFolder'] ?? 0,
-      'node_type': map['nodeType'],
-      'target_id': map['targetId'],
-      'sort_order': map['sortOrder'] ?? 0,
-      'tags': tagsStr,
-      'created_at': map['createdAt'],
-      'updated_at': map['updatedAt'],
-    };
-  }
+  // 清理 parentId：空字符串或 'null' 字符串 → null
+  final parentId = map['parentId'];
+  final cleanedParentId = (parentId == '' || parentId == 'null') ? null : parentId;
+
+  // 清理 targetId：空字符串或 'null' 字符串 → null
+  final targetId = map['targetId'];
+  final cleanedTargetId = (targetId == '' || targetId == 'null') ? null : targetId;
+
+  return {
+    'id': map['id'],
+    'title': map['title'],
+    'parent_id': cleanedParentId,
+    'is_folder': map['isFolder'] ?? 0,
+    'node_type': map['nodeType'],
+    'target_id': cleanedTargetId,
+    'sort_order': map['sortOrder'] ?? 0,
+    'tags': tagsStr,
+    'created_at': map['createdAt'],
+    'updated_at': map['updatedAt'],
+  };
+}
 
   Future<List<Node>> getRootNodes() async {
     final all = await getAllNodes();
