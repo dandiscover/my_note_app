@@ -2,7 +2,7 @@
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
 // ✅ 新增：采集页笔记保存时触发条件②
 // ✅ 修改：采集页进入时初始为编辑模式
-// ✅ 新增：“🧭 探究”入口按钮
+// ✅ 新增：深入入口按钮（原“🧭 探究”）
 // ✅ 重构：用 _entry 可变状态替代 widget.entry
 // ✅ 适配：_saveNote 增加 inquiryQuestion 参数，保存时保留全部字段
 
@@ -589,7 +589,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  // ─── 探究入口 ─────────────────────────────
+  // ─── 深入入口 ─────────────────────────────
   Future<void> _openInquiry() async {
     final updatedEntry = await Navigator.push<NotebookEntry>(
       context,
@@ -618,11 +618,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         actions: [
-          // ✅ 新增：探究入口
+          // ✅ 新增：深入入口
           if (!widget.isFromCollection)
             IconButton(
               icon: const Icon(Icons.explore, color: Colors.purple),
-              tooltip: '🧭 探究',
+              tooltip: '深入',
               onPressed: _openInquiry,
             ),
           IconButton(

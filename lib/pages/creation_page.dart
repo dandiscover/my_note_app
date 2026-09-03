@@ -2,6 +2,7 @@
 // 创作模块 — 添加云端同步
 // ✅ 修复复盘弹窗：取消“放弃”按钮，心情必须选择才能保存
 // ✅ 适配 FullscreenEditor 新签名：onSave 增加 inquiryQuestion 参数
+// ✅ 新增：探究任务自动判定（扫描笔记三条件：问题 + 云核 + 行动）
 
 import '../models/card.dart';
 import 'dart:async';
@@ -20,7 +21,9 @@ import '../widgets/fullscreen_editor.dart';
 import '../widgets/task/task_toolbar.dart';
 import '../widgets/task/task_list_view.dart';
 import '../widgets/task/quadrant_view.dart';
+import '../widgets/quick_task_card.dart';
 import '../widgets/writing/material_panel.dart';
+import 'inquiry_page.dart';
 import '../widgets/floating_pet.dart';
 import 'writing_page.dart';
 import '../utils/app_date_utils.dart';
@@ -52,10 +55,12 @@ class CreationPageState extends State<CreationPage>
 
   late TabController _tabController;
   List<CardModel> _indexCards = [];
+  List<NotebookEntry> _exploreNotes = [];
 
-  void refreshTasks() {
-    _loadTasks();
-    _loadIndexCards();
+  Future<void> refreshTasks() async {
+    await _loadTasks();
+    await _loadIndexCards();
+    await _loadExploreNotes();
   }
 
   void switchToTaskTab() {
@@ -69,6 +74,7 @@ class CreationPageState extends State<CreationPage>
     _tabController = TabController(length: 2, vsync: this);
     _loadTasks();
     _loadIndexCards();
+    _loadExploreNotes();
     _startReminderTimer();
   }
 
@@ -96,6 +102,24 @@ class CreationPageState extends State<CreationPage>
       _tasks.sort((a, b) => _getPriorityScore(b).compareTo(_getPriorityScore(a)));
     } catch (e) { print('加载任务失败: $e'); }
     isLoading = false;
+  }
+
+  Future<void> _loadExploreNotes() async {
+    try {
+      final allNotes = await _db.getAllNotes(includeDeleted: false);
+      final notes = allNotes.map((m) => NotebookEntry.fromMap(m)).toList();
+      final exploreNotes = notes.where((note) {
+        final hasQuestion = note.inquiryQuestion != null && note.inquiryQuestion!.isNotEmpty;
+        final hasScaffold = note.scaffoldSessions.isNotEmpty;
+        final hasSubtasks = note.subtasks.isNotEmpty;
+        return hasQuestion && hasScaffold && hasSubtasks;
+      }).toList();
+      setState(() {
+        _exploreNotes = exploreNotes;
+      });
+    } catch (e) {
+      print('加载探究任务失败: $e');
+    }
   }
 
   int _getPriorityScore(Task task) {
@@ -642,6 +666,30 @@ ${reviews.join('\n')}
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('步骤已添加'), duration: Duration(seconds: 1)));
   }
 
+  Widget _buildExploreTaskCard(NotebookEntry note) {
+    return ListTile(
+      leading: const Icon(Icons.explore, color: Colors.purple),
+      title: Text(note.title),
+      subtitle: Text(
+        note.inquiryQuestion ?? '探究中...',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () async {
+        final updatedNote = await Navigator.push<NotebookEntry>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InquiryPage(entry: note),
+          ),
+        );
+        if (updatedNote != null) {
+          await refreshTasks();
+        }
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
@@ -715,45 +763,60 @@ ${reviews.join('\n')}
   }
 
   Widget _buildTaskTab(List<Task> filteredTasks) {
-    if (_tasks.isEmpty) return _buildEmptyState();
-    final allDone = _tasks.every((t) => t.isDone);
+    if (_tasks.isEmpty && _exploreNotes.isEmpty) return _buildEmptyState();
+    final allDone = _tasks.every((t) => t.isDone) && _exploreNotes.isEmpty;
     if (allDone && _tasks.isNotEmpty) return _buildAllDoneState();
+
+    final quickTasks = filteredTasks;
 
     return Column(
       children: [
-        TaskToolbar(textController: _newTaskController,
+        TaskToolbar(
+          textController: _newTaskController,
           viewMode: _viewMode,
           onViewModeChanged: (mode) => setState(() => _viewMode = mode),
           urgencyFilter: _urgencyFilter,
           onUrgencyFilterChanged: (value) => setState(() => _urgencyFilter = value),
           necessityFilter: _necessityFilter,
           onNecessityFilterChanged: (value) => setState(() => _necessityFilter = value),
-          onAddTask: (value) => _addQuickTask(value)
-
-,
+          onAddTask: (value) => _addQuickTask(value),
         ),
         Expanded(
-          child: filteredTasks.isEmpty
+          child: (quickTasks.isEmpty && _exploreNotes.isEmpty)
               ? _buildNoTasksState()
-              : _viewMode == ViewMode.list
-                  ? TaskListView(
-                      tasks: filteredTasks,
-                      subtasks: _subtasks,
-                      expandedTaskId: _expandedTaskId,
-                      onToggleExpand: (id) => setState(() => _expandedTaskId = id),
-                      onCompleteQuick: _completeQuickTask,
-                      onDeleteTask: _deleteTask,
-                      onSetReminder: _setReminder,
-                      onToggleSubtask: (st) => _toggleSubtask(st, _tasks.firstWhere((t) => t.id == st.parentTaskId)),
-                      onAddSubtask: (title) => _addSubtask(filteredTasks.first.id, title),
-                    )
-                  : QuadrantView(
-                      tasks: filteredTasks,
-                      subtasks: _subtasks,
-                      expandedTaskId: _expandedTaskId,
-                      onToggleExpand: (id) => setState(() => _expandedTaskId = id),
-                      onCompleteQuick: _completeQuickTask,
+              : SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ─── 速通任务区块 ──────────────────────────
+                        if (quickTasks.isNotEmpty) ...[
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 6),
+                            child: Text('⚡ 速通任务', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                          ),
+                          ...quickTasks.map((task) => QuickTaskCard(
+                            key: ValueKey('quick_${task.id}'),
+                            task: task,
+                            onComplete: () => _completeQuickTask(task),
+                            onDelete: () => _deleteTask(task.id),
+                            onSetReminder: () => _setReminder(task),
+                          )),
+                        ],
+                        // ─── 探究任务区块 ──────────────────────────
+                        if (_exploreNotes.isNotEmpty) ...[
+                          if (quickTasks.isNotEmpty) const SizedBox(height: 8),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 6),
+                            child: Text('🔍 探究任务', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                          ),
+                          ..._exploreNotes.map((note) => _buildExploreTaskCard(note)),
+                        ],
+                      ],
                     ),
+                  ),
+                ),
         ),
       ],
     );
