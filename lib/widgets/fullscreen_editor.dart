@@ -1,6 +1,8 @@
 // lib/widgets/fullscreen_editor.dart
 // 全屏编辑器 — 制卡功能完整实现
+// ✅ 新增：深度笔记入口（停2秒显示提示，点击后内联输入探究问题）
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/note.dart';
@@ -12,7 +14,7 @@ class FullscreenEditor extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
   final Future<bool> Function(
-    NotebookEntry entry, String title, String content, String editorMode, List<String> tags,
+    NotebookEntry entry, String title, String content, String editorMode, List<String> tags, String? inquiryQuestion,
   ) onSave;
   final bool isSaving;
   final String? exploreTaskId;
@@ -31,7 +33,7 @@ class FullscreenEditor extends StatefulWidget {
   @override
   State<FullscreenEditor> createState() => _FullscreenEditorState();
 
-  // ✅ 静态成员：当前编辑器实例（移至外部类，便于访问）
+  // ✅ 静态成员：当前编辑器实例
   static _FullscreenEditorState? _currentEditor;
 
   static bool get isActive => _currentEditor != null;
@@ -53,6 +55,15 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
   final FocusNode _contentFocus = FocusNode();
   bool _isGeneratingCard = false;
 
+  // ─── 深度笔记入口状态 ─────────────────────────────
+  String? _inquiryQuestion;
+  bool _showInquiryPrompt = false;
+  bool _hasShownPrompt = false;
+  bool _isInquiryEditing = false;
+  Timer? _typingTimer;
+  late TextEditingController _inquiryController;
+  late FocusNode _inquiryFocusNode;
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +73,15 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
     _subtaskController = TextEditingController();
     _isMarkdown = widget.entry.editorMode == 'markdown';
     _tags = List.from(widget.entry.tags);
+
+    // ✅ 深度笔记入口初始化
+    _inquiryController = TextEditingController();
+    _inquiryFocusNode = FocusNode();
+    _inquiryQuestion = widget.entry.inquiryQuestion;
+    if (_inquiryQuestion != null) {
+      _inquiryController.text = _inquiryQuestion!;
+      _hasShownPrompt = true; // 已有问题，不再提示
+    }
 
     // ✅ 注册当前实例
     FullscreenEditor._currentEditor = this;
@@ -74,12 +94,102 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
     _tagController.dispose();
     _subtaskController.dispose();
     _contentFocus.dispose();
-    // ✅ 清除当前实例
+    _typingTimer?.cancel();
+    _inquiryController.dispose();
+    _inquiryFocusNode.dispose();
     if (FullscreenEditor._currentEditor == this) {
       FullscreenEditor._currentEditor = null;
     }
     super.dispose();
   }
+
+  // ─── 深度笔记入口交互 ─────────────────────────────
+
+  void _onContentChanged(String value) {
+    setState(() {
+      // 用户打字 → 提示消失
+      if (_showInquiryPrompt) {
+        _showInquiryPrompt = false;
+      }
+    });
+    _resetTypingTimer();
+  }
+
+  void _resetTypingTimer() {
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      _checkAndShowPrompt();
+    });
+  }
+
+  void _checkAndShowPrompt() {
+    final content = _contentController.text.trim();
+    if (content.isEmpty) return;
+    if (_inquiryQuestion != null) return;
+    if (_hasShownPrompt) return;
+    if (mounted) {
+      setState(() {
+        _showInquiryPrompt = true;
+      });
+    }
+  }
+
+  void _onPromptTap() {
+    setState(() {
+      _showInquiryPrompt = false;
+      _hasShownPrompt = true;
+      _isInquiryEditing = true;
+      _inquiryController.clear();
+    });
+    // 延迟一帧让输入框出现后获得焦点
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_inquiryFocusNode);
+    });
+  }
+
+  void _confirmInquiry() {
+    final text = _inquiryController.text.trim();
+    if (text.isEmpty) return;
+    setState(() {
+      _inquiryQuestion = text;
+      _isInquiryEditing = false;
+    });
+  }
+
+  void _cancelInquiryEdit() {
+    setState(() {
+      _isInquiryEditing = false;
+      // 如果有原问题，恢复显示；如果没有，回到显示模式但保持原值
+      if (_inquiryQuestion != null) {
+        _inquiryController.text = _inquiryQuestion!;
+      } else {
+        _inquiryController.clear();
+      }
+    });
+  }
+
+  void _onInquiryTap() {
+    setState(() {
+      _isInquiryEditing = true;
+      _inquiryController.text = _inquiryQuestion ?? '';
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_inquiryFocusNode);
+    });
+  }
+
+  void _deleteInquiry() {
+    setState(() {
+      _inquiryQuestion = null;
+      _isInquiryEditing = false;
+      _showInquiryPrompt = false;
+    });
+    _inquiryController.clear();
+    _typingTimer?.cancel();
+    // ⚠️ 不重置 _hasShownPrompt，本次会话不再提示
+  }
+
+  // ─── 原有方法 ─────────────────────────────
 
   void _addTag(String tag) {
     final trimmed = tag.trim();
@@ -190,15 +300,46 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
+              // ─── 标题 ──────────────────────────────
               TextField(
                 controller: _titleController,
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 decoration: const InputDecoration(labelText: '标题', border: InputBorder.none),
                 onChanged: (_) => setState(() {}),
               ),
-              const Divider(height: 16),
+              const Divider(height: 8),
 
-              // 标签
+              // ─── 已保存的探究问题（在标题下方、正文上方） ────
+              if (_inquiryQuestion != null && !_isInquiryEditing)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.purple.shade200, width: 0.5),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('🎯 ', style: TextStyle(fontSize: 13)),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _onInquiryTap,
+                          child: Text(
+                            _inquiryQuestion!,
+                            style: const TextStyle(fontSize: 13, color: Colors.purple),
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: _deleteInquiry,
+                        child: const Icon(Icons.close, size: 16, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // ─── 标签 ──────────────────────────────
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -258,9 +399,79 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
               ),
               const Divider(height: 16),
 
+              // ─── 正文 ──────────────────────────────
               Expanded(
                 child: _isMarkdown ? _buildMarkdownEditor() : _buildPlainEditor(),
               ),
+
+              // ─── 深度笔记提示：停2秒后显示 ──────────────
+              if (_showInquiryPrompt && !_isInquiryEditing)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: GestureDetector(
+                    onTap: _onPromptTap,
+                    child: Row(
+                      children: [
+                        const Text('💭 ', style: TextStyle(fontSize: 14)),
+                        Text(
+                          '你停下来了。有个疑问吗？',
+                          style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // ─── 内联输入行 ──────────────────────────
+              if (_isInquiryEditing)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      const Text('🎯 ', style: TextStyle(fontSize: 14)),
+                      Expanded(
+                        child: TextField(
+                          controller: _inquiryController,
+                          focusNode: _inquiryFocusNode,
+                          autofocus: true,
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: '你在想什么？',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide.none,
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            isDense: true,
+                          ),
+                          onSubmitted: (_) => _confirmInquiry(),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      TextButton(
+                        onPressed: _cancelInquiryEdit,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('取消', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      ),
+                      TextButton(
+                        onPressed: _confirmInquiry,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('确认', style: TextStyle(fontSize: 12, color: Colors.purple)),
+                      ),
+                    ],
+                  ),
+                ),
+
               const Divider(height: 8),
 
               if (isExploreMode) ...[
@@ -292,7 +503,7 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
                 const Divider(height: 8),
               ],
 
-              // 底部工具栏
+              // ─── 底部工具栏 ──────────────────────────
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -307,7 +518,6 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
                   ),
                   Row(
                     children: [
-                      // 制卡按钮
                       Tooltip(
                         message: '生成复习卡片',
                         child: IconButton(
@@ -368,11 +578,13 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
 
   Widget _buildPlainEditor() {
     return TextField(
-      controller: _contentController, focusNode: _contentFocus,
-      maxLines: null, expands: true,
+      controller: _contentController,
+      focusNode: _contentFocus,
+      maxLines: null,
+      expands: true,
       style: const TextStyle(fontSize: 16),
       decoration: const InputDecoration(hintText: '开始写内容...', border: InputBorder.none),
-      onChanged: (_) => setState(() {}),
+      onChanged: _onContentChanged,
     );
   }
 
@@ -384,11 +596,17 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
           child: Container(
             decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
             child: TextField(
-              controller: _contentController, focusNode: _contentFocus,
-              maxLines: null, expands: true,
+              controller: _contentController,
+              focusNode: _contentFocus,
+              maxLines: null,
+              expands: true,
               style: const TextStyle(fontSize: 15, fontFamily: 'monospace'),
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(hintText: '支持 Markdown 语法...', border: InputBorder.none, contentPadding: EdgeInsets.all(12)),
+              onChanged: _onContentChanged,
+              decoration: const InputDecoration(
+                hintText: '支持 Markdown 语法...',
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.all(12),
+              ),
             ),
           ),
         ),
@@ -421,14 +639,28 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
   Future<void> _handleSave() async {
     final title = _titleController.text.trim();
     final content = _contentController.text.trim();
-    if (title.isEmpty && content.isEmpty) { _showLightToast('标题和内容不能都为空'); return; }
-    final success = await widget.onSave(widget.entry, title, content, _isMarkdown ? 'markdown' : 'plain', _tags);
+    if (title.isEmpty && content.isEmpty) {
+      _showLightToast('标题和内容不能都为空');
+      return;
+    }
+    final success = await widget.onSave(
+      widget.entry,
+      title,
+      content,
+      _isMarkdown ? 'markdown' : 'plain',
+      _tags,
+      _inquiryQuestion,
+    );
     if (success && mounted) Navigator.pop(context, true);
   }
 
   Color _getTagColor(String tag) {
     final hash = tag.hashCode.abs();
-    final colors = [Colors.blue, Colors.green, Colors.purple, Colors.orange, Colors.teal, Colors.pink, Colors.indigo, Colors.cyan, Colors.deepPurple, Colors.red];
+    final colors = [
+      Colors.blue, Colors.green, Colors.purple, Colors.orange,
+      Colors.teal, Colors.pink, Colors.indigo, Colors.cyan,
+      Colors.deepPurple, Colors.red,
+    ];
     return colors[hash % colors.length];
   }
 }

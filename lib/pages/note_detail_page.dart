@@ -4,6 +4,7 @@
 // ✅ 修改：采集页进入时初始为编辑模式
 // ✅ 新增：“🧭 探究”入口按钮
 // ✅ 重构：用 _entry 可变状态替代 widget.entry
+// ✅ 适配：_saveNote 增加 inquiryQuestion 参数，保存时保留全部字段
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -57,6 +58,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     String content,
     String editorMode,
     List<String> tags,
+    String? inquiryQuestion,
   ) async {
     if (_isSaving) return false;
 
@@ -76,6 +78,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         status: newStatus,
         editorMode: editorMode,
         tags: tags,
+        isLocked: _entry.isLocked,
+        inquiryQuestion: inquiryQuestion,
+        scaffoldSessions: _entry.scaffoldSessions,
+        subtasks: _entry.subtasks,
       );
 
       await _db.updateNote(updated.toMap());

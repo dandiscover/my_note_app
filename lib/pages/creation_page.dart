@@ -1,6 +1,7 @@
 // lib/pages/creation_page.dart
 // 创作模块 — 添加云端同步
 // ✅ 修复复盘弹窗：取消“放弃”按钮，心情必须选择才能保存
+// ✅ 适配 FullscreenEditor 新签名：onSave 增加 inquiryQuestion 参数
 
 import '../models/card.dart';
 import 'dart:async';
@@ -451,7 +452,7 @@ ${reviews.join('\n')}
         builder: (_) => FullscreenEditor(
           entry: tempNote,
           isFromCollection: false,
-          onSave: (entry, title, content, mode, tags) async {
+          onSave: (entry, title, content, mode, tags, inquiryQuestion) async {
             final noteMap = {
               'id': entry.id,
               'title': title,
@@ -459,6 +460,7 @@ ${reviews.join('\n')}
               'status': 'active',
               'editorMode': mode,
               'updatedAt': DateTime.now().toIso8601String(),
+              'inquiryQuestion': inquiryQuestion,
             };
             await _db.insertNote(noteMap);
             final folderId = await _db.ensureReviewFolder();

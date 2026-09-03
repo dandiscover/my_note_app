@@ -7,6 +7,7 @@
 // ✅ 删除：_taskService、_saveTask、_rootFolders、_libraryBookCount、_archivedNoteCount
 // ✅ 删除：未使用的 import（dart:convert, shared_preferences, task, task_service）
 // ✅ 删除：未使用的 getter（_libraryFolder、_archivedFolder）
+// ✅ 适配：_createNote 中 onSave 回调增加 inquiryQuestion 参数
 
 import 'package:flutter/material.dart';
 
@@ -340,11 +341,27 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         builder: (_) => FullscreenEditor(
           entry: tempNote,
           isFromCollection: true,
-          onSave: (entry, title, content, mode, tags) async {
-            final noteMap = { 'id': entry.id, 'title': title, 'content': content, 'status': 'active', 'editorMode': mode, 'updatedAt': DateTime.now().toIso8601String(), 'isLocked': 0 };
+          onSave: (entry, title, content, mode, tags, inquiryQuestion) async {
+            final noteMap = {
+              'id': entry.id,
+              'title': title,
+              'content': content,
+              'status': 'active',
+              'editorMode': mode,
+              'updatedAt': DateTime.now().toIso8601String(),
+              'isLocked': 0,
+              'inquiryQuestion': inquiryQuestion,
+            };
             await _db.insertNote(noteMap);
-            final node = await _db.attachNoteToNode(noteId: entry.id, title: title, parentId: _currentFolderId, tags: tags);
-            _cache.invalidate(_cacheKeyNodes); _cache.invalidate(_cacheKeyNotes); _folderStatsCache = null;
+            final node = await _db.attachNoteToNode(
+              noteId: entry.id,
+              title: title,
+              parentId: _currentFolderId,
+              tags: tags,
+            );
+            _cache.invalidate(_cacheKeyNodes);
+            _cache.invalidate(_cacheKeyNotes);
+            _folderStatsCache = null;
             await _loadData();
             if (CloudSyncService().isLoggedIn) {
               try {
