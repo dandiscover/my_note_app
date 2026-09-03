@@ -4,6 +4,7 @@
 // ✅ 新增：最小一步卡展开（三问 + 存 scaffoldSessions）
 // ✅ 修复：最小一步卡展开后子任务区域 RenderFlex 溢出
 // ✅ 改名：探究工作台 → 深度笔记，拆解步骤 → 行动
+// ✅ 新增：复盘与新理解（行动全部完成时触发）
 
 import 'package:flutter/material.dart';
 import '../database_service.dart';
@@ -34,6 +35,12 @@ class _InquiryPageState extends State<InquiryPage> {
   late TextEditingController _q2Controller;
   late TextEditingController _q3Controller;
 
+  // ─── 复盘与新理解 ─────────────────────────────
+  String? _newUnderstanding;
+  late TextEditingController _understandingController;
+  late FocusNode _understandingFocusNode;
+  bool _isUnderstandingEditing = false;
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +53,10 @@ class _InquiryPageState extends State<InquiryPage> {
     _q3Controller = TextEditingController();
 
     _initializeScaffoldFields();
+
+    _newUnderstanding = widget.entry.newUnderstanding;
+    _understandingController = TextEditingController(text: _newUnderstanding ?? '');
+    _understandingFocusNode = FocusNode();
   }
 
   @override
@@ -55,6 +66,8 @@ class _InquiryPageState extends State<InquiryPage> {
     _q1Controller.dispose();
     _q2Controller.dispose();
     _q3Controller.dispose();
+    _understandingController.dispose();
+    _understandingFocusNode.dispose();
     super.dispose();
   }
 
@@ -169,6 +182,67 @@ class _InquiryPageState extends State<InquiryPage> {
     });
   }
 
+  // ─── 复盘与新理解 ─────────────────────────────
+
+  bool get _allSubtasksDone =>
+      _subtasks.isNotEmpty && _subtasks.every((s) => s.isDone);
+
+  bool get _canShowReviewButton =>
+      _allSubtasksDone &&
+      _newUnderstanding == null &&
+      !_isScaffoldEditing &&
+      !_isUnderstandingEditing;
+
+  Future<void> _saveUnderstandingToDb() async {
+    final text = _understandingController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还没写任何内容')),
+      );
+      return;
+    }
+
+    final updated = NotebookEntry(
+      id: widget.entry.id,
+      title: widget.entry.title,
+      content: widget.entry.content,
+      updatedAt: DateTime.now(),
+      status: widget.entry.status,
+      editorMode: widget.entry.editorMode,
+      tags: widget.entry.tags,
+      isLocked: widget.entry.isLocked,
+      inquiryQuestion: _questionController.text.trim().isNotEmpty
+          ? _questionController.text.trim()
+          : null,
+      scaffoldSessions: List.from(_scaffoldSessions),
+      subtasks: List.from(_subtasks),
+      newUnderstanding: text,
+    );
+
+    await _db.updateNote(updated.toMap());
+
+    setState(() {
+      _newUnderstanding = text;
+      _isUnderstandingEditing = false;
+    });
+  }
+
+  void _startUnderstandingEdit() {
+    setState(() {
+      _isUnderstandingEditing = true;
+      _understandingController.text = _newUnderstanding ?? '';
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+FocusScope.of(context).requestFocus(_understandingFocusNode);    });
+  }
+
+  void _cancelUnderstandingEdit() {
+    setState(() {
+      _isUnderstandingEditing = false;
+      _understandingController.text = _newUnderstanding ?? '';
+    });
+  }
+
   // ─── 保存 ────────────────────────────────────────────
 
   Future<void> _saveAndReturn() async {
@@ -186,6 +260,7 @@ class _InquiryPageState extends State<InquiryPage> {
           : null,
       scaffoldSessions: List.from(_scaffoldSessions),
       subtasks: List.from(_subtasks),
+      newUnderstanding: _newUnderstanding,
     );
 
     await _db.updateNote(updated.toMap());
@@ -323,6 +398,14 @@ class _InquiryPageState extends State<InquiryPage> {
                     return _buildSubtaskItem(subtask);
                   },
                 ),
+
+              // ─── 复盘区域 ────────────────────────────
+              if (_newUnderstanding != null && !_isUnderstandingEditing)
+                _buildCompletedView(),
+              if (_canShowReviewButton)
+                _buildReviewButton(),
+              if (_isUnderstandingEditing)
+                _buildUnderstandingEditor(),
             ],
           ),
         ),
@@ -571,6 +654,127 @@ class _InquiryPageState extends State<InquiryPage> {
             tooltip: '删除行动',
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── 复盘 UI ──────────────────────────────────────
+
+  Widget _buildCompletedView() {
+    return GestureDetector(
+      onTap: _startUnderstandingEdit,
+      child: Container(
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200, width: 0.5),
+        ),
+        child: Row(
+          children: [
+            const Text('✅ ', style: TextStyle(fontSize: 14)),
+            Expanded(
+              child: Text(
+                '已完成',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.green.shade700,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 18, color: Colors.green),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReviewButton() {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      child: TextButton(
+        onPressed: _startUnderstandingEdit,
+        style: TextButton.styleFrom(
+          backgroundColor: Colors.purple.shade50,
+          foregroundColor: Colors.purple.shade700,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('📝 ', style: TextStyle(fontSize: 14)),
+            Text('去复盘', style: TextStyle(fontSize: 14)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnderstandingEditor() {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.purple.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.purple.shade200, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '📝 写下你的新理解',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.purple,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _understandingController,
+            focusNode: _understandingFocusNode,
+            autofocus: true,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: '通过这次探究，你得到了什么新的认识？',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide(color: Colors.purple.shade200),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.all(8),
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: _cancelUnderstandingEdit,
+                child: const Text('取消', style: TextStyle(fontSize: 13)),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: _saveUnderstandingToDb,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple,
+                  foregroundColor: Colors.white,
+                ),
+               child: Text(
+  _newUnderstanding == null ? '完成复盘' : '保存修改',
+  style: const TextStyle(fontSize: 13),
+),
+              ),
+            ],
           ),
         ],
       ),

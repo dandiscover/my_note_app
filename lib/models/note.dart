@@ -1,6 +1,7 @@
 // lib/models/note.dart
 // 笔记模型 — 标准格式（不处理脏数据）
 // ✅ 新增：inquiryQuestion（探究问题）、scaffoldSessions（拐杖记录）、subtasks（子任务列表）
+// ✅ 新增：newUnderstanding（新理解）
 
 class NoteSubtask {
   final String id;
@@ -68,6 +69,7 @@ class NotebookEntry {
   final List<String> tags;
   final bool isLocked;
   final String? inquiryQuestion;
+  final String? newUnderstanding;
   final List<Map<String, dynamic>> scaffoldSessions;
   final List<NoteSubtask> subtasks;
 
@@ -81,6 +83,7 @@ class NotebookEntry {
     this.tags = const [],
     this.isLocked = false,
     this.inquiryQuestion,
+    this.newUnderstanding,
     this.scaffoldSessions = const [],
     this.subtasks = const [],
   });
@@ -95,6 +98,7 @@ class NotebookEntry {
     tags: const [],
     isLocked: false,
     inquiryQuestion: null,
+    newUnderstanding: null,
     scaffoldSessions: const [],
     subtasks: const [],
   );
@@ -110,6 +114,7 @@ class NotebookEntry {
       tags: (map['tags'] as List?)?.cast<String>() ?? [],
       isLocked: (map['isLocked'] ?? 0) == 1,
       inquiryQuestion: map['inquiryQuestion'] as String?,
+      newUnderstanding: map['newUnderstanding'] as String?,
       scaffoldSessions: (map['scaffoldSessions'] as List?)
           ?.map((e) => Map<String, dynamic>.from(e as Map))
           .toList() ?? [],
@@ -130,6 +135,7 @@ class NotebookEntry {
       'isLocked': isLocked ? 1 : 0,
       'tags': tags,
       'inquiryQuestion': inquiryQuestion,
+      'newUnderstanding': newUnderstanding,
       'scaffoldSessions': scaffoldSessions,
       'subtasks': subtasks,
     };
@@ -145,6 +151,7 @@ class NotebookEntry {
     List<String>? tags,
     bool? isLocked,
     String? inquiryQuestion,
+    String? newUnderstanding,
     List<Map<String, dynamic>>? scaffoldSessions,
     List<NoteSubtask>? subtasks,
   }) {
@@ -158,6 +165,7 @@ class NotebookEntry {
       tags: tags ?? this.tags,
       isLocked: isLocked ?? this.isLocked,
       inquiryQuestion: inquiryQuestion ?? this.inquiryQuestion,
+      newUnderstanding: newUnderstanding ?? this.newUnderstanding,
       scaffoldSessions: scaffoldSessions ?? this.scaffoldSessions,
       subtasks: subtasks ?? this.subtasks,
     );

@@ -1,6 +1,7 @@
 // lib/database_service.dart
 // 数据层 — 统一字段标准：代码层驼峰，数据库层下划线，tags 统一 List<String> 进模型，String 入库
 // ✅ 数据库版本 8 → 9：新增 inquiry_question / scaffold_sessions / subtasks 三列
+// ✅ 数据库版本 9 → 10：新增 new_understanding 列
 // ✅ _prepareNoteForDb / _cleanNoteMap 支持新字段序列化/反序列化
 // ✅ Web 端读取 notes_data 时补默认值
 // ✅ 新增 ensureMigrationAndCleanup() 清理旧探究任务数据
@@ -150,30 +151,30 @@ class DatabaseService {
   }
 
   Map<String, dynamic> _prepareNodeForDb(Map<String, dynamic> map) {
-  final tags = map['tags'];
-  final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
+    final tags = map['tags'];
+    final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
 
-  // 清理 parentId：空字符串或 'null' 字符串 → null
-  final parentId = map['parentId'];
-  final cleanedParentId = (parentId == '' || parentId == 'null') ? null : parentId;
+    // 清理 parentId：空字符串或 'null' 字符串 → null
+    final parentId = map['parentId'];
+    final cleanedParentId = (parentId == '' || parentId == 'null') ? null : parentId;
 
-  // 清理 targetId：空字符串或 'null' 字符串 → null
-  final targetId = map['targetId'];
-  final cleanedTargetId = (targetId == '' || targetId == 'null') ? null : targetId;
+    // 清理 targetId：空字符串或 'null' 字符串 → null
+    final targetId = map['targetId'];
+    final cleanedTargetId = (targetId == '' || targetId == 'null') ? null : targetId;
 
-  return {
-    'id': map['id'],
-    'title': map['title'],
-    'parent_id': cleanedParentId,
-    'is_folder': map['isFolder'] ?? 0,
-    'node_type': map['nodeType'],
-    'target_id': cleanedTargetId,
-    'sort_order': map['sortOrder'] ?? 0,
-    'tags': tagsStr,
-    'created_at': map['createdAt'],
-    'updated_at': map['updatedAt'],
-  };
-}
+    return {
+      'id': map['id'],
+      'title': map['title'],
+      'parent_id': cleanedParentId,
+      'is_folder': map['isFolder'] ?? 0,
+      'node_type': map['nodeType'],
+      'target_id': cleanedTargetId,
+      'sort_order': map['sortOrder'] ?? 0,
+      'tags': tagsStr,
+      'created_at': map['createdAt'],
+      'updated_at': map['updatedAt'],
+    };
+  }
 
   Future<List<Node>> getRootNodes() async {
     final all = await getAllNodes();
@@ -443,6 +444,7 @@ class DatabaseService {
         if (!note.containsKey('inquiryQuestion')) note['inquiryQuestion'] = null;
         if (!note.containsKey('scaffoldSessions')) note['scaffoldSessions'] = [];
         if (!note.containsKey('subtasks')) note['subtasks'] = [];
+        if (!note.containsKey('newUnderstanding')) note['newUnderstanding'] = null;
       }
 
       if (includeDeleted) return allNotes;
@@ -450,97 +452,118 @@ class DatabaseService {
     } else {
       final db = await _getDatabase();
       final rows = await db.query('notes', orderBy: 'updatedAt DESC');
-      final allNotes = rows.map((row) => _cleanNoteMap(row)).toList();
+
+      // ✅ SQLite 端：下划线 → 驼峰映射（在调用 _cleanNoteMap 之前完成）
+      final allNotes = rows.map((row) {
+        final mapped = Map<String, dynamic>.from(row);
+        mapped['inquiryQuestion'] = mapped['inquiry_question'];
+        mapped['scaffoldSessions'] = mapped['scaffold_sessions'];
+        mapped['newUnderstanding'] = mapped['new_understanding'];
+        // subtasks 已经是驼峰，无需映射
+        return _cleanNoteMap(mapped);
+      }).toList();
+
       if (includeDeleted) return allNotes;
       return allNotes.where((n) => n['status'] != 'deleted').toList();
     }
   }
 
-Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
-  final cleaned = Map<String, dynamic>.from(map);
+  Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
+    final cleaned = Map<String, dynamic>.from(map);
 
-  // ✅ 将数据库下划线列名映射到模型驼峰键名
-  cleaned['inquiryQuestion'] = cleaned['inquiry_question'];
-  cleaned['scaffoldSessions'] = cleaned['scaffold_sessions'];
-  cleaned['subtasks'] = cleaned['subtasks'];
+    // tags: String → List<String>
+    final tagsRaw = cleaned['tags'];
+    if (tagsRaw is String) {
+      cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
+    } else if (tagsRaw is List) {
+      cleaned['tags'] = tagsRaw.whereType<String>().toList();
+    } else {
+      cleaned['tags'] = [];
+    }
 
-  // tags: String → List<String>
-  final tagsRaw = cleaned['tags'];
-  if (tagsRaw is String) {
-    cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
-  } else if (tagsRaw is List) {
-    cleaned['tags'] = tagsRaw.whereType<String>().toList();
-  } else {
-    cleaned['tags'] = [];
-  }
-
-  // ✅ scaffoldSessions: String → List<Map>
-  final sessionsRaw = cleaned['scaffoldSessions'];
-  if (sessionsRaw is String && sessionsRaw.isNotEmpty) {
-    try {
-      final decoded = jsonDecode(sessionsRaw);
-      cleaned['scaffoldSessions'] = (decoded as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } catch (_) {
+    // ✅ scaffoldSessions: String → List<Map>
+    final sessionsRaw = cleaned['scaffoldSessions'];
+    if (sessionsRaw is String && sessionsRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(sessionsRaw);
+        cleaned['scaffoldSessions'] = (decoded as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      } catch (_) {
+        cleaned['scaffoldSessions'] = [];
+      }
+    } else if (sessionsRaw is List) {
+      cleaned['scaffoldSessions'] = (sessionsRaw as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    } else {
       cleaned['scaffoldSessions'] = [];
     }
-  } else if (sessionsRaw is List) {
-    cleaned['scaffoldSessions'] = sessionsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-  } else {
-    cleaned['scaffoldSessions'] = [];
-  }
 
-  // ✅ subtasks: String → List<NoteSubtask>
-  final subtasksRaw = cleaned['subtasks'];
-  if (subtasksRaw is String && subtasksRaw.isNotEmpty) {
-    try {
-      final decoded = jsonDecode(subtasksRaw);
-      cleaned['subtasks'] = (decoded as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } catch (_) {
+    // ✅ subtasks: 统一输出 List<Map>（无论从 String 还是 List 读取）
+    final subtasksRaw = cleaned['subtasks'];
+    if (subtasksRaw is String && subtasksRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(subtasksRaw);
+        cleaned['subtasks'] = (decoded as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      } catch (_) {
+        cleaned['subtasks'] = [];
+      }
+    } else if (subtasksRaw is List) {
+      cleaned['subtasks'] = (subtasksRaw as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    } else {
       cleaned['subtasks'] = [];
     }
-  } else if (subtasksRaw is List) {
-    cleaned['subtasks'] = (subtasksRaw as List).map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>)).toList();
-  } else {
-    cleaned['subtasks'] = [];
+
+    // inquiryQuestion: 直接透传
+    cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
+
+    // ✅ newUnderstanding: 直接透传
+    cleaned['newUnderstanding'] = cleaned['newUnderstanding'] as String?;
+
+    return cleaned;
   }
 
-  // inquiryQuestion: 直接透传
-  cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
+  Map<String, dynamic> _prepareNoteForDb(Map<String, dynamic> map) {
+    final tags = map['tags'];
+    final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
 
-  return cleaned;
-}
-    
+    // ✅ scaffoldSessions: List<Map> → String
+    final sessions = map['scaffoldSessions'];
+    final sessionsStr = sessions is List && sessions.isNotEmpty
+        ? jsonEncode(sessions)
+        : '[]';
 
- Map<String, dynamic> _prepareNoteForDb(Map<String, dynamic> map) {
-  final tags = map['tags'];
-  final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
+    // ✅ subtasks: 兼容 NoteSubtask 和 Map 两种元素类型
+    final subtasks = map['subtasks'];
+    final subtasksStr = subtasks is List && subtasks.isNotEmpty
+        ? jsonEncode(subtasks.map((e) {
+            if (e is NoteSubtask) return e.toMap();
+            if (e is Map) return e;
+            return e;
+          }).toList())
+        : '[]';
 
-  // ✅ scaffoldSessions: List<Map> → String
-  final sessions = map['scaffoldSessions'];
-  final sessionsStr = sessions is List && sessions.isNotEmpty
-      ? jsonEncode(sessions)
-      : '[]';
+    return {
+      'id': map['id'],
+      'title': map['title'] ?? '',
+      'content': map['content'] ?? '',
+      'updatedAt': map['updatedAt'] ?? DateTime.now().toIso8601String(),
+      'status': map['status'] ?? 'raw',
+      'editorMode': map['editorMode'] ?? 'plain',
+      'isLocked': map['isLocked'] is bool ? (map['isLocked'] == true ? 1 : 0) : (map['isLocked'] ?? 0),
+      'tags': tagsStr,
+      'inquiry_question': map['inquiryQuestion'] as String?,
+      'scaffold_sessions': sessionsStr,
+      'subtasks': subtasksStr,
+      'new_understanding': map['newUnderstanding'] as String?,
+    };
+  }
 
-  // ✅ subtasks: List<NoteSubtask> → String
-  final subtasks = map['subtasks'];
-  final subtasksStr = subtasks is List && subtasks.isNotEmpty
-      ? jsonEncode(subtasks.map((e) => e.toMap()).toList())
-      : '[]';
-
-  return {
-    'id': map['id'],
-    'title': map['title'] ?? '',
-    'content': map['content'] ?? '',
-    'updatedAt': map['updatedAt'] ?? DateTime.now().toIso8601String(),
-    'status': map['status'] ?? 'raw',
-    'editorMode': map['editorMode'] ?? 'plain',
-    'isLocked': map['isLocked'] is bool ? (map['isLocked'] == true ? 1 : 0) : (map['isLocked'] ?? 0),
-    'tags': tagsStr,
-    'inquiry_question': map['inquiryQuestion'] as String?,
-    'scaffold_sessions': sessionsStr,
-    'subtasks': subtasksStr,
-  };
-}
   Future<List<Map<String, dynamic>>> getRawNotes() async {
     final all = await _getAllNotesInternal(includeDeleted: false);
     return all.where((n) => n['status'] == 'raw').toList();
@@ -1085,7 +1108,7 @@ Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
     String path = join(await getDatabasesPath(), 'notebook.db');
     _database = await openDatabase(
       path,
-      version: 9,  // ✅ 版本 8 → 9
+      version: 10,  // ✅ 版本 9 → 10
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -1162,6 +1185,13 @@ Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
         await db.execute('ALTER TABLE notes ADD COLUMN subtasks TEXT DEFAULT "[]"');
       } catch (_) {}
     }
+
+    // ✅ 版本 9 → 10：新增 new_understanding 列
+    if (oldVersion < 10) {
+      try {
+        await db.execute('ALTER TABLE notes ADD COLUMN new_understanding TEXT');
+      } catch (_) {}
+    }
   }
 
   Future<void> _createTables(Database db) async {
@@ -1177,7 +1207,8 @@ Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
         tags TEXT DEFAULT '',
         inquiry_question TEXT,
         scaffold_sessions TEXT DEFAULT '[]',
-        subtasks TEXT DEFAULT '[]'
+        subtasks TEXT DEFAULT '[]',
+        new_understanding TEXT
       )
     ''');
 

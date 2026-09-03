@@ -2,7 +2,7 @@
 // 创作模块 — 添加云端同步
 // ✅ 修复复盘弹窗：取消“放弃”按钮，心情必须选择才能保存
 // ✅ 适配 FullscreenEditor 新签名：onSave 增加 inquiryQuestion 参数
-// ✅ 新增：探究任务自动判定（扫描笔记三条件：问题 + 云核 + 行动）
+// ✅ 新增：探究任务自动判定（四条件：问题 + 云核 + 行动 + 未完成）
 
 import '../models/card.dart';
 import 'dart:async';
@@ -112,7 +112,8 @@ class CreationPageState extends State<CreationPage>
         final hasQuestion = note.inquiryQuestion != null && note.inquiryQuestion!.isNotEmpty;
         final hasScaffold = note.scaffoldSessions.isNotEmpty;
         final hasSubtasks = note.subtasks.isNotEmpty;
-        return hasQuestion && hasScaffold && hasSubtasks;
+        final notCompleted = note.newUnderstanding == null;
+        return hasQuestion && hasScaffold && hasSubtasks && notCompleted;
       }).toList();
       setState(() {
         _exploreNotes = exploreNotes;
@@ -485,6 +486,7 @@ ${reviews.join('\n')}
               'editorMode': mode,
               'updatedAt': DateTime.now().toIso8601String(),
               'inquiryQuestion': inquiryQuestion,
+              'newUnderstanding': null,
             };
             await _db.insertNote(noteMap);
             final folderId = await _db.ensureReviewFolder();
@@ -528,6 +530,7 @@ ${reviews.join('\n')}
         'status': 'active',
         'editorMode': 'plain',
         'updatedAt': DateTime.now().toIso8601String(),
+        'newUnderstanding': null,
       };
       await _db.insertNote(noteMap);
       final folderId = await _db.ensureReviewFolder();
