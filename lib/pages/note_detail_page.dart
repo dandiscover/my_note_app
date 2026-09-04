@@ -18,7 +18,7 @@ import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
 import 'book_detail_page.dart';
 import 'inquiry_page.dart';
-
+import '../models/explore_task.dart';
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -592,18 +592,35 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   // ─── 深入入口 ─────────────────────────────
   Future<void> _openInquiry() async {
-    final updatedEntry = await Navigator.push<NotebookEntry>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => InquiryPage(entry: _entry),
+  final result = await showDialog<List<ExploreTask>>(
+    context: context,
+    barrierDismissible: true,
+    builder: (context) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: SizedBox(
+        width: 600,
+        child: InquiryPage(
+          entry: _entry,
+          isDialog: true,
+        ),
       ),
+    ),
+  );
+
+  if (result != null && mounted) {
+    final updatedEntry = _entry.copyWith(
+      exploreTasks: result,
+      updatedAt: DateTime.now(),
     );
-    if (updatedEntry != null && mounted) {
-      setState(() {
-        _entry = updatedEntry;
-      });
-    }
+    await _db.updateNote(updatedEntry.toMap());
+    setState(() {
+      _entry = updatedEntry;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('✅ 探究任务已更新')),
+    );
   }
+}
 
   // ─── UI ─────────────────────────────
   @override
