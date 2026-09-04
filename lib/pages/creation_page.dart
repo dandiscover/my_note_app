@@ -2,7 +2,8 @@
 // 创作模块 — 添加云端同步
 // ✅ 修复复盘弹窗：取消“放弃”按钮，心情必须选择才能保存
 // ✅ 适配 FullscreenEditor 新签名：onSave 增加 inquiryQuestion 参数
-// ✅ 新增：探究任务自动判定（四条件：问题 + 云核 + 行动 + 未完成）
+// ✅ 新增：探究任务自动判定（问题 + exploreTasks + 未完成）
+// ✅ 清理：删除旧 _generateExploreNote 死代码和未使用的 import
 
 import '../models/card.dart';
 import 'dart:async';
@@ -19,8 +20,6 @@ import '../services/sync/sync_manager.dart';
 import '../mixins/state_mixin.dart';
 import '../widgets/fullscreen_editor.dart';
 import '../widgets/task/task_toolbar.dart';
-import '../widgets/task/task_list_view.dart';
-import '../widgets/task/quadrant_view.dart';
 import '../widgets/quick_task_card.dart';
 import '../widgets/writing/material_panel.dart';
 import 'inquiry_page.dart';
@@ -110,10 +109,9 @@ class CreationPageState extends State<CreationPage>
       final notes = allNotes.map((m) => NotebookEntry.fromMap(m)).toList();
       final exploreNotes = notes.where((note) {
         final hasQuestion = note.inquiryQuestion != null && note.inquiryQuestion!.isNotEmpty;
-        final hasScaffold = note.scaffoldSessions.isNotEmpty;
-        final hasSubtasks = note.subtasks.isNotEmpty;
+        final hasExploreTasks = note.exploreTasks.isNotEmpty;
         final notCompleted = note.newUnderstanding == null;
-        return hasQuestion && hasScaffold && hasSubtasks && notCompleted;
+        return hasQuestion && hasExploreTasks && notCompleted;
       }).toList();
       setState(() {
         _exploreNotes = exploreNotes;
@@ -408,11 +406,8 @@ class CreationPageState extends State<CreationPage>
       await _taskService.updateSubtask(updated);
       await _loadTasks();
 
-      final allSubtasks = await _taskService.loadSubtasksForTask(parentTask.id);
-      final allDone = allSubtasks.every((s) => s.isDone);
-      if (allDone && allSubtasks.isNotEmpty) {
-        await _generateExploreNote(parentTask);
-      }
+      // 全部子任务完成后不再自动生成探究笔记
+      // 探究任务现由深度笔记页（InquiryPage）通过 exploreTasks 管理
     }
   }
 
@@ -426,99 +421,6 @@ class CreationPageState extends State<CreationPage>
     final data = prefs.getString('subtask_review_$subtaskId');
     if (data == null) return null;
     return jsonDecode(data) as Map<String, dynamic>;
-  }
-
-  Future<void> _generateExploreNote(Task task) async {
-    final subtasks = await _taskService.loadSubtasksForTask(task.id);
-    final List<String> reviews = [];
-
-    for (var st in subtasks) {
-      final review = await _getSubtaskReview(st.id);
-      if (review != null) {
-        reviews.add('### ${st.title}\n- 心情：${review['emoji']}\n- 总结：${review['content']}\n');
-      } else {
-        reviews.add('### ${st.title}\n- 无详细复盘\n');
-      }
-    }
-
-    final content = '''
-# ${task.title}
-
-## 📋 探究任务概述
-
-${task.description ?? '无概述'}
-
----
-
-## 📌 步骤复盘汇总
-
-${reviews.join('\n')}
-
----
-
-## 🎯 整体总结
-
-（请在此写下整体总结...）
-
-''';
-
-    final tempNote = NotebookEntry(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: '探究笔记：${task.title}',
-      content: content,
-      tags: ['探究', '复盘'],
-      updatedAt: DateTime.now(),
-      editorMode: 'markdown',
-    );
-
-    final result = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => FullscreenEditor(
-          entry: tempNote,
-          isFromCollection: false,
-          onSave: (entry, title, content, mode, tags, inquiryQuestion) async {
-            final noteMap = {
-              'id': entry.id,
-              'title': title,
-              'content': content,
-              'status': 'active',
-              'editorMode': mode,
-              'updatedAt': DateTime.now().toIso8601String(),
-              'inquiryQuestion': inquiryQuestion,
-              'newUnderstanding': null,
-            };
-            await _db.insertNote(noteMap);
-            final folderId = await _db.ensureReviewFolder();
-            await _db.attachNoteToNode(noteId: entry.id, title: title, parentId: folderId, tags: tags);
-            for (var st in subtasks) {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.remove('subtask_review_${st.id}');
-            }
-            // ✅ 同步到云端
-            if (CloudSyncService().isLoggedIn) {
-              try {
-                final note = NotebookEntry.fromMap(noteMap);
-                await CloudSyncService().syncNote(note);
-                final node = await _db.getNode(entry.id);
-                if (node != null) await CloudSyncService().syncNode(node);
-              } catch (_) {
-                SyncManager().markDirty();
-              }
-            }
-            await _taskService.deleteTask(task.id);
-            await _loadTasks();
-            return true;
-          },
-        ),
-      ),
-    );
-
-    if (result == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('📚 探究笔记已保存到智库 → 复盘文件夹'), duration: Duration(seconds: 2)),
-      );
-    }
   }
 
   Future<void> _saveToWisdom({required String title, required String content, required List<String> tags}) async {

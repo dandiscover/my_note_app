@@ -163,10 +163,18 @@ class _KnowledgePageState extends State<KnowledgePage> {
         _entries.insert(0, newEntry);
         _db.insertNote(newEntry.toMap());
       } else {
-        entry.title = title.isEmpty ? '无标题笔记' : title;
-        entry.content = content.isEmpty ? '暂无内容' : content;
-        entry.updatedAt = DateTime.now();
-        _db.updateNote(entry.toMap());
+        // ✅ 修复：使用 copyWith 替代直接赋值，并更新列表
+        final index = _entries.indexWhere((e) => e.id == entry.id);
+        if (index == -1) return;
+
+        final updatedEntry = entry.copyWith(
+          title: title.isEmpty ? '无标题笔记' : title,
+          content: content.isEmpty ? '暂无内容' : content,
+          updatedAt: DateTime.now(),
+        );
+
+        _entries[index] = updatedEntry;
+        _db.updateNote(updatedEntry.toMap());
       }
     });
   }

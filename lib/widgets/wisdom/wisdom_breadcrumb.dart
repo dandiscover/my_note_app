@@ -82,7 +82,7 @@ class WisdomBreadcrumb extends StatelessWidget {
         return true;
       },
       onAcceptWithDetails: (data) async {
-        await onDragAccept(data);
+        await onDragAccept(data.data);
       },
       builder: (context, candidateData, rejectedData) {
         final isDragTarget = candidateData.isNotEmpty && !isLast;

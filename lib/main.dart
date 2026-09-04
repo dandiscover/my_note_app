@@ -1,5 +1,6 @@
 // lib/main.dart
 // ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步 + 系统人格
+// ✅ 新增：迁移旧探究数据到多任务模型
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
@@ -46,7 +47,17 @@ void main() async {
     url: supabaseUrl,
     anonKey: supabaseAnonKey,
   );
-  await DatabaseService.ensureMigrationAndCleanup();
+
+  // ✅ 清理旧独立探究任务
+  try {
+    await DatabaseService.ensureMigrationAndCleanup();
+  } catch (e) {
+    print('⚠️ 清理旧任务失败: $e，将在下次启动重试');
+  }
+
+  // ✅ 迁移笔记旧字段到多任务模型
+  await DatabaseService().ensureExploreMigration();
+
   runApp(const MyApp());
 }
 

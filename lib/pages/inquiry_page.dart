@@ -1,14 +1,20 @@
 // lib/pages/inquiry_page.dart
-// 深度笔记 — 提问、拆解行动、记录拐杖
-// 第2轮：集成数据库，读写 NotebookEntry
-// ✅ 新增：最小一步卡展开（三问 + 存 scaffoldSessions）
-// ✅ 修复：最小一步卡展开后子任务区域 RenderFlex 溢出
-// ✅ 改名：探究工作台 → 深度笔记，拆解步骤 → 行动
-// ✅ 新增：复盘与新理解（行动全部完成时触发）
+// 深度笔记 — 多任务探究
+// ✅ 多任务状态管理：_exploreTasks + _currentTaskIndex
+// ✅ 新理解按钮常驻，绑定主问题
+// ✅ newUnderstanding != null 时隐藏“新增拐杖卡”
+// ✅ 最小一步卡展开（三问 + 存 scaffoldAnswers）
+// ✅ 行动区跟随当前任务
+// ✅ 新理解保存时立即持久化
+// ✅ 新理解编辑时保持文案同步
+// ✅ 当前编辑的空任务在任务列表中可见
+// ✅ _switchTask 用 id 定位，避免越界
 
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/note.dart';
+import '../models/note_subtask.dart';
+import '../models/explore_task.dart';
 
 class InquiryPage extends StatefulWidget {
   final NotebookEntry entry;
@@ -26,37 +32,49 @@ class _InquiryPageState extends State<InquiryPage> {
   final DatabaseService _db = DatabaseService();
   final TextEditingController _questionController = TextEditingController();
   final TextEditingController _subtaskController = TextEditingController();
-  final List<NoteSubtask> _subtasks = [];
 
-  // ─── 最小一步卡状态 ─────────────────────────────
-  List<Map<String, dynamic>> _scaffoldSessions = [];
+  // ─── 多任务状态 ─────────────────────────────
+  List<ExploreTask> _exploreTasks = [];
+  int _currentTaskIndex = 0;
+
+  // ─── 最小一步卡三问 ─────────────────────────
   bool _isScaffoldEditing = false;
   late TextEditingController _q1Controller;
   late TextEditingController _q2Controller;
   late TextEditingController _q3Controller;
 
-  // ─── 复盘与新理解 ─────────────────────────────
+  // ─── 新理解 ─────────────────────────────────
+  bool _isNewUnderstandingEditing = false;
   String? _newUnderstanding;
   late TextEditingController _understandingController;
-  late FocusNode _understandingFocusNode;
-  bool _isUnderstandingEditing = false;
+
+  // ─── 计算属性 ──────────────────────────────
+  bool get _isCompleted => _newUnderstanding != null;
+
+  String get _currentQuestionText =>
+      _questionController.text.trim().isNotEmpty
+          ? _questionController.text.trim()
+          : (widget.entry.inquiryQuestion ?? '这个探究问题');
 
   @override
   void initState() {
     super.initState();
     _questionController.text = widget.entry.inquiryQuestion ?? '';
-    _subtasks.addAll(widget.entry.subtasks);
-    _scaffoldSessions = List.from(widget.entry.scaffoldSessions);
+    _newUnderstanding = widget.entry.newUnderstanding;
+    _understandingController = TextEditingController(text: _newUnderstanding ?? '');
 
     _q1Controller = TextEditingController();
     _q2Controller = TextEditingController();
     _q3Controller = TextEditingController();
 
-    _initializeScaffoldFields();
-
-    _newUnderstanding = widget.entry.newUnderstanding;
-    _understandingController = TextEditingController(text: _newUnderstanding ?? '');
-    _understandingFocusNode = FocusNode();
+    _exploreTasks = List.from(widget.entry.exploreTasks);
+    if (_exploreTasks.isEmpty) {
+      _exploreTasks.add(ExploreTask(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+      ));
+    }
+    _currentTaskIndex = _exploreTasks.length - 1;
+    _loadScaffoldAnswers();
   }
 
   @override
@@ -67,216 +85,223 @@ class _InquiryPageState extends State<InquiryPage> {
     _q2Controller.dispose();
     _q3Controller.dispose();
     _understandingController.dispose();
-    _understandingFocusNode.dispose();
     super.dispose();
   }
 
-  // ─── 最小一步卡：字段初始化 ─────────────────────
+  // ─── 三问同步 ──────────────────────────────
 
-  void _initializeScaffoldFields() {
-    final existing = _findMinimalStepSession();
-    if (existing != null) {
-      final fields = existing['fields'] as List<dynamic>;
-      _q1Controller.text = fields[0]['value'] ?? '';
-      _q2Controller.text = fields[1]['value'] ?? '';
-      _q3Controller.text = fields[2]['value'] ?? '';
-    } else {
-      _q1Controller.clear();
-      _q2Controller.clear();
-      _q3Controller.clear();
-    }
+  void _loadScaffoldAnswers() {
+    final answers = _exploreTasks[_currentTaskIndex].scaffoldAnswers;
+    _q1Controller.text = answers.length > 0 ? answers[0]['value'] ?? '' : '';
+    _q2Controller.text = answers.length > 1 ? answers[1]['value'] ?? '' : '';
+    _q3Controller.text = answers.length > 2 ? answers[2]['value'] ?? '' : '';
   }
 
-  Map<String, dynamic>? _findMinimalStepSession() {
-    try {
-      return _scaffoldSessions.firstWhere(
-        (s) => s['scaffoldCardType'] == 'minimal_step',
-      );
-    } catch (_) {
-      return null;
+  void _switchTask(int index) {
+    // ✅ 保存目标任务的 id，避免删除空任务后索引变化导致越界
+    final targetId = _exploreTasks[index].id;
+
+    // 如果正在编辑，先处理取消（可能删除空任务）
+    if (_isScaffoldEditing) {
+      _cancelScaffoldEditingInternal();
     }
-  }
 
-  // ─── 最小一步卡：保存 ────────────────────────────
-
-  void _saveScaffold() {
-    final q1 = _q1Controller.text.trim();
-    final q2 = _q2Controller.text.trim();
-    final q3 = _q3Controller.text.trim();
-
-    // 空答案拦截
-    if (q1.isEmpty && q2.isEmpty && q3.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('还没写任何内容'),
-          duration: Duration(seconds: 1),
-        ),
-      );
+    // 在更新后的列表中按 id 查找目标
+    final newIndex = _exploreTasks.indexWhere((t) => t.id == targetId);
+    if (newIndex == -1) {
+      // 兜底：理论上不会发生
+      setState(() {
+        _currentTaskIndex = _exploreTasks.length - 1;
+        _loadScaffoldAnswers();
+        _isScaffoldEditing = false;
+      });
       return;
     }
 
-    final fields = [
-      {'label': '现在最困扰我的是什么？', 'value': q1},
-      {'label': '我能做的最小一步是什么？', 'value': q2},
-      {'label': '做完这一步会怎样？', 'value': q3},
-    ];
-
-    final now = DateTime.now().toIso8601String();
-
     setState(() {
-      final existing = _findMinimalStepSession();
-      if (existing != null) {
-        // 替换已有记录（sessionId 保持不变）
-        final index = _scaffoldSessions.indexWhere(
-          (s) => s['scaffoldCardType'] == 'minimal_step',
-        );
-        _scaffoldSessions[index] = {
-          'sessionId': existing['sessionId'],
-          'scaffoldCardType': 'minimal_step',
-          'fields': fields,
-          'createdAt': existing['createdAt'] ?? now,
-        };
-      } else {
-        // 新增一条
-        _scaffoldSessions.add({
-          'sessionId': DateTime.now().millisecondsSinceEpoch.toString(),
-          'scaffoldCardType': 'minimal_step',
-          'fields': fields,
-          'createdAt': now,
-        });
-      }
+      _currentTaskIndex = newIndex;
+      _loadScaffoldAnswers();
       _isScaffoldEditing = false;
     });
   }
 
-  // ─── 行动操作 ─────────────────────────────────────
+  // ─── 新增拐杖卡 ─────────────────────────────
 
-  void _addSubtask() {
+  void _addScaffoldCard() {
+    final newTask = ExploreTask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    setState(() {
+      _exploreTasks.add(newTask);
+      _currentTaskIndex = _exploreTasks.length - 1;
+      _q1Controller.clear();
+      _q2Controller.clear();
+      _q3Controller.clear();
+      _isScaffoldEditing = true;
+    });
+  }
+
+  void _saveScaffoldAnswers() {
+    final current = _exploreTasks[_currentTaskIndex];
+    final answers = [
+      {'label': '现在最困扰我的是什么？', 'value': _q1Controller.text.trim()},
+      {'label': '我能做的最小一步是什么？', 'value': _q2Controller.text.trim()},
+      {'label': '做完这一步会怎样？', 'value': _q3Controller.text.trim()},
+    ];
+    _exploreTasks[_currentTaskIndex] = current.copyWith(
+      scaffoldCardType: current.scaffoldCardType ?? 'minimal_step',
+      scaffoldAnswers: answers,
+      updatedAt: DateTime.now(),
+    );
+    setState(() {
+      _isScaffoldEditing = false;
+    });
+  }
+
+  void _cancelScaffoldEditing() {
+    _cancelScaffoldEditingInternal();
+    setState(() {});
+  }
+
+  void _cancelScaffoldEditingInternal() {
+    final current = _exploreTasks[_currentTaskIndex];
+    if (current.scaffoldCardType == null && current.actions.isEmpty) {
+      _exploreTasks.removeAt(_currentTaskIndex);
+      if (_exploreTasks.isEmpty) {
+        _exploreTasks.add(ExploreTask(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+        ));
+      }
+      _currentTaskIndex = _exploreTasks.length - 1;
+      _loadScaffoldAnswers();
+    } else {
+      _loadScaffoldAnswers();
+    }
+    _isScaffoldEditing = false;
+  }
+
+  // ─── 行动区 ─────────────────────────────────
+
+  void _addAction() {
     final title = _subtaskController.text.trim();
     if (title.isEmpty) return;
-
-    setState(() {
-      _subtasks.add(NoteSubtask(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: title,
-      ));
-      _subtaskController.clear();
-    });
-  }
-
-  void _toggleSubtask(String id) {
-    setState(() {
-      final index = _subtasks.indexWhere((s) => s.id == id);
-      if (index == -1) return;
-      final old = _subtasks[index];
-      _subtasks[index] = old.copyWith(
-        isDone: !old.isDone,
-        completedAt: old.isDone ? null : DateTime.now(),
-      );
-    });
-  }
-
-  void _deleteSubtask(String id) {
-    setState(() {
-      _subtasks.removeWhere((s) => s.id == id);
-    });
-  }
-
-  // ─── 复盘与新理解 ─────────────────────────────
-
-  bool get _allSubtasksDone =>
-      _subtasks.isNotEmpty && _subtasks.every((s) => s.isDone);
-
-  bool get _canShowReviewButton =>
-      _allSubtasksDone &&
-      _newUnderstanding == null &&
-      !_isScaffoldEditing &&
-      !_isUnderstandingEditing;
-
-  Future<void> _saveUnderstandingToDb() async {
-    final text = _understandingController.text.trim();
-    if (text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('还没写任何内容')),
-      );
-      return;
-    }
-
-    final updated = NotebookEntry(
-      id: widget.entry.id,
-      title: widget.entry.title,
-      content: widget.entry.content,
+    final current = _exploreTasks[_currentTaskIndex];
+    final newAction = NoteSubtask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+    );
+    _exploreTasks[_currentTaskIndex] = current.copyWith(
+      actions: [...current.actions, newAction],
       updatedAt: DateTime.now(),
-      status: widget.entry.status,
-      editorMode: widget.entry.editorMode,
-      tags: widget.entry.tags,
-      isLocked: widget.entry.isLocked,
+    );
+    _subtaskController.clear();
+    setState(() {});
+  }
+
+  void _toggleAction(String id) {
+    final current = _exploreTasks[_currentTaskIndex];
+    final actions = current.actions.map((a) {
+      if (a.id == id) {
+        return a.copyWith(
+          isDone: !a.isDone,
+          completedAt: a.isDone ? null : DateTime.now(),
+        );
+      }
+      return a;
+    }).toList();
+    _exploreTasks[_currentTaskIndex] = current.copyWith(
+      actions: actions,
+      updatedAt: DateTime.now(),
+    );
+    setState(() {});
+  }
+
+  void _deleteAction(String id) {
+    final current = _exploreTasks[_currentTaskIndex];
+    final actions = current.actions.where((a) => a.id != id).toList();
+    _exploreTasks[_currentTaskIndex] = current.copyWith(
+      actions: actions,
+      updatedAt: DateTime.now(),
+    );
+    setState(() {});
+  }
+
+  // ─── 新理解 ─────────────────────────────────
+
+  void _toggleNewUnderstandingEditing() {
+    if (_isNewUnderstandingEditing) {
+      _understandingController.text = _newUnderstanding ?? '';
+      setState(() {
+        _isNewUnderstandingEditing = false;
+      });
+    } else {
+      setState(() {
+        _isNewUnderstandingEditing = true;
+      });
+    }
+  }
+
+  void _saveNewUnderstanding() async {
+    final text = _understandingController.text.trim();
+    if (text.isEmpty) return;
+
+    final filteredTasks = _filterEmptyTasks(_exploreTasks);
+    final updated = widget.entry.copyWith(
       inquiryQuestion: _questionController.text.trim().isNotEmpty
           ? _questionController.text.trim()
           : null,
-      scaffoldSessions: List.from(_scaffoldSessions),
-      subtasks: List.from(_subtasks),
       newUnderstanding: text,
+      exploreTasks: filteredTasks,
+      updatedAt: DateTime.now(),
     );
-
     await _db.updateNote(updated.toMap());
 
     setState(() {
       _newUnderstanding = text;
-      _isUnderstandingEditing = false;
+      _isNewUnderstandingEditing = false;
     });
-  }
-
-  void _startUnderstandingEdit() {
-    setState(() {
-      _isUnderstandingEditing = true;
-      _understandingController.text = _newUnderstanding ?? '';
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-FocusScope.of(context).requestFocus(_understandingFocusNode);    });
-  }
-
-  void _cancelUnderstandingEdit() {
-    setState(() {
-      _isUnderstandingEditing = false;
-      _understandingController.text = _newUnderstanding ?? '';
-    });
-  }
-
-  // ─── 保存 ────────────────────────────────────────────
-
-  Future<void> _saveAndReturn() async {
-    final updated = NotebookEntry(
-      id: widget.entry.id,
-      title: widget.entry.title,
-      content: widget.entry.content,
-      updatedAt: DateTime.now(),
-      status: widget.entry.status,
-      editorMode: widget.entry.editorMode,
-      tags: widget.entry.tags,
-      isLocked: widget.entry.isLocked,
-      inquiryQuestion: _questionController.text.trim().isNotEmpty
-          ? _questionController.text.trim()
-          : null,
-      scaffoldSessions: List.from(_scaffoldSessions),
-      subtasks: List.from(_subtasks),
-      newUnderstanding: _newUnderstanding,
-    );
-
-    await _db.updateNote(updated.toMap());
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 探究内容已保存')),
+        const SnackBar(content: Text('✅ 新理解已保存，探究结束')),
+      );
+    }
+  }
+
+  // ─── 保存 ─────────────────────────────────
+
+  List<ExploreTask> _filterEmptyTasks(List<ExploreTask> tasks) {
+    return tasks.where((task) {
+      return task.scaffoldCardType != null || task.actions.isNotEmpty;
+    }).toList();
+  }
+
+  Future<void> _saveAndReturn() async {
+    final filteredTasks = _filterEmptyTasks(_exploreTasks);
+    final updated = widget.entry.copyWith(
+      inquiryQuestion: _questionController.text.trim().isNotEmpty
+          ? _questionController.text.trim()
+          : null,
+      newUnderstanding: _newUnderstanding,
+      exploreTasks: filteredTasks,
+      updatedAt: DateTime.now(),
+    );
+    await _db.updateNote(updated.toMap());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ 已保存')),
       );
       Navigator.pop(context, updated);
     }
   }
 
-  // ─── UI ─────────────────────────────────────────────
+  // ─── UI ─────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final currentTask = _exploreTasks[_currentTaskIndex];
+    final hasTasks = _exploreTasks.any((t) => t.scaffoldCardType != null || t.actions.isNotEmpty);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('📖 深度笔记'),
@@ -293,7 +318,7 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
             children: [
               // ─── 探究问题 ────────────────────────────
               const Text(
-                '🎯 当前探究问题',
+                '🎯 探究问题',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 6),
@@ -312,100 +337,196 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
                     vertical: 10,
                   ),
                 ),
+                onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 16),
 
-              // ─── 最小一步卡 ──────────────────────────
-              _buildScaffoldCard(),
+              // ─── 最小一步卡（展开/编辑） ────────────
+              _buildScaffoldCard(currentTask),
 
               const SizedBox(height: 16),
 
-              // ─── 行动列表 ──────────────────────────
-              Row(
-                children: [
-                  const Text(
-                    '🚀 行动',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '${_subtasks.length} 步',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-
-              // 添加行动输入行
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _subtaskController,
-                      decoration: InputDecoration(
-                        hintText: '输入行动...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                      onSubmitted: (_) => _addSubtask(),
+              // ─── 行动区（仅当任务有拐杖卡类型时显示） ──
+              if (currentTask.scaffoldCardType != null) ...[
+                Row(
+                  children: [
+                    const Text(
+                      '🚀 行动',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle, color: Colors.purple),
-                    onPressed: _addSubtask,
-                    tooltip: '添加行动',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-
-              // 行动列表
-              if (_subtasks.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.checklist,
-                        size: 40,
-                        color: Colors.grey.shade300,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '还没有行动，点击上方添加',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade500,
+                    const Spacer(),
+                    Text(
+                      '${currentTask.actions.length} 步',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _subtaskController,
+                        decoration: InputDecoration(
+                          hintText: '输入行动...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                         ),
+                        onSubmitted: (_) => _addAction(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle, color: Colors.purple),
+                      onPressed: _addAction,
+                      tooltip: '添加行动',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...currentTask.actions.map((action) => _buildActionItem(action)),
+                const SizedBox(height: 12),
+              ],
+
+              // ─── 任务列表 ──────────────────────────────
+              if (hasTasks || _exploreTasks.isNotEmpty) ...[
+                const Text(
+                  '📦 探究任务',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                ..._exploreTasks
+                    .asMap()
+                    .entries
+                    .where((entry) =>
+                        entry.value.scaffoldCardType != null ||
+                        entry.value.actions.isNotEmpty ||
+                        entry.key == _currentTaskIndex)
+                    .map((entry) => _buildTaskItem(entry.value, entry.key)),
+                const SizedBox(height: 12),
+              ],
+
+              // ─── 新增拐杖卡按钮 ──────────────────────
+              if (!_isCompleted) ...[
+                TextButton.icon(
+                  onPressed: _addScaffoldCard,
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('＋ 新增拐杖卡'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.purple,
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // ─── 新理解 ──────────────────────────────
+              const Divider(height: 24),
+              if (_isNewUnderstandingEditing) ...[
+                Text(
+                  '💡 现在，你怎么理解「$_currentQuestionText」？',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _understandingController,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    hintText: '写下你的新理解...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: _toggleNewUnderstandingEditing,
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _saveNewUnderstanding,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('保存新理解'),
+                    ),
+                  ],
+                ),
+              ] else if (_newUnderstanding != null) ...[
+                // 已完成状态（只读）
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _newUnderstanding!,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.green.shade800,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit, size: 18),
+                        onPressed: () {
+                          _understandingController.text = _newUnderstanding ?? '';
+                          setState(() {
+                            _isNewUnderstandingEditing = true;
+                          });
+                        },
                       ),
                     ],
                   ),
-                )
-              else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _subtasks.length,
-                  itemBuilder: (context, index) {
-                    final subtask = _subtasks[index];
-                    return _buildSubtaskItem(subtask);
-                  },
                 ),
-
-              // ─── 复盘区域 ────────────────────────────
-              if (_newUnderstanding != null && !_isUnderstandingEditing)
-                _buildCompletedView(),
-              if (_canShowReviewButton)
-                _buildReviewButton(),
-              if (_isUnderstandingEditing)
-                _buildUnderstandingEditor(),
+              ] else ...[
+                // 未完成：显示点击入口
+                Text(
+                  '💡 现在，你怎么理解「$_currentQuestionText」？',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: _toggleNewUnderstandingEditing,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        '✍️ 点击写下新理解',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -420,11 +541,10 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
     );
   }
 
-  // ─── 最小一步卡 UI ──────────────────────────────
+  // ─── 子组件 ─────────────────────────────────
 
-  Widget _buildScaffoldCard() {
-    final existing = _findMinimalStepSession();
-    final isDone = existing != null;
+  Widget _buildScaffoldCard(ExploreTask task) {
+    final hasAnswers = task.scaffoldAnswers.isNotEmpty;
 
     return Container(
       decoration: BoxDecoration(
@@ -434,15 +554,15 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
       ),
       child: _isScaffoldEditing
           ? _buildScaffoldEditor()
-          : _buildScaffoldCardContent(isDone, existing),
+          : _buildScaffoldCardContent(task, hasAnswers),
     );
   }
 
-  Widget _buildScaffoldCardContent(bool isDone, Map<String, dynamic>? existing) {
+  Widget _buildScaffoldCardContent(ExploreTask task, bool hasAnswers) {
     return GestureDetector(
       onTap: () {
         setState(() {
-          _initializeScaffoldFields();
+          _loadScaffoldAnswers();
           _isScaffoldEditing = true;
         });
       },
@@ -463,24 +583,14 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
                       color: Colors.purple,
                     ),
                   ),
-                  if (isDone) ...[
+                  if (hasAnswers) ...[
                     const SizedBox(height: 4),
                     Text(
-                      '✅ 已完成',
+                      '✅ 已回答',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.green.shade700,
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _buildPreviewText(existing!),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ] else ...[
                     const SizedBox(height: 2),
@@ -500,19 +610,6 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
         ),
       ),
     );
-  }
-
-  String _buildPreviewText(Map<String, dynamic> existing) {
-    final fields = existing['fields'] as List<dynamic>;
-    final parts = <String>[];
-    for (var field in fields) {
-      final value = field['value'] as String?;
-      if (value != null && value.isNotEmpty) {
-        final preview = value.length > 20 ? '${value.substring(0, 20)}...' : value;
-        parts.add(preview);
-      }
-    }
-    return parts.join(' ｜ ');
   }
 
   Widget _buildScaffoldEditor() {
@@ -549,17 +646,12 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               TextButton(
-                onPressed: () {
-                  setState(() {
-                    _initializeScaffoldFields();
-                    _isScaffoldEditing = false;
-                  });
-                },
+                onPressed: _cancelScaffoldEditing,
                 child: const Text('取消', style: TextStyle(fontSize: 13)),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
-                onPressed: _saveScaffold,
+                onPressed: _saveScaffoldAnswers,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.purple,
                   foregroundColor: Colors.white,
@@ -605,53 +697,42 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
     );
   }
 
-  Widget _buildSubtaskItem(NoteSubtask subtask) {
+  Widget _buildActionItem(NoteSubtask action) {
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: subtask.isDone
-            ? Colors.green.shade50
-            : Colors.grey.shade50,
+        color: action.isDone ? Colors.green.shade50 : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: subtask.isDone
-              ? Colors.green.shade200
-              : Colors.grey.shade200,
+          color: action.isDone ? Colors.green.shade200 : Colors.grey.shade200,
           width: 0.5,
         ),
       ),
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => _toggleSubtask(subtask.id),
+            onTap: () => _toggleAction(action.id),
             child: Icon(
-              subtask.isDone
-                  ? Icons.check_circle
-                  : Icons.radio_button_unchecked,
-              color: subtask.isDone ? Colors.green : Colors.grey.shade500,
+              action.isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+              color: action.isDone ? Colors.green : Colors.grey.shade500,
               size: 22,
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              subtask.title,
+              action.title,
               style: TextStyle(
                 fontSize: 14,
-                decoration: subtask.isDone
-                    ? TextDecoration.lineThrough
-                    : TextDecoration.none,
-                color: subtask.isDone
-                    ? Colors.grey.shade500
-                    : Colors.black87,
+                decoration: action.isDone ? TextDecoration.lineThrough : TextDecoration.none,
+                color: action.isDone ? Colors.grey.shade500 : Colors.black87,
               ),
             ),
           ),
           IconButton(
             icon: Icon(Icons.close, size: 18, color: Colors.grey.shade400),
-            onPressed: () => _deleteSubtask(subtask.id),
-            tooltip: '删除行动',
+            onPressed: () => _deleteAction(action.id),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
           ),
@@ -660,123 +741,57 @@ FocusScope.of(context).requestFocus(_understandingFocusNode);    });
     );
   }
 
-  // ─── 复盘 UI ──────────────────────────────────────
+  Widget _buildTaskItem(ExploreTask task, int index) {
+    final isActive = index == _currentTaskIndex;
+    final actionCount = task.actions.length;
+    final cardType = task.scaffoldCardType ?? '编辑中...';
 
-  Widget _buildCompletedView() {
-    return GestureDetector(
-      onTap: _startUnderstandingEdit,
-      child: Container(
-        margin: const EdgeInsets.only(top: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.green.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green.shade200, width: 0.5),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isActive ? Colors.purple.shade50 : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isActive ? Colors.purple.shade200 : Colors.grey.shade200,
+          width: isActive ? 1.5 : 0.5,
         ),
+      ),
+      child: GestureDetector(
+        onTap: () => _switchTask(index),
         child: Row(
           children: [
-            const Text('✅ ', style: TextStyle(fontSize: 14)),
+            const Icon(Icons.task, size: 16, color: Colors.purple),
+            const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                '已完成',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.green.shade700,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cardType,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                      color: isActive ? Colors.purple : Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    actionCount > 0 ? '$actionCount 个行动' : '编辑中...',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isActive ? Colors.purple.shade600 : Colors.grey.shade600,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const Icon(Icons.chevron_right, size: 18, color: Colors.green),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReviewButton() {
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      child: TextButton(
-        onPressed: _startUnderstandingEdit,
-        style: TextButton.styleFrom(
-          backgroundColor: Colors.purple.shade50,
-          foregroundColor: Colors.purple.shade700,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-        ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('📝 ', style: TextStyle(fontSize: 14)),
-            Text('去复盘', style: TextStyle(fontSize: 14)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUnderstandingEditor() {
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.purple.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.purple.shade200, width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '📝 写下你的新理解',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Colors.purple,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _understandingController,
-            focusNode: _understandingFocusNode,
-            autofocus: true,
-            maxLines: 4,
-            decoration: InputDecoration(
-              hintText: '通过这次探究，你得到了什么新的认识？',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide(color: Colors.purple.shade200),
-              ),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.all(8),
-            ),
-            style: const TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: _cancelUnderstandingEdit,
-                child: const Text('取消', style: TextStyle(fontSize: 13)),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: _saveUnderstandingToDb,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                ),
-               child: Text(
-  _newUnderstanding == null ? '完成复盘' : '保存修改',
-  style: const TextStyle(fontSize: 13),
-),
-              ),
+            if (task.status == ExploreTaskStatus.completed) ...[
+              const Text('✅', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 4),
             ],
-          ),
-        ],
+            const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }

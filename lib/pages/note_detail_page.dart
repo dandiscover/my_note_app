@@ -5,6 +5,7 @@
 // ✅ 新增：深入入口按钮（原“🧭 探究”）
 // ✅ 重构：用 _entry 可变状态替代 widget.entry
 // ✅ 适配：_saveNote 增加 inquiryQuestion 参数，保存时保留全部字段
+// ✅ 适配：保存时使用 newUnderstanding 和 exploreTasks 替代旧字段
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -80,8 +81,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         tags: tags,
         isLocked: _entry.isLocked,
         inquiryQuestion: inquiryQuestion,
-        scaffoldSessions: _entry.scaffoldSessions,
-        subtasks: _entry.subtasks,
+        newUnderstanding: _entry.newUnderstanding,
+        exploreTasks: _entry.exploreTasks,
       );
 
       await _db.updateNote(updated.toMap());

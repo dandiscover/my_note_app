@@ -63,12 +63,12 @@ class _WisdomCardState extends State<WisdomCard> {
 
         final cardContent = DragTarget<String>(
           onWillAcceptWithDetails: (data) {
-            if (data == widget.node.id) return false;
-            if (widget.isDescendantOf(data, widget.node.id)) return false;
+            if (data.data == widget.node.id) return false;
+            if (widget.isDescendantOf(data.data, widget.node.id)) return false;
             return true;
           },
           onAcceptWithDetails: (data) async {
-            await _db.moveNode(data, widget.node.id);
+            await _db.moveNode(data.data, widget.node.id);
             WisdomLightToast.show(context, '✅ 已移动到「${widget.node.title}」');
             widget.onEnterFolder();
           },
