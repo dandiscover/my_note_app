@@ -2,7 +2,7 @@
 // 深度笔记 — 多任务探究
 // ✅ 多任务状态管理：_exploreTasks + _currentTaskIndex
 // ✅ 新理解按钮常驻，绑定主问题
-// ✅ newUnderstanding != null 时隐藏“新增拐杖卡”
+// ✅ newUnderstanding != null 时隐藏"新增拐杖卡"
 // ✅ 最小一步卡展开（三问 + 存 scaffoldAnswers）
 // ✅ 行动区跟随当前任务
 // ✅ 新理解保存时立即持久化
@@ -11,8 +11,9 @@
 // ✅ _switchTask 用 id 定位，避免越界
 // ✅ 新增 isDialog 模式：弹窗内逐步展开三问，行动添加，折叠任务，再探究，完成回传
 // ✅ 弹窗模式：已有任务只读展示，新建任务独立维护，三问初始为空
-// ✅ 弹窗模式：确认后停留在步骤3，显示已完成列表 + 再探究按钮
-// ✅ 弹窗模式：任务列表分开展示，序号连续
+// ✅ 弹窗模式：确认后进入折叠展示态（步骤4），不显示行动输入区
+// ✅ 弹窗模式：完成探究时检查未确认草稿，给出放弃提示（异步确认）
+// ✅ 弹窗模式：底部按钮有任务时"完成探究"，无任务时"关闭"（始终可点）
 // ✅ 弹窗模式：三问输入框 onChanged 触发 setState，按钮实时启用
 
 import 'package:flutter/material.dart';
@@ -58,7 +59,7 @@ class _InquiryPageState extends State<InquiryPage> {
   // ─── 弹窗模式专用状态 ──────────────────────
   late List<ExploreTask> _existingTasks; // 已有任务（只读展示）
   List<ExploreTask> _newConfirmedTasks = []; // 本轮新确认的任务
-  int _currentStep = 0; // 0=第一问, 1=第二问, 2=第三问, 3=过渡/行动区
+  int _currentStep = 0; // 0=第一问, 1=第二问, 2=第三问, 3=过渡/行动区, 4=折叠展示态
 
   // ─── 计算属性 ──────────────────────────────
   bool get _isCompleted => _newUnderstanding != null;
@@ -331,7 +332,7 @@ class _InquiryPageState extends State<InquiryPage> {
     });
   }
 
-  // 确认当前任务（三问+行动）并折叠
+  // 确认当前任务（三问+行动）并折叠，进入折叠展示态（步骤4）
   void _confirmTask() {
     final draft = _currentDraft;
     final answers = [
@@ -356,9 +357,9 @@ class _InquiryPageState extends State<InquiryPage> {
     _q2Controller.clear();
     _q3Controller.clear();
     _subtaskController.clear();
-    // 停留在步骤3，显示已完成列表 + 再探究按钮
+    // 进入折叠展示态（步骤4）
     setState(() {
-      _currentStep = 3;
+      _currentStep = 4;
     });
   }
 
@@ -377,10 +378,51 @@ class _InquiryPageState extends State<InquiryPage> {
     });
   }
 
-  // 完成弹窗，返回合并后的任务列表
-  void _completeAndReturn() {
-    final allTasks = [..._existingTasks, ..._newConfirmedTasks];
-    Navigator.pop(context, allTasks);
+  // 完成弹窗，返回合并后的任务列表，如有未确认草稿则提示
+  Future<void> _completeAndReturn() async {
+    // 检查草稿是否有内容
+    final draft = _currentDraft;
+    final hasDraftContent = _q1Controller.text.trim().isNotEmpty ||
+        _q2Controller.text.trim().isNotEmpty ||
+        _q3Controller.text.trim().isNotEmpty ||
+        draft.actions.isNotEmpty;
+
+    // 如果没有草稿内容，直接返回
+    if (!hasDraftContent) {
+      final allTasks = [..._existingTasks, ..._newConfirmedTasks];
+      if (mounted) {
+        Navigator.pop(context, allTasks);
+      }
+      return;
+    }
+
+    // 有草稿内容，弹出确认对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('放弃当前任务？'),
+        content: const Text('当前任务还没确认，确定要放弃吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('放弃'),
+          ),
+        ],
+      ),
+    );
+
+    // 用户确认放弃才返回
+    if (confirmed == true) {
+      final allTasks = [..._existingTasks, ..._newConfirmedTasks];
+      if (mounted) {
+        Navigator.pop(context, allTasks);
+      }
+    }
+    // 否则（取消或对话框关闭）停留在弹窗
   }
 
   // ─── UI 入口 ──────────────────────────────
@@ -937,7 +979,7 @@ class _InquiryPageState extends State<InquiryPage> {
                           ),
                         ],
                       ),
-                      // "再探究一个问题" 按钮（至少有一个已确认任务时显示）
+                      // 如果已经至少完成一个任务，显示"再探究一个"
                       if (hasAnyConfirmed) ...[
                         const SizedBox(height: 8),
                         Center(
@@ -952,22 +994,49 @@ class _InquiryPageState extends State<InquiryPage> {
                         ),
                       ],
                     ],
+                    // 步骤4: 折叠展示态（仅显示再探究按钮）
+                    if (_currentStep == 4) ...[
+                      if (hasAnyConfirmed) ...[
+                        const SizedBox(height: 8),
+                        Center(
+                          child: TextButton.icon(
+                            onPressed: _resetForNewTask,
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('＋ 再探究一个问题'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.purple,
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        const Text(
+                          '没有已完成的探究，请先完成一个任务。',
+                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                      ],
+                    ],
                   ],
                 ),
               ),
             ),
 
-            // ─── 底部完成按钮 ──────────────────────
+            // ─── 底部按钮 ──────────────────────────
             const Divider(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 ElevatedButton(
-                  onPressed: hasAnyConfirmed ? _completeAndReturn : null,
+                  onPressed: () {
+                    // 有任务 → 返回列表；无任务 → 返回 null（关闭弹窗）
+                    if (hasAnyConfirmed) {
+                      _completeAndReturn();
+                    } else {
+                      Navigator.pop(context, null);
+                    }
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.purple,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey.shade300,
                   ),
                   child: Text(hasAnyConfirmed ? '完成探究' : '关闭'),
                 ),
