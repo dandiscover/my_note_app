@@ -4,6 +4,7 @@
 // ✅ 适配 FullscreenEditor 新签名：onSave 增加 inquiryQuestion 参数
 // ✅ 新增：探究任务自动判定（问题 + exploreTasks + 未完成）
 // ✅ 清理：删除旧 _generateExploreNote 死代码和未使用的 import
+// ✅ 修改：探究卡片点击改为打开 ExploreTaskExecuteDialog
 
 import '../models/card.dart';
 import 'dart:async';
@@ -22,9 +23,9 @@ import '../widgets/fullscreen_editor.dart';
 import '../widgets/task/task_toolbar.dart';
 import '../widgets/quick_task_card.dart';
 import '../widgets/writing/material_panel.dart';
-import 'inquiry_page.dart';
-import '../widgets/floating_pet.dart';
+import '../widgets/explore_task_execute_dialog.dart';
 import 'writing_page.dart';
+import '../widgets/floating_pet.dart';
 import '../utils/app_date_utils.dart';
 
 enum ViewMode { list, quadrant }
@@ -582,13 +583,14 @@ class CreationPageState extends State<CreationPage>
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () async {
-        final updatedNote = await Navigator.push<NotebookEntry>(
-          context,
-          MaterialPageRoute(
-            builder: (_) => InquiryPage(entry: note),
+        final result = await showDialog<NotebookEntry>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => ExploreTaskExecuteDialog(
+            entry: note,
           ),
         );
-        if (updatedNote != null) {
+        if (result != null) {
           await refreshTasks();
         }
       },

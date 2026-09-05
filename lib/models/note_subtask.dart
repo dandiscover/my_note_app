@@ -6,6 +6,8 @@ class NoteSubtask {
   final String title;
   final bool isDone;
   final DateTime? completedAt;
+  final String? mood;
+  final String? moodSummary;
   final DateTime createdAt;
 
   NoteSubtask({
@@ -13,6 +15,8 @@ class NoteSubtask {
     required this.title,
     this.isDone = false,
     this.completedAt,
+    this.mood,
+    this.moodSummary,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -24,6 +28,8 @@ class NoteSubtask {
       completedAt: map['completedAt'] != null
           ? DateTime.parse(map['completedAt'] as String)
           : null,
+      mood: map['mood'] as String?,
+      moodSummary: map['moodSummary'] as String?,
       createdAt: map['createdAt'] != null
           ? DateTime.parse(map['createdAt'] as String)
           : DateTime.fromMillisecondsSinceEpoch(0),
@@ -36,6 +42,8 @@ class NoteSubtask {
       'title': title,
       'isDone': isDone,
       'completedAt': completedAt?.toIso8601String(),
+      'mood': mood,
+      'moodSummary': moodSummary,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -45,6 +53,8 @@ class NoteSubtask {
     String? title,
     bool? isDone,
     DateTime? completedAt,
+    String? mood,
+    String? moodSummary,
     DateTime? createdAt,
   }) {
     return NoteSubtask(
@@ -52,6 +62,8 @@ class NoteSubtask {
       title: title ?? this.title,
       isDone: isDone ?? this.isDone,
       completedAt: completedAt ?? this.completedAt,
+      mood: mood ?? this.mood,
+      moodSummary: moodSummary ?? this.moodSummary,
       createdAt: createdAt ?? this.createdAt,
     );
   }

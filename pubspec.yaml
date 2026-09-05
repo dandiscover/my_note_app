@@ -58,7 +58,6 @@ dependencies:
   flutter_widget_from_html: ^0.15.0
 
   cupertino_icons: ^1.0.8
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -9,7 +9,6 @@ class NoteCardDialog extends StatefulWidget {
   final String comment;
   final String sourceId;
   final String sourceType;
-
   const NoteCardDialog({
     super.key,
     required this.selectedText,

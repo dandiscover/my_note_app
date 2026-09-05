@@ -727,13 +727,13 @@ class _InquiryPageState extends State<InquiryPage> {
             ),
             const SizedBox(height: 16),
 
-            // ─── 已完成任务列表（折叠展示） ──────────
+            // ─── 已生成任务列表（折叠展示） ──────────
             if (hasAnyConfirmed)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    '已完成的探究：',
+                    '已生成的探究：',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
                   ),
                   const SizedBox(height: 4),
@@ -744,11 +744,11 @@ class _InquiryPageState extends State<InquiryPage> {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Row(
                         children: [
-                          const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          const Icon(Icons.circle, color: Colors.purple, size: 10),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              '任务 ${idx + 1} ✅  ${task.actions.isNotEmpty ? "${task.actions.length} 个行动" : "已折叠"}',
+                              '任务 ${idx + 1}  ${task.actions.isNotEmpty ? "${task.actions.length} 个行动" : "已折叠"}',
                               style: const TextStyle(fontSize: 13),
                             ),
                           ),
@@ -1010,7 +1010,7 @@ class _InquiryPageState extends State<InquiryPage> {
                         ),
                       ] else ...[
                         const Text(
-                          '没有已完成的探究，请先完成一个任务。',
+                          '没有已生成的探究，请先完成一个任务。',
                           style: TextStyle(fontSize: 13, color: Colors.grey),
                         ),
                       ],
@@ -1038,7 +1038,7 @@ class _InquiryPageState extends State<InquiryPage> {
                     backgroundColor: Colors.purple,
                     foregroundColor: Colors.white,
                   ),
-                  child: Text(hasAnyConfirmed ? '完成探究' : '关闭'),
+                  child: Text(hasAnyConfirmed ? '生成探究' : '关闭'),
                 ),
               ],
             ),
@@ -1222,9 +1222,9 @@ class _InquiryPageState extends State<InquiryPage> {
           GestureDetector(
             onTap: () => _toggleAction(action.id),
             child: Icon(
-              action.isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+              action.isDone ? Icons.check_circle : Icons.subdirectory_arrow_right,
               color: action.isDone ? Colors.green : Colors.grey.shade500,
-              size: 22,
+              size: action.isDone ? 22 : 16,
             ),
           ),
           const SizedBox(width: 8),

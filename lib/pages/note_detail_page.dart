@@ -1,24 +1,30 @@
 // lib/pages/note_detail_page.dart
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
-// ✅ 新增：采集页笔记保存时触发条件②
-// ✅ 修改：采集页进入时初始为编辑模式
-// ✅ 新增：深入入口按钮（原“🧭 探究”）
-// ✅ 重构：用 _entry 可变状态替代 widget.entry
-// ✅ 适配：_saveNote 增加 inquiryQuestion 参数，保存时保留全部字段
-// ✅ 适配：保存时使用 newUnderstanding 和 exploreTasks 替代旧字段
+// ✅ 采集页笔记保存时触发条件②
+// ✅ 采集页进入时初始为编辑模式
+// ✅ 深入入口按钮（始终显示，不限于非采集笔记）
+// ✅ 用 _entry 可变状态替代 widget.entry
+// ✅ _saveNote 增加 inquiryQuestion 参数
+// ✅ 保存时使用 newUnderstanding 和 exploreTasks
+// ✅ _openInquiry 改为弹窗模式
+// ✅ _handleInquiryConfirmed 先弹窗后保存，避免新建笔记未保存导致弹窗不出现
+// ✅ _openInquiryDialog 增加 question 参数，弹窗关闭后统一保存
+// ✅ 阅读模式增加探究缩略图区块，点击弹出只读概览弹窗
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/card.dart';
+import '../models/explore_task.dart';
 import '../services/card_service.dart';
 import '../widgets/fullscreen_editor.dart';
 import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
+import '../widgets/explore_task_summary_dialog.dart';
 import 'book_detail_page.dart';
 import 'inquiry_page.dart';
-import '../models/explore_task.dart';
+
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -80,7 +86,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         editorMode: editorMode,
         tags: tags,
         isLocked: _entry.isLocked,
-        inquiryQuestion: inquiryQuestion,
+        inquiryQuestion: inquiryQuestion ?? _entry.inquiryQuestion,
         newUnderstanding: _entry.newUnderstanding,
         exploreTasks: _entry.exploreTasks,
       );
@@ -110,14 +116,12 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         }
       }
 
-      // ✅ 条件②：从采集页整理笔记时触发
       if (widget.isFromCollection) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_organized_at', DateTime.now().toIso8601String());
         floatingPetKey.currentState?.showMessage('水开始蒸发了。');
       }
 
-      // ✅ 保存成功后更新 _entry
       setState(() {
         _entry = updated;
       });
@@ -252,7 +256,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ─── 卡片类型选择 ──────────────────────────
                     const Text('卡片类型', style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     Wrap(
@@ -286,7 +289,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                     ),
                     const SizedBox(height: 12),
 
-                    // ─── 不同类型的不同字段 ──────────────────────────
                     if (selectedType == CardType.review) ...[
                       TextField(
                         controller: TextEditingController(text: frontText),
@@ -423,7 +425,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
                     const SizedBox(height: 12),
 
-                    // ─── 重要性 ──────────────────────────
                     const Text('重要性', style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     Row(
@@ -590,37 +591,91 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  // ─── 深入入口 ─────────────────────────────
-  Future<void> _openInquiry() async {
-  final result = await showDialog<List<ExploreTask>>(
-    context: context,
-    barrierDismissible: true,
-    builder: (context) => Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-      child: SizedBox(
-        width: 600,
-        child: InquiryPage(
-          entry: _entry,
-          isDialog: true,
+  // ─── 统一探究弹窗 ─────────────────────────────
+  Future<void> _openInquiryDialog({String? question}) async {
+    // 如果传入了问题，先更新内存，但不保存数据库（弹窗关闭后统一保存）
+    if (question != null && mounted) {
+      setState(() {
+        _entry = _entry.copyWith(
+          inquiryQuestion: question,
+          updatedAt: DateTime.now(),
+        );
+      });
+    }
+
+    final result = await showDialog<List<ExploreTask>>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: SizedBox(
+          width: 600,
+          child: InquiryPage(
+            entry: _entry,
+            isDialog: true,
+          ),
         ),
       ),
-    ),
-  );
-
-  if (result != null && mounted) {
-    final updatedEntry = _entry.copyWith(
-      exploreTasks: result,
-      updatedAt: DateTime.now(),
     );
-    await _db.updateNote(updatedEntry.toMap());
-    setState(() {
-      _entry = updatedEntry;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('✅ 探究任务已更新')),
+
+    // 弹窗返回后统一保存（问题 + 任务列表）
+    if (mounted) {
+      try {
+        NotebookEntry updatedEntry = _entry;
+        if (result != null) {
+          updatedEntry = _entry.copyWith(
+            exploreTasks: result,
+            updatedAt: DateTime.now(),
+          );
+        } else if (question != null) {
+          // 如果没返回任务列表但传入了问题，至少保证问题已保存
+          updatedEntry = _entry.copyWith(
+            inquiryQuestion: question,
+            updatedAt: DateTime.now(),
+          );
+        }
+        // 如果 _entry 已有变化，写入数据库
+        if (updatedEntry != _entry) {
+          await _db.updateNote(updatedEntry.toMap());
+          setState(() {
+            _entry = updatedEntry;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ 探究任务已保存')),
+          );
+        }
+      } catch (e) {
+        debugPrint('保存探究数据失败: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ─── 云朵回调：先打开探究弹窗，弹窗关闭后保存 ──────────
+  Future<void> _handleInquiryConfirmed(String question) async {
+    await _openInquiryDialog(question: question);
+  }
+
+  // ─── 右上角深入按钮（始终显示） ─────────────────────────────
+  Future<void> _openInquiry() async {
+    await _openInquiryDialog();
+  }
+
+  // ─── 弹出探究概览弹窗 ─────────────────────────────
+  void _showExploreSummary() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => ExploreTaskSummaryDialog(
+        entry: _entry,
+      ),
     );
   }
-}
 
   // ─── UI ─────────────────────────────
   @override
@@ -636,13 +691,12 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         actions: [
-          // ✅ 新增：深入入口
-          if (!widget.isFromCollection)
-            IconButton(
-              icon: const Icon(Icons.explore, color: Colors.purple),
-              tooltip: '深入',
-              onPressed: _openInquiry,
-            ),
+          // ✅ 深入按钮始终显示，不限是否来自采集
+          IconButton(
+            icon: const Icon(Icons.explore, color: Colors.purple),
+            tooltip: '深入',
+            onPressed: _openInquiry,
+          ),
           IconButton(
             icon: Icon(_isReadMode ? Icons.edit : Icons.remove_red_eye),
             tooltip: _isReadMode ? '切换到修改模式' : '切换到阅读模式',
@@ -707,12 +761,72 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                 );
               },
             ),
+            // ✅ 探究缩略图区块
+            if (_entry.exploreTasks.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildExploreSummaryTile(),
+            ],
             const SizedBox(height: 12),
             Text(
               '更新于 ${_entry.updatedAt.toLocal().toString().substring(0, 16)}',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExploreSummaryTile() {
+    final total = _entry.exploreTasks.length;
+    final done = _entry.exploreTasks
+        .where((t) => t.status == ExploreTaskStatus.completed)
+        .length;
+    final question = _entry.inquiryQuestion ?? '未设置主问题';
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: Colors.purple.shade200, width: 0.5),
+      ),
+      color: Colors.purple.shade50,
+      child: InkWell(
+        onTap: _showExploreSummary,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.explore, color: Colors.purple, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      question,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '共 $total 个行动 · 已完成 $done / $total',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.grey),
+            ],
+          ),
         ),
       ),
     );
@@ -743,6 +857,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               isFromCollection: widget.isFromCollection,
               onSave: _saveNote,
               isSaving: _isSaving,
+              onInquiryConfirmed: _handleInquiryConfirmed,
             ),
           ),
         ],

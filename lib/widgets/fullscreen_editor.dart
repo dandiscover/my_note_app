@@ -1,6 +1,7 @@
 // lib/widgets/fullscreen_editor.dart
 // 全屏编辑器 — 制卡功能完整实现
 // ✅ 新增：深度笔记入口（停2秒显示提示，点击后内联输入探究问题）
+// ✅ 新增：onInquiryConfirmed 回调，确认问题时通知父页面
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -9,7 +10,6 @@ import '../models/note.dart';
 import '../models/card.dart';
 import '../services/card_service.dart';
 import '../widgets/note_card_dialog.dart';
-
 class FullscreenEditor extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -19,7 +19,8 @@ class FullscreenEditor extends StatefulWidget {
   final bool isSaving;
   final String? exploreTaskId;
   final Function(String)? onAddSubtask;
-
+  // ✅ 新增：探究问题确认回调
+  final void Function(String question)? onInquiryConfirmed;
   const FullscreenEditor({
     super.key,
     required this.entry,
@@ -28,6 +29,7 @@ class FullscreenEditor extends StatefulWidget {
     this.isSaving = false,
     this.exploreTaskId,
     this.onAddSubtask,
+    this.onInquiryConfirmed,
   });
 
   @override
@@ -147,6 +149,7 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
     });
   }
 
+  // ✅ 确认问题：setState 后立即调用回调
   void _confirmInquiry() {
     final text = _inquiryController.text.trim();
     if (text.isEmpty) return;
@@ -154,6 +157,8 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
       _inquiryQuestion = text;
       _isInquiryEditing = false;
     });
+    // ✅ 通知父页面：问题已确认（在 setState 之后立即调用）
+    widget.onInquiryConfirmed?.call(text);
   }
 
   void _cancelInquiryEdit() {
