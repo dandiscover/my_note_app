@@ -8,6 +8,8 @@
 // ✅ 删除：未使用的 import（dart:convert, shared_preferences, task, task_service）
 // ✅ 删除：未使用的 getter（_libraryFolder、_archivedFolder）
 // ✅ 适配：_createNote 中 onSave 回调增加 inquiryQuestion 参数
+// ✅ 新增：Split 视图左侧递归文件夹树，支持展开/折叠
+// ✅ 修改：_createNote 的 onSave 增加 exploreTasks 参数，并写入本地 noteMap
 
 import 'package:flutter/material.dart';
 
@@ -56,6 +58,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   bool _isSelectMode = false;
   final Set<String> _selectedIds = {};
   bool _showSearchBar = false;
+  final Set<String> _expandedFolderIds = <String>{};
 
   WisdomViewMode _viewMode = WisdomViewMode.grid;
   bool _fabExpanded = false;
@@ -113,29 +116,18 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   Future<void> _loadData() async {
     isLoading = true;
     try {
-      // 1. 迁移旧“灵感过期”到“已归档”
       await _migrateExpiredToArchived();
-
-      // 2. 确保已归档文件夹存在
       await _ensureArchivedFolder();
-
-      // 3. 确保图书馆文件夹存在
       await _ensureLibraryFolder();
-
-      // 4. 确保卡片盒文件夹存在
       await _db.ensureCardBoxFolder();
-
-      // 5. 迁移根目录下的图书到图书馆文件夹
       await _migrateOrphanBooks();
 
-      // 6. 主动失效所有缓存
       _cache.invalidate(_cacheKeyNodes);
       _cache.invalidate(_cacheKeyNotes);
       _cache.invalidate(_cacheKeyBooks);
       _cache.invalidate(_cacheKeyCards);
       _folderStatsCache = null;
 
-      // 7. 加载数据
       final nodes = await _cache.get<List<Node>>(
         _cacheKeyNodes,
         () => _db.getAllNodes(),
@@ -163,14 +155,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         ttl: const Duration(seconds: 30),
       );
 
-      // ============================================================
-      // ✅ 诊断日志：打印根节点信息
-      // ============================================================
       print('🎯 节点总数: ${nodes.length}');
       for (var n in nodes.where((n) => n.parentId == null)) {
         print('   根节点: ${n.title} | id=${n.id} | isFolder=${n.isFolder} | isSystemFolder=${n.isSystemFolder}');
       }
-      // ============================================================
 
       setState(() {
         _nodes = nodes;
@@ -214,7 +202,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     return stats;
   }
 
-  /// ✅ 卡片盒视图判定：去掉 && _cards.isNotEmpty
   bool get _isCardBoxView {
     if (_currentFolderId == null) return false;
     final node = _nodes.firstWhere(
@@ -329,6 +316,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
   }
 
+  // ✅ 修改：_createNote 中 onSave 增加 exploreTasks 参数，并写入 noteMap
   Future<void> _createNote() async {
     _closeFab();
     final tempNote = NotebookEntry(
@@ -341,7 +329,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         builder: (_) => FullscreenEditor(
           entry: tempNote,
           isFromCollection: true,
-          onSave: (entry, title, content, mode, tags, inquiryQuestion) async {
+          onSave: (entry, title, content, mode, tags, inquiryQuestion, exploreTasks) async {
             final noteMap = {
               'id': entry.id,
               'title': title,
@@ -351,6 +339,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               'updatedAt': DateTime.now().toIso8601String(),
               'isLocked': 0,
               'inquiryQuestion': inquiryQuestion,
+              'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
             };
             await _db.insertNote(noteMap);
             final node = await _db.attachNoteToNode(
@@ -382,7 +371,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
   }
 
-  /// ✅ 创建最小一步拐杖卡（异步保存）
   Future<void> _createMinimalStepCard() async {
     final card = CardModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -606,36 +594,33 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
   }
 
-  Widget _buildSplitView(List<Node> children, Map<String, Map<String, int>> folderStats, List<Map<String, dynamic>> systemFolders) {
-    final userFolders = _userFolders;
+  // ─── Split 视图左侧递归树 ──────────────────────────────
 
+  Widget _buildSplitView(List<Node> children, Map<String, Map<String, int>> folderStats, List<Map<String, dynamic>> systemFolders) {
     return Row(
       children: [
         Container(
           width: 220,
           decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade200))),
-          child: ListView.builder(
-            itemCount: userFolders.length + systemFolders.length,
-            itemBuilder: (context, index) {
-              if (index < systemFolders.length) {
-                final sys = systemFolders[index];
-                final node = sys['node'] as Node;
-                final type = sys['type'] as String;
-                final count = sys['count'] as int;
-                return _buildSystemFolderTile(node, type, count);
-              }
-              final folder = userFolders[index - systemFolders.length];
-              final stats = folderStats[folder.id] ?? {};
-              final total = stats['total'] ?? 0;
-              return ListTile(
-                title: Text(folder.title, style: const TextStyle(fontSize: 13)),
-                subtitle: Text('$total 个项目', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                selected: _currentFolderId == folder.id,
-                onTap: () => _navigateToFolder(folder.id),
-                leading: const Icon(Icons.folder, size: 18, color: Colors.orange),
-                dense: true,
-              );
-            },
+          child: ListView(
+            children: [
+              // ─── 我的文件夹 ──────────────────────────────
+              ..._buildUserFolderTreeItems(),
+              // ─── 系统文件夹 ──────────────────────────────
+              if (_systemFolders.isNotEmpty) ...[
+                const Divider(),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Text('系统', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.grey)),
+                ),
+                ..._systemFolders.map((sys) {
+                  final node = sys['node'] as Node;
+                  final type = sys['type'] as String;
+                  final count = sys['count'] as int;
+                  return _buildSystemFolderTile(node, type, count);
+                }).toList(),
+              ],
+            ],
           ),
         ),
         Expanded(
@@ -654,6 +639,73 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         ),
       ],
     );
+  }
+
+  List<Widget> _buildUserFolderTreeItems() {
+    final items = <Widget>[];
+    for (final folder in _userFolders) {
+      items.addAll(_buildFolderTreeItems(folder, 0));
+    }
+    return items;
+  }
+
+  List<Widget> _buildFolderTreeItems(Node folder, int depth) {
+    final items = <Widget>[];
+    final subFolders = _nodes.where((n) => n.isFolder && n.parentId == folder.id).toList();
+    final isExpanded = _expandedFolderIds.contains(folder.id);
+    final hasChildren = subFolders.isNotEmpty;
+    final isSelected = _currentFolderId == folder.id;
+
+    items.add(
+      ListTile(
+        dense: true,
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: depth * 16.0),
+            if (hasChildren)
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isExpanded) {
+                      _expandedFolderIds.remove(folder.id);
+                    } else {
+                      _expandedFolderIds.add(folder.id);
+                    }
+                  });
+                },
+                child: Icon(
+                  isExpanded ? Icons.expand_more : Icons.chevron_right,
+                  size: 18,
+                  color: Colors.grey.shade600,
+                ),
+              )
+            else
+              const SizedBox(width: 18),
+            const SizedBox(width: 4),
+            const Icon(Icons.folder, size: 18, color: Colors.orange),
+          ],
+        ),
+        title: Text(
+          folder.title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            color: isSelected ? Colors.purple : Colors.black87,
+          ),
+        ),
+        selected: isSelected,
+        onTap: () => _navigateToFolder(folder.id),
+      ),
+    );
+
+    if (isExpanded) {
+      for (final sub in subFolders) {
+        items.addAll(_buildFolderTreeItems(sub, depth + 1));
+      }
+    }
+
+    return items;
   }
 
   Widget _buildSystemFolderTile(Node node, String type, int count) {
@@ -684,6 +736,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
 
     return ListTile(
+      dense: true,
       title: Text(label, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
       subtitle: Text(
         type == 'library' ? '所有导入的电子书' : type == 'archived' ? '所有已归档的笔记' : '所有复习卡片',
@@ -692,9 +745,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       selected: _currentFolderId == node.id,
       onTap: () => _navigateToFolder(node.id),
       leading: Icon(icon, size: 18, color: color),
-      dense: true,
     );
   }
+
+  // ─── 内容视图 ──────────────────────────────────────────
 
   Widget _buildContentView(List<Node> children, Map<String, Map<String, int>> folderStats, List<Map<String, dynamic>> systemFolders) {
     final allItems = <Widget>[];
@@ -708,7 +762,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       }
     }
 
-    // ✅ 过滤掉系统文件夹
     final nonSystemChildren = children.where((n) => !n.isSystemFolder).toList();
 
     if (nonSystemChildren.isNotEmpty) {

@@ -1,26 +1,42 @@
 // lib/widgets/fullscreen_editor.dart
 // 全屏编辑器 — 制卡功能完整实现
 // ✅ 新增：深度笔记入口（停2秒显示提示，点击后内联输入探究问题）
-// ✅ 新增：onInquiryConfirmed 回调，确认问题时通知父页面
+// ✅ 新增：onInquiryConfirmed 回调（兼容保留，但不再使用）
+// ✅ 新增：底部工具栏左侧“深入探究”图标按钮
+// ✅ 新增：编辑器内闭环打开探究弹窗，确认问题后直接进入探究
+// ✅ 新增：_entry 状态统一管理笔记数据
+// ✅ 保存前重构 _entry，保证探究任务和问题完整写入
+// ✅ onSave 签名增加 exploreTasks 参数
+// ✅ 删除探究问题时同时清除 exploreTasks 和 newUnderstanding
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/note.dart';
 import '../models/card.dart';
+import '../models/explore_task.dart';
 import '../services/card_service.dart';
 import '../widgets/note_card_dialog.dart';
+import '../pages/inquiry_page.dart';
+
 class FullscreenEditor extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
   final Future<bool> Function(
-    NotebookEntry entry, String title, String content, String editorMode, List<String> tags, String? inquiryQuestion,
+    NotebookEntry entry,
+    String title,
+    String content,
+    String editorMode,
+    List<String> tags,
+    String? inquiryQuestion,
+    List<ExploreTask> exploreTasks,
   ) onSave;
   final bool isSaving;
   final String? exploreTaskId;
   final Function(String)? onAddSubtask;
-  // ✅ 新增：探究问题确认回调
+  // 兼容保留，但内部不再调用
   final void Function(String question)? onInquiryConfirmed;
+
   const FullscreenEditor({
     super.key,
     required this.entry,
@@ -66,23 +82,27 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
   late TextEditingController _inquiryController;
   late FocusNode _inquiryFocusNode;
 
+  // ✅ 新增：完整笔记状态
+  late NotebookEntry _entry;
+
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.entry.title);
-    _contentController = TextEditingController(text: widget.entry.content);
+    _entry = widget.entry;
+    _titleController = TextEditingController(text: _entry.title);
+    _contentController = TextEditingController(text: _entry.content);
     _tagController = TextEditingController();
     _subtaskController = TextEditingController();
-    _isMarkdown = widget.entry.editorMode == 'markdown';
-    _tags = List.from(widget.entry.tags);
+    _isMarkdown = _entry.editorMode == 'markdown';
+    _tags = List.from(_entry.tags);
 
     // ✅ 深度笔记入口初始化
     _inquiryController = TextEditingController();
     _inquiryFocusNode = FocusNode();
-    _inquiryQuestion = widget.entry.inquiryQuestion;
+    _inquiryQuestion = _entry.inquiryQuestion;
     if (_inquiryQuestion != null) {
       _inquiryController.text = _inquiryQuestion!;
-      _hasShownPrompt = true; // 已有问题，不再提示
+      _hasShownPrompt = true;
     }
 
     // ✅ 注册当前实例
@@ -109,7 +129,6 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
 
   void _onContentChanged(String value) {
     setState(() {
-      // 用户打字 → 提示消失
       if (_showInquiryPrompt) {
         _showInquiryPrompt = false;
       }
@@ -143,28 +162,55 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
       _isInquiryEditing = true;
       _inquiryController.clear();
     });
-    // 延迟一帧让输入框出现后获得焦点
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_inquiryFocusNode);
     });
   }
 
-  // ✅ 确认问题：setState 后立即调用回调
+  // ✅ 确认问题：更新状态并直接打开探究弹窗
   void _confirmInquiry() {
     final text = _inquiryController.text.trim();
     if (text.isEmpty) return;
     setState(() {
       _inquiryQuestion = text;
+      _entry = _entry.copyWith(inquiryQuestion: text);
       _isInquiryEditing = false;
     });
-    // ✅ 通知父页面：问题已确认（在 setState 之后立即调用）
-    widget.onInquiryConfirmed?.call(text);
+    // 不再调用外部回调，直接打开探究弹窗
+    _openInquiryDialog();
+  }
+
+  // ✅ 新增：在编辑器内打开探究弹窗
+  Future<void> _openInquiryDialog() async {
+    final result = await showDialog<List<ExploreTask>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: SizedBox(
+          width: 600,
+          child: InquiryPage(
+            entry: _entry,
+            isDialog: true,
+          ),
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _entry = _entry.copyWith(
+          exploreTasks: result,
+          inquiryQuestion: _inquiryQuestion,
+          updatedAt: DateTime.now(),
+        );
+      });
+    }
   }
 
   void _cancelInquiryEdit() {
     setState(() {
       _isInquiryEditing = false;
-      // 如果有原问题，恢复显示；如果没有，回到显示模式但保持原值
       if (_inquiryQuestion != null) {
         _inquiryController.text = _inquiryQuestion!;
       } else {
@@ -183,15 +229,20 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
     });
   }
 
+  // ✅ 删除探究问题：同时清除探究任务和新理解，保证数据一致
   void _deleteInquiry() {
     setState(() {
       _inquiryQuestion = null;
+      _entry = _entry.copyWith(
+        inquiryQuestion: null,
+        exploreTasks: [],
+        newUnderstanding: null,
+      );
       _isInquiryEditing = false;
       _showInquiryPrompt = false;
     });
     _inquiryController.clear();
     _typingTimer?.cancel();
-    // ⚠️ 不重置 _hasShownPrompt，本次会话不再提示
   }
 
   // ─── 原有方法 ─────────────────────────────
@@ -238,7 +289,7 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
       builder: (ctx) => NoteCardDialog(
         selectedText: previewContent,
         comment: title,
-        sourceId: widget.entry.id,
+        sourceId: _entry.id,
         sourceType: 'note',
       ),
     );
@@ -248,7 +299,7 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         cardType: result['cardType'] as CardType,
         sourceType: 'note',
-        sourceId: widget.entry.id,
+        sourceId: _entry.id,
         sourceTitle: title.isEmpty ? '无标题笔记' : title,
         tags: (result['tags'] as List<String>?) ?? [],
         front: result['front'] as String?,
@@ -514,6 +565,15 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
                 children: [
                   Row(
                     children: [
+                      // ✅ 深入探究图标按钮
+                      IconButton(
+                        icon: const Icon(Icons.explore, color: Colors.purple, size: 20),
+                        tooltip: '深入探究',
+                        onPressed: _onPromptTap,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      const SizedBox(width: 4),
                       Text('📝 $wordCount 字', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                       const SizedBox(width: 16),
                       if (_isMarkdown) Text('📄 $lineCount 行', style: const TextStyle(color: Colors.grey, fontSize: 12)),
@@ -641,6 +701,7 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
     );
   }
 
+  // ✅ 保存前重构 _entry，并调用 onSave
   Future<void> _handleSave() async {
     final title = _titleController.text.trim();
     final content = _contentController.text.trim();
@@ -648,13 +709,25 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
       _showLightToast('标题和内容不能都为空');
       return;
     }
+
+    final updatedEntry = _entry.copyWith(
+      title: title,
+      content: content,
+      editorMode: _isMarkdown ? 'markdown' : 'plain',
+      tags: _tags,
+      inquiryQuestion: _inquiryQuestion,
+      exploreTasks: _entry.exploreTasks,
+      updatedAt: DateTime.now(),
+    );
+
     final success = await widget.onSave(
-      widget.entry,
-      title,
-      content,
-      _isMarkdown ? 'markdown' : 'plain',
-      _tags,
-      _inquiryQuestion,
+      updatedEntry,
+      updatedEntry.title,
+      updatedEntry.content,
+      updatedEntry.editorMode,
+      updatedEntry.tags,
+      updatedEntry.inquiryQuestion,
+      updatedEntry.exploreTasks,
     );
     if (success && mounted) Navigator.pop(context, true);
   }

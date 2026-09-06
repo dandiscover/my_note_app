@@ -1,26 +1,27 @@
 // lib/pages/inquiry_page.dart
 // 深度笔记 — 多任务探究
-// ✅ 多任务状态管理：_exploreTasks + _currentTaskIndex
-// ✅ 新理解按钮常驻，绑定主问题
-// ✅ newUnderstanding != null 时隐藏"新增拐杖卡"
-// ✅ 最小一步卡展开（三问 + 存 scaffoldAnswers）
-// ✅ 行动区跟随当前任务
-// ✅ 新理解保存时立即持久化
-// ✅ 新理解编辑时保持文案同步
-// ✅ 当前编辑的空任务在任务列表中可见
-// ✅ _switchTask 用 id 定位，避免越界
-// ✅ 新增 isDialog 模式：弹窗内逐步展开三问，行动添加，折叠任务，再探究，完成回传
-// ✅ 弹窗模式：已有任务只读展示，新建任务独立维护，三问初始为空
-// ✅ 弹窗模式：确认后进入折叠展示态（步骤4），不显示行动输入区
-// ✅ 弹窗模式：完成探究时检查未确认草稿，给出放弃提示（异步确认）
-// ✅ 弹窗模式：底部按钮有任务时"完成探究"，无任务时"关闭"（始终可点）
-// ✅ 弹窗模式：三问输入框 onChanged 触发 setState，按钮实时启用
+// ✅ 三阶段状态机：选卡 → 问答 → 列表
+// ✅ 支持两种卡片类型：最小一步卡 / 5 Why 卡
+// ✅ 跨卡切换时彻底清理对方状态，不留脏数据
+// ✅ 5 Why 的 _whyMinStep 直接进行动列表，不作为输入框预填
+// ✅ 5 Why 任意轮次“我挖够了”空输入也有效，直接跳转到根因总结
+// ✅ 返回层级：question → selectCard → list
+// ✅ 默认打开显示 list（已有探究列表），空列表时显示引导文案
+// ✅ 5 Why 问题文案动态生成：首轮固定，后续嵌入上一轮答案（截断20字）
+// ✅ 已完成探究列表：紫色圆点图标，文本不带对勾
+// ✅ 5 Why 停止位置记录，根因步骤“上一步”回到停止位置并回显答案
+// ✅ 最小一步步骤“上一步”回到根因步骤并回显根因内容
+// ✅ 空状态仅显示引导文案，不显示新理解区域
+// ✅ 已有探究任务时才显示新理解相关区域
+// ✅ 关闭弹窗时，若有已确认任务返回任务列表，否则返回 null
 
 import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/note_subtask.dart';
 import '../models/explore_task.dart';
+
+enum InquiryCardType { minimalStep, fiveWhy }
 
 class InquiryPage extends StatefulWidget {
   final NotebookEntry entry;
@@ -41,25 +42,36 @@ class _InquiryPageState extends State<InquiryPage> {
   final TextEditingController _questionController = TextEditingController();
   final TextEditingController _subtaskController = TextEditingController();
 
-  // ─── 多任务状态（全屏模式） ──────────────────
+  // ─── 多任务状态 ─────────────────────────────
   List<ExploreTask> _exploreTasks = [];
   int _currentTaskIndex = 0;
 
-  // ─── 最小一步卡三问 ─────────────────────────
-  bool _isScaffoldEditing = false;
+  // ─── 三阶段状态机 ─────────────────────────────
+  static const String _phaseList = 'list';
+  static const String _phaseSelectCard = 'selectCard';
+  static const String _phaseQuestion = 'question';
+  String _phase = _phaseList;
+
+  InquiryCardType? _cardType;
+
+  // ─── 最小一步卡状态 ─────────────────────────────
+  int _minimalStep = 0;
   late TextEditingController _q1Controller;
   late TextEditingController _q2Controller;
   late TextEditingController _q3Controller;
+
+  // ─── 5 Why 卡状态 ─────────────────────────────
+  int _whyStep = 0;
+  int _stopAtStep = 0;
+  final List<String> _whyAnswers = [];
+  String _whyRootCause = '';
+  String _whyMinStep = '';
+  late TextEditingController _whyController;
 
   // ─── 新理解 ─────────────────────────────────
   bool _isNewUnderstandingEditing = false;
   String? _newUnderstanding;
   late TextEditingController _understandingController;
-
-  // ─── 弹窗模式专用状态 ──────────────────────
-  late List<ExploreTask> _existingTasks; // 已有任务（只读展示）
-  List<ExploreTask> _newConfirmedTasks = []; // 本轮新确认的任务
-  int _currentStep = 0; // 0=第一问, 1=第二问, 2=第三问, 3=过渡/行动区, 4=折叠展示态
 
   // ─── 计算属性 ──────────────────────────────
   bool get _isCompleted => _newUnderstanding != null;
@@ -69,11 +81,29 @@ class _InquiryPageState extends State<InquiryPage> {
           ? _questionController.text.trim()
           : (widget.entry.inquiryQuestion ?? '这个探究问题');
 
-  // 弹窗模式下所有已完成任务（已有 + 本轮新增）
-  List<ExploreTask> get _allConfirmedTasks => [..._existingTasks, ..._newConfirmedTasks];
+  bool get _hasAnyConfirmedTask {
+    return _exploreTasks.any((t) => t.scaffoldCardType != null || t.actions.isNotEmpty);
+  }
 
-  // 当前草稿任务（弹窗模式下始终是 _exploreTasks[0]）
   ExploreTask get _currentDraft => _exploreTasks[_currentTaskIndex];
+
+  /// 5 Why 当前轮次的提示文案（动态生成）
+  String get _currentWhyPrompt {
+    if (_whyStep == 0) {
+      return '为什么会有这个困惑？';
+    }
+    final previousIndex = _whyStep - 1;
+    if (previousIndex < _whyAnswers.length) {
+      final previousAnswer = _whyAnswers[previousIndex];
+      if (previousAnswer.isNotEmpty) {
+        String truncated = previousAnswer.length > 20
+            ? '${previousAnswer.substring(0, 20)}……'
+            : previousAnswer;
+        return '为什么「$truncated」？';
+      }
+    }
+    return '为什么？';
+  }
 
   @override
   void initState() {
@@ -85,29 +115,15 @@ class _InquiryPageState extends State<InquiryPage> {
     _q1Controller = TextEditingController();
     _q2Controller = TextEditingController();
     _q3Controller = TextEditingController();
+    _whyController = TextEditingController();
 
-    if (widget.isDialog) {
-      // ─── 弹窗模式 ──────────────────────────────
-      _existingTasks = List.from(widget.entry.exploreTasks);
-      // 只创建一个新任务作为草稿
-      _exploreTasks = [ExploreTask(
+    _exploreTasks = List.from(widget.entry.exploreTasks);
+    if (_exploreTasks.isEmpty) {
+      _exploreTasks.add(ExploreTask(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-      )];
-      _currentTaskIndex = 0;
-      _currentStep = 0;
-      // 三问保持为空，不加载已有答案
-    } else {
-      // ─── 全屏模式 ──────────────────────────────
-      _existingTasks = [];
-      _exploreTasks = List.from(widget.entry.exploreTasks);
-      if (_exploreTasks.isEmpty) {
-        _exploreTasks.add(ExploreTask(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-        ));
-      }
-      _currentTaskIndex = _exploreTasks.length - 1;
-      _loadScaffoldAnswers();
+      ));
     }
+    _currentTaskIndex = _exploreTasks.length - 1;
   }
 
   @override
@@ -117,99 +133,242 @@ class _InquiryPageState extends State<InquiryPage> {
     _q1Controller.dispose();
     _q2Controller.dispose();
     _q3Controller.dispose();
+    _whyController.dispose();
     _understandingController.dispose();
     super.dispose();
   }
 
-  // ─── 三问同步（全屏模式） ──────────────────
+  // ─── 卡片类型选择 ─────────────────────────────
 
-  void _loadScaffoldAnswers() {
-    final answers = _exploreTasks[_currentTaskIndex].scaffoldAnswers;
-    _q1Controller.text = answers.length > 0 ? answers[0]['value'] ?? '' : '';
-    _q2Controller.text = answers.length > 1 ? answers[1]['value'] ?? '' : '';
-    _q3Controller.text = answers.length > 2 ? answers[2]['value'] ?? '' : '';
-  }
-
-  void _switchTask(int index) {
-    final targetId = _exploreTasks[index].id;
-
-    if (_isScaffoldEditing) {
-      _cancelScaffoldEditingInternal();
+  void _selectCardType(InquiryCardType type) {
+    if (_cardType == InquiryCardType.fiveWhy && type != InquiryCardType.fiveWhy) {
+      _resetFiveWhyState();
+    } else if (_cardType == InquiryCardType.minimalStep && type != InquiryCardType.minimalStep) {
+      _resetMinimalStepState();
     }
 
-    final newIndex = _exploreTasks.indexWhere((t) => t.id == targetId);
-    if (newIndex == -1) {
+    setState(() {
+      _cardType = type;
+      _phase = _phaseQuestion;
+      if (type == InquiryCardType.minimalStep) {
+        _minimalStep = 0;
+        _q1Controller.clear();
+        _q2Controller.clear();
+        _q3Controller.clear();
+      } else if (type == InquiryCardType.fiveWhy) {
+        _whyStep = 0;
+        _stopAtStep = 0;
+        _whyAnswers.clear();
+        _whyRootCause = '';
+        _whyMinStep = '';
+        _whyController.clear();
+      }
+      _subtaskController.clear();
+    });
+  }
+
+  void _resetMinimalStepState() {
+    _minimalStep = 0;
+    _q1Controller.clear();
+    _q2Controller.clear();
+    _q3Controller.clear();
+  }
+
+  void _resetFiveWhyState() {
+    _whyStep = 0;
+    _stopAtStep = 0;
+    _whyAnswers.clear();
+    _whyRootCause = '';
+    _whyMinStep = '';
+    _whyController.clear();
+  }
+
+  // ─── 返回层级 ─────────────────────────────
+  void _goBack() {
+    if (_phase == _phaseQuestion) {
       setState(() {
-        _currentTaskIndex = _exploreTasks.length - 1;
-        _loadScaffoldAnswers();
-        _isScaffoldEditing = false;
+        _phase = _phaseSelectCard;
+        if (_cardType == InquiryCardType.minimalStep) {
+          _resetMinimalStepState();
+        } else if (_cardType == InquiryCardType.fiveWhy) {
+          _resetFiveWhyState();
+        }
+        _cardType = null;
+        _subtaskController.clear();
       });
-      return;
     }
+  }
 
+  // ─── 新增探究：从列表进入选卡 ──────────────
+  void _startNewExplore() {
     setState(() {
-      _currentTaskIndex = newIndex;
-      _loadScaffoldAnswers();
-      _isScaffoldEditing = false;
+      _phase = _phaseSelectCard;
+      _cardType = null;
+      _resetMinimalStepState();
+      _resetFiveWhyState();
+      _subtaskController.clear();
     });
   }
 
-  // ─── 新增拐杖卡（全屏模式） ────────────────
+  // ─── 最小一步卡逻辑 ─────────────────────────────
 
-  void _addScaffoldCard() {
-    final newTask = ExploreTask(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-    );
+  void _minimalNextStep() {
     setState(() {
-      _exploreTasks.add(newTask);
-      _currentTaskIndex = _exploreTasks.length - 1;
-      _q1Controller.clear();
-      _q2Controller.clear();
-      _q3Controller.clear();
-      _isScaffoldEditing = true;
+      _minimalStep++;
     });
   }
 
-  void _saveScaffoldAnswers() {
-    final current = _exploreTasks[_currentTaskIndex];
+  void _minimalPrevStep() {
+    setState(() {
+      _minimalStep--;
+    });
+  }
+
+  void _confirmMinimalTask() {
     final answers = [
       {'label': '现在最困扰我的是什么？', 'value': _q1Controller.text.trim()},
       {'label': '我能做的最小一步是什么？', 'value': _q2Controller.text.trim()},
       {'label': '做完这一步会怎样？', 'value': _q3Controller.text.trim()},
     ];
-    _exploreTasks[_currentTaskIndex] = current.copyWith(
-      scaffoldCardType: current.scaffoldCardType ?? 'minimal_step',
+
+    final draft = _currentDraft;
+    final confirmedTask = draft.copyWith(
+      scaffoldCardType: 'minimal_step',
       scaffoldAnswers: answers,
       updatedAt: DateTime.now(),
     );
+
+    _exploreTasks[_currentTaskIndex] = confirmedTask;
+
+    final newTask = ExploreTask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    _exploreTasks.add(newTask);
+    _currentTaskIndex = _exploreTasks.length - 1;
+
+    _q1Controller.clear();
+    _q2Controller.clear();
+    _q3Controller.clear();
+    _subtaskController.clear();
+
     setState(() {
-      _isScaffoldEditing = false;
+      _phase = _phaseList;
+      _minimalStep = 4;
     });
   }
 
-  void _cancelScaffoldEditing() {
-    _cancelScaffoldEditingInternal();
-    setState(() {});
-  }
-
-  void _cancelScaffoldEditingInternal() {
-    final current = _exploreTasks[_currentTaskIndex];
-    if (current.scaffoldCardType == null && current.actions.isEmpty) {
-      _exploreTasks.removeAt(_currentTaskIndex);
-      if (_exploreTasks.isEmpty) {
-        _exploreTasks.add(ExploreTask(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-        ));
-      }
-      _currentTaskIndex = _exploreTasks.length - 1;
-      _loadScaffoldAnswers();
-    } else {
-      _loadScaffoldAnswers();
+  // ─── 5 Why 逻辑 ─────────────────────────────
+  void _whyNext() {
+    final text = _whyController.text.trim();
+    if (text.isEmpty) return;
+    _whyAnswers.add(text);
+    setState(() {
+      _whyStep++;
+      _whyController.clear();
+    });
+    if (_whyStep == 5) {
+      _stopAtStep = 4;
     }
-    _isScaffoldEditing = false;
   }
 
-  // ─── 行动区（全屏 + 弹窗共用） ──────────────
+  void _whyStop() {
+    final text = _whyController.text.trim();
+    if (text.isNotEmpty) {
+      _whyAnswers.add(text);
+    }
+    _stopAtStep = _whyStep;
+    setState(() {
+      _whyStep = 5;
+      _whyController.clear();
+    });
+  }
+
+  void _whyPrev() {
+    if (_whyStep > 0) {
+      setState(() {
+        _whyStep--;
+        if (_whyAnswers.isNotEmpty) {
+          _whyAnswers.removeLast();
+        }
+        _whyController.clear();
+      });
+    }
+  }
+
+  void _saveWhyRootCause() {
+    final rootCause = _whyController.text.trim();
+    if (rootCause.isEmpty) return;
+
+    setState(() {
+      _whyRootCause = rootCause;
+      _whyController.clear();
+      _whyStep = 6;
+    });
+  }
+
+  void _saveWhyMinStep() {
+    final minStep = _whyController.text.trim();
+    if (minStep.isEmpty) return;
+
+    setState(() {
+      _whyMinStep = minStep;
+      _whyController.clear();
+    });
+
+    _addActionDirect(minStep);
+    _confirmFiveWhyTask();
+  }
+
+  void _addActionDirect(String title) {
+    final current = _exploreTasks[_currentTaskIndex];
+    final newAction = NoteSubtask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+    );
+    _exploreTasks[_currentTaskIndex] = current.copyWith(
+      actions: [...current.actions, newAction],
+      updatedAt: DateTime.now(),
+    );
+    _subtaskController.clear();
+  }
+
+  void _confirmFiveWhyTask() {
+    final answers = <Map<String, String>>[];
+    for (int i = 0; i < _whyAnswers.length; i++) {
+      answers.add({
+        'label': '第${i + 1}层为什么',
+        'value': _whyAnswers[i],
+      });
+    }
+    if (_whyRootCause.isNotEmpty) {
+      answers.add({
+        'label': '根因总结',
+        'value': _whyRootCause,
+      });
+    }
+
+    final draft = _currentDraft;
+    final confirmedTask = draft.copyWith(
+      scaffoldCardType: 'five_why',
+      scaffoldAnswers: answers,
+      updatedAt: DateTime.now(),
+    );
+
+    _exploreTasks[_currentTaskIndex] = confirmedTask;
+
+    final newTask = ExploreTask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    _exploreTasks.add(newTask);
+    _currentTaskIndex = _exploreTasks.length - 1;
+
+    _resetFiveWhyState();
+    setState(() {
+      _phase = _phaseList;
+    });
+  }
+
+  // ─── 行动区（共用） ─────────────────────────────
 
   void _addAction() {
     final title = _subtaskController.text.trim();
@@ -255,7 +414,28 @@ class _InquiryPageState extends State<InquiryPage> {
     setState(() {});
   }
 
-  // ─── 新理解（全屏模式） ─────────────────────
+  // ─── 重置再探究 ─────────────────────────────
+
+  void _resetForNewTask() {
+    final newTask = ExploreTask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    _exploreTasks.add(newTask);
+    _currentTaskIndex = _exploreTasks.length - 1;
+    _cardType = null;
+    _resetMinimalStepState();
+    _resetFiveWhyState();
+    _q1Controller.clear();
+    _q2Controller.clear();
+    _q3Controller.clear();
+    _whyController.clear();
+    _subtaskController.clear();
+    setState(() {
+      _phase = _phaseSelectCard;
+    });
+  }
+
+  // ─── 新理解 ─────────────────────────────────
 
   void _toggleNewUnderstandingEditing() {
     if (_isNewUnderstandingEditing) {
@@ -324,79 +504,39 @@ class _InquiryPageState extends State<InquiryPage> {
     }
   }
 
-  // ─── 弹窗模式专用方法 ──────────────────────
+  // ─── 弹窗模式：关闭弹窗 ──────────────────────
 
-  void _nextStep() {
-    setState(() {
-      _currentStep++;
-    });
+  /// 关闭弹窗时，如果有已确认的探究任务，返回过滤后的任务列表；
+  /// 否则返回 null。
+  void _closeDialog() {
+    final hasConfirmed = _hasAnyConfirmedTask;
+    final tasks = _filterEmptyTasks(_exploreTasks);
+    Navigator.pop(context, hasConfirmed ? tasks : null);
   }
 
-  // 确认当前任务（三问+行动）并折叠，进入折叠展示态（步骤4）
-  void _confirmTask() {
-    final draft = _currentDraft;
-    final answers = [
-      {'label': '现在最困扰我的是什么？', 'value': _q1Controller.text.trim()},
-      {'label': '我能做的最小一步是什么？', 'value': _q2Controller.text.trim()},
-      {'label': '做完这一步会怎样？', 'value': _q3Controller.text.trim()},
-    ];
-    // 组装完整任务
-    final confirmedTask = draft.copyWith(
-      scaffoldCardType: 'minimal_step',
-      scaffoldAnswers: answers,
-      updatedAt: DateTime.now(),
-    );
-    // 加入已确认列表
-    _newConfirmedTasks.add(confirmedTask);
-    // 重置草稿（新建空任务）
-    _exploreTasks[_currentTaskIndex] = ExploreTask(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-    );
-    // 清空输入
-    _q1Controller.clear();
-    _q2Controller.clear();
-    _q3Controller.clear();
-    _subtaskController.clear();
-    // 进入折叠展示态（步骤4）
-    setState(() {
-      _currentStep = 4;
-    });
-  }
+  // ─── 弹窗模式：完成并返回 ──────────────────────
 
-  // 重置并开始新一轮探究
-  void _resetForNewTask() {
-    // 重置草稿
-    _exploreTasks[_currentTaskIndex] = ExploreTask(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-    );
-    _q1Controller.clear();
-    _q2Controller.clear();
-    _q3Controller.clear();
-    _subtaskController.clear();
-    setState(() {
-      _currentStep = 0;
-    });
-  }
-
-  // 完成弹窗，返回合并后的任务列表，如有未确认草稿则提示
   Future<void> _completeAndReturn() async {
-    // 检查草稿是否有内容
     final draft = _currentDraft;
-    final hasDraftContent = _q1Controller.text.trim().isNotEmpty ||
-        _q2Controller.text.trim().isNotEmpty ||
-        _q3Controller.text.trim().isNotEmpty ||
-        draft.actions.isNotEmpty;
+    final hasDraftContent = _cardType != null &&
+        (_cardType == InquiryCardType.minimalStep
+            ? (_q1Controller.text.trim().isNotEmpty ||
+                _q2Controller.text.trim().isNotEmpty ||
+                _q3Controller.text.trim().isNotEmpty ||
+                draft.actions.isNotEmpty)
+            : (_whyController.text.trim().isNotEmpty ||
+                _whyAnswers.isNotEmpty ||
+                _whyRootCause.isNotEmpty ||
+                draft.actions.isNotEmpty));
 
-    // 如果没有草稿内容，直接返回
     if (!hasDraftContent) {
-      final allTasks = [..._existingTasks, ..._newConfirmedTasks];
+      final allTasks = _filterEmptyTasks(_exploreTasks);
       if (mounted) {
         Navigator.pop(context, allTasks);
       }
       return;
     }
 
-    // 有草稿内容，弹出确认对话框
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -415,14 +555,12 @@ class _InquiryPageState extends State<InquiryPage> {
       ),
     );
 
-    // 用户确认放弃才返回
     if (confirmed == true) {
-      final allTasks = [..._existingTasks, ..._newConfirmedTasks];
+      final allTasks = _filterEmptyTasks(_exploreTasks);
       if (mounted) {
         Navigator.pop(context, allTasks);
       }
     }
-    // 否则（取消或对话框关闭）停留在弹窗
   }
 
   // ─── UI 入口 ──────────────────────────────
@@ -439,9 +577,6 @@ class _InquiryPageState extends State<InquiryPage> {
   // ─── 全屏模式 UI ──────────────────────────
 
   Widget _buildFullscreenContent() {
-    final currentTask = _exploreTasks[_currentTaskIndex];
-    final hasTasks = _exploreTasks.any((t) => t.scaffoldCardType != null || t.actions.isNotEmpty);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('📖 深度笔记'),
@@ -449,130 +584,755 @@ class _InquiryPageState extends State<InquiryPage> {
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView(
-          child: Column(
+        child: _buildContent(context),
+      ),
+    );
+  }
+
+  // ─── 弹窗模式 UI ──────────────────────────
+
+  Widget _buildDialogContent() {
+    return Card(
+      margin: const EdgeInsets.all(0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxHeight: 700),
+        padding: const EdgeInsets.all(24),
+        child: _buildContent(context),
+      ),
+    );
+  }
+
+  // ─── 核心内容 ─────────────────────────────
+
+  Widget _buildContent(BuildContext context) {
+    final hasAnyConfirmed = _hasAnyConfirmedTask;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ─── 顶部栏 ──────────────────────────────
+        Row(
+          children: [
+            const Text(
+              '🧭 深入探究',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const Spacer(),
+            if (widget.isDialog)
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _closeDialog,
+                tooltip: '关闭',
+              ),
+          ],
+        ),
+        const Divider(height: 16),
+
+        // ─── 主问题展示 ──────────────────────────
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.purple.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.purple.shade200),
+          ),
+          child: Text(
+            '🎯 $_currentQuestionText',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ─── 已完成任务列表 ──────────────────────────
+        if (hasAnyConfirmed)
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ─── 探究问题 ────────────────────────────
               const Text(
-                '🎯 探究问题',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                '已生成的探究：',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
+              ),
+              const SizedBox(height: 4),
+              ..._exploreTasks
+                  .where((t) => t.scaffoldCardType != null || t.actions.isNotEmpty)
+                  .toList()
+                  .asMap()
+                  .entries
+                  .map((entry) {
+                final idx = entry.key + 1;
+                final task = entry.value;
+                final label = task.scaffoldCardType == 'five_why' ? '5 Why' : '最小一步';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.circle, color: Colors.purple, size: 10),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '任务 $idx ($label)  ${task.actions.isNotEmpty ? "${task.actions.length} 个行动" : "已折叠"}',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 12),
+            ],
+          ),
+
+        // ─── 三阶段状态机 ──────────────────────────
+        if (_phase == _phaseSelectCard)
+          _buildCardSelectPanel()
+        else if (_phase == _phaseQuestion)
+          _buildQuestionPanel()
+        else
+          _buildListPanel(hasAnyConfirmed),
+
+        // ─── 底部按钮 ──────────────────────────────
+        if (widget.isDialog) ...[
+          const Divider(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (_phase == _phaseList) ...[
+                TextButton(
+                  onPressed: _closeDialog,
+                  child: const Text('关闭'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _startNewExplore,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('＋ 新增探究'),
+                ),
+              ],
+              if (_phase == _phaseQuestion) ...[
+                TextButton(
+                  onPressed: _goBack,
+                  child: const Text('返回'),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ─── 选卡面板 ─────────────────────────────
+
+  Widget _buildCardSelectPanel() {
+    return Expanded(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              '选择探究方式',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 16),
+            // 可用卡
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildCardTypeButton(
+                  icon: Icons.looks_one,
+                  label: '最小一步卡',
+                  desc: '三问引导，聚焦行动',
+                  color: Colors.purple,
+                  enabled: true,
+                  onTap: () => _selectCardType(InquiryCardType.minimalStep),
+                ),
+                const SizedBox(width: 16),
+                _buildCardTypeButton(
+                  icon: Icons.psychology,
+                  label: '5 Why 卡',
+                  desc: '深度挖掘根因',
+                  color: Colors.teal,
+                  enabled: true,
+                  onTap: () => _selectCardType(InquiryCardType.fiveWhy),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              '更多卡片类型即将开放',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
+              children: [
+                _buildDisabledCard('🪞 苏格拉底卡', '通过提问检验信念'),
+                _buildDisabledCard('🔄 逆向思维卡', '从反面寻找突破口'),
+                _buildDisabledCard('🧠 二阶思考卡', '思考的思考，追因再追因'),
+                _buildDisabledCard('💭 CBT 卡', '识别并重构认知模式'),
+                _buildDisabledCard('⚖️ 价值澄清卡', '明确什么是真正重要的'),
+                _buildDisabledCard('🧊 SWOT 卡', '优势、劣势、机会、威胁'),
+                _buildDisabledCard('🎩 六顶思考帽卡', '多视角全方位审视问题'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardTypeButton({
+    required IconData icon,
+    required String label,
+    required String desc,
+    required Color color,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        width: 160,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: enabled ? color.withOpacity(0.08) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: enabled ? color.withOpacity(0.3) : Colors.grey.shade300,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 40, color: enabled ? color : Colors.grey.shade400),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: enabled ? color : Colors.grey.shade500,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              desc,
+              style: TextStyle(
+                fontSize: 12,
+                color: enabled ? Colors.grey.shade600 : Colors.grey.shade400,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDisabledCard(String label, String desc) {
+    return Container(
+      width: 120,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            '🔒',
+            style: TextStyle(fontSize: 20),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            desc,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey.shade400,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              '即将开放',
+              style: TextStyle(fontSize: 8, color: Colors.grey),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── 问答面板 ─────────────────────────────
+
+  Widget _buildQuestionPanel() {
+    if (_cardType == InquiryCardType.minimalStep) {
+      return _buildMinimalStepQuestionPanel();
+    } else if (_cardType == InquiryCardType.fiveWhy) {
+      return _buildFiveWhyQuestionPanel();
+    }
+    return const SizedBox.shrink();
+  }
+
+  // ─── 最小一步卡问答 ─────────────────────────────
+
+  Widget _buildMinimalStepQuestionPanel() {
+    final stepLabels = [
+      '第一步：明确困扰',
+      '第二步：最小一步',
+      '第三步：预见结果',
+    ];
+    final stepQuestions = [
+      '现在最困扰我的是什么？',
+      '我能做的最小一步是什么？',
+      '做完这一步会怎样？',
+    ];
+    final controllers = [_q1Controller, _q2Controller, _q3Controller];
+
+    return Expanded(
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_minimalStep < 3) ...[
+              Text(
+                stepLabels[_minimalStep],
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.purple),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                stepQuestions[_minimalStep],
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
               ),
               const SizedBox(height: 6),
               TextField(
-                controller: _questionController,
+                controller: controllers[_minimalStep],
                 maxLines: 3,
                 decoration: InputDecoration(
-                  hintText: '现在最困扰我的是什么？',
+                  hintText: '写下你的回答...',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                   filled: true,
                   fillColor: Colors.grey.shade50,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
                 onChanged: (_) => setState(() {}),
               ),
-              const SizedBox(height: 16),
-
-              // ─── 最小一步卡（展开/编辑） ────────────
-              _buildScaffoldCard(currentTask),
-
-              const SizedBox(height: 16),
-
-              // ─── 行动区（仅当任务有拐杖卡类型时显示） ──
-              if (currentTask.scaffoldCardType != null) ...[
-                Row(
-                  children: [
-                    const Text(
-                      '🚀 行动',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (_minimalStep > 0)
+                    TextButton(
+                      onPressed: _minimalPrevStep,
+                      child: const Text('上一步'),
                     ),
-                    const Spacer(),
-                    Text(
-                      '${currentTask.actions.length} 步',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _subtaskController,
-                        decoration: InputDecoration(
-                          hintText: '输入行动...',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                        ),
-                        onSubmitted: (_) => _addAction(),
-                      ),
-                    ),
+                  if (_minimalStep < 2) ...[
                     const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle, color: Colors.purple),
-                      onPressed: _addAction,
-                      tooltip: '添加行动',
+                    ElevatedButton(
+                      onPressed: controllers[_minimalStep].text.trim().isEmpty ? null : _minimalNextStep,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('下一步 →'),
+                    ),
+                  ] else ...[
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: controllers[_minimalStep].text.trim().isEmpty ? null : _minimalNextStep,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('完成三问 →'),
                     ),
                   ],
+                ],
+              ),
+            ],
+            if (_minimalStep == 3) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade200),
                 ),
-                const SizedBox(height: 8),
-                ...currentTask.actions.map((action) => _buildActionItem(action)),
-                const SizedBox(height: 12),
-              ],
-
-              // ─── 任务列表 ──────────────────────────────
-              if (hasTasks || _exploreTasks.isNotEmpty) ...[
+                child: const Text(
+                  '✨ 那我们计划行动',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildActionInputRow(),
+              const SizedBox(height: 8),
+              if (_currentDraft.actions.isNotEmpty)
+                ..._currentDraft.actions.map((action) => _buildActionItem(action)),
+              if (_currentDraft.actions.isEmpty)
                 const Text(
-                  '📦 探究任务',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  '还没有行动，添加一条吧',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
-                const SizedBox(height: 6),
-                ..._exploreTasks
-                    .asMap()
-                    .entries
-                    .where((entry) =>
-                        entry.value.scaffoldCardType != null ||
-                        entry.value.actions.isNotEmpty ||
-                        entry.key == _currentTaskIndex)
-                    .map((entry) => _buildTaskItem(entry.value, entry.key)),
-                const SizedBox(height: 12),
-              ],
-
-              // ─── 新增拐杖卡按钮 ──────────────────────
-              if (!_isCompleted) ...[
-                TextButton.icon(
-                  onPressed: _addScaffoldCard,
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _minimalPrevStep,
+                    child: const Text('上一步'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _currentDraft.actions.isEmpty ? null : _confirmMinimalTask,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('确认并折叠'),
+                  ),
+                ],
+              ),
+            ],
+            if (_minimalStep == 4) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  '✅ 当前探究已折叠',
+                  style: TextStyle(fontSize: 14, color: Colors.green.shade700),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton.icon(
+                  onPressed: _resetForNewTask,
                   icon: const Icon(Icons.add, size: 16),
-                  label: const Text('＋ 新增拐杖卡'),
+                  label: const Text('＋ 再探究一个问题'),
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.purple,
-                    padding: EdgeInsets.zero,
                   ),
                 ),
-                const SizedBox(height: 16),
-              ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
-              // ─── 新理解 ──────────────────────────────
-              const Divider(height: 24),
-              if (_isNewUnderstandingEditing) ...[
+  // ─── 5 Why 问答 ─────────────────────────────
+
+  Widget _buildFiveWhyQuestionPanel() {
+    final isRootCauseStep = _whyStep == 5;
+    final isMinStepStep = _whyStep == 6;
+    final hasText = _whyController.text.trim().isNotEmpty;
+
+    return Expanded(
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_whyStep < 5) ...[
+              Row(
+                children: [
+                  Text(
+                    '第 ${_whyStep + 1} 层',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${_whyStep + 1} / 5',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(
+                value: (_whyStep + 1) / 5,
+                backgroundColor: Colors.grey.shade200,
+                color: Colors.teal,
+                minHeight: 4,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _currentWhyPrompt,
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.teal.shade700),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _whyController,
+                maxLines: 3,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: '写下你的回答...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (_whyStep > 0)
+                    TextButton(
+                      onPressed: _whyPrev,
+                      child: const Text('上一步'),
+                    ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: _whyStop,
+                    child: const Text('我挖够了'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: hasText ? _whyNext : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey.shade300,
+                    ),
+                    child: const Text('继续挖 →'),
+                  ),
+                ],
+              ),
+            ],
+            if (isRootCauseStep) ...[
+              const Text(
+                '📌 根因总结',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.teal),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '综合以上回答，你认为根本原因是什么？',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _whyController,
+                maxLines: 3,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: '写下根因总结...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _whyStep = _stopAtStep;
+                        _whyController.clear();
+                        if (_stopAtStep < _whyAnswers.length) {
+                          _whyController.text = _whyAnswers[_stopAtStep];
+                        }
+                      });
+                    },
+                    child: const Text('上一步'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _whyController.text.trim().isEmpty ? null : _saveWhyRootCause,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('确认根因'),
+                  ),
+                ],
+              ),
+            ],
+            if (isMinStepStep) ...[
+              const Text(
+                '🚀 最小一步',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.teal),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '基于以上分析，你能做的最小一步是什么？',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _whyController,
+                maxLines: 3,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: '写下最小一步...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _whyStep = 5;
+                        _whyController.text = _whyRootCause;
+                      });
+                    },
+                    child: const Text('上一步'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _whyController.text.trim().isEmpty ? null : _saveWhyMinStep,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('确认并折叠'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── 行动输入行 ─────────────────────────────
+
+  Widget _buildActionInputRow() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _subtaskController,
+            decoration: InputDecoration(
+              hintText: '输入具体行动...',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            onSubmitted: (_) => _addAction(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: const Icon(Icons.add_circle, color: Colors.purple),
+          onPressed: _addAction,
+          tooltip: '添加行动',
+        ),
+      ],
+    );
+  }
+
+  // ─── 列表面板 ─────────────────────────────
+
+  Widget _buildListPanel(bool hasAnyConfirmed) {
+    return Expanded(
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ─── 空状态引导 ──────────────────────────
+            if (!hasAnyConfirmed) ...[
+              const SizedBox(height: 20),
+              Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.explore, size: 48, color: Colors.grey.shade300),
+                    const SizedBox(height: 8),
+                    Text(
+                      '你想探究什么问题？',
+                      style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '点击「＋ 新增探究」开始',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            // ─── 新理解相关区域（仅当已有探究任务时显示） ──
+            if (hasAnyConfirmed) ...[
+              if (!_isCompleted) ...[
+                const SizedBox(height: 16),
                 Text(
                   '💡 现在，你怎么理解「$_currentQuestionText」？',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                 ),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: _toggleNewUnderstandingEditing,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        '✍️ 点击写下新理解',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              if (_isNewUnderstandingEditing) ...[
                 const SizedBox(height: 6),
                 TextField(
                   controller: _understandingController,
@@ -606,7 +1366,9 @@ class _InquiryPageState extends State<InquiryPage> {
                     ),
                   ],
                 ),
-              ] else if (_newUnderstanding != null) ...[
+              ],
+              if (_newUnderstanding != null) ...[
+                const SizedBox(height: 6),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -639,571 +1401,15 @@ class _InquiryPageState extends State<InquiryPage> {
                     ],
                   ),
                 ),
-              ] else ...[
-                Text(
-                  '💡 现在，你怎么理解「$_currentQuestionText」？',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 6),
-                GestureDetector(
-                  onTap: _toggleNewUnderstandingEditing,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        '✍️ 点击写下新理解',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  ),
-                ),
               ],
-              const SizedBox(height: 20),
             ],
-          ),
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _saveAndReturn,
-        icon: const Icon(Icons.save),
-        label: const Text('保存'),
-        backgroundColor: Colors.purple,
-        foregroundColor: Colors.white,
-      ),
-    );
-  }
-
-  // ─── 弹窗模式 UI ──────────────────────────
-
-  Widget _buildDialogContent() {
-    final hasAnyConfirmed = _allConfirmedTasks.isNotEmpty;
-    final currentDraft = _currentDraft;
-
-    return Card(
-      margin: const EdgeInsets.all(0),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: double.infinity,
-        constraints: const BoxConstraints(maxHeight: 700),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ─── 顶部栏 ──────────────────────────────
-            Row(
-              children: [
-                const Text(
-                  '🧭 深入探究',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context, null),
-                  tooltip: '关闭',
-                ),
-              ],
-            ),
-            const Divider(height: 16),
-
-            // ─── 主问题展示 ──────────────────────────
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.purple.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.purple.shade200),
-              ),
-              child: Text(
-                '🎯 $_currentQuestionText',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ─── 已生成任务列表（折叠展示） ──────────
-            if (hasAnyConfirmed)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '已生成的探究：',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 4),
-                  ..._allConfirmedTasks.asMap().entries.map((entry) {
-                    final idx = entry.key;
-                    final task = entry.value;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.circle, color: Colors.purple, size: 10),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              '任务 ${idx + 1}  ${task.actions.isNotEmpty ? "${task.actions.length} 个行动" : "已折叠"}',
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 12),
-                ],
-              ),
-
-            // ─── 当前步骤内容 ──────────────────────
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 步骤0: 第一问
-                    if (_currentStep == 0) ...[
-                      const Text(
-                        '第一步：明确困扰',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.purple),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '现在最困扰我的是什么？',
-                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: _q1Controller,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          hintText: '写下你的回答...',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          ElevatedButton(
-                            onPressed: _q1Controller.text.trim().isEmpty ? null : _nextStep,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.purple,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('下一步 →'),
-                          ),
-                        ],
-                      ),
-                    ],
-                    // 步骤1: 第二问
-                    if (_currentStep == 1) ...[
-                      const Text(
-                        '第二步：最小一步',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.purple),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '我能做的最小一步是什么？',
-                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: _q2Controller,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          hintText: '写下你的回答...',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              setState(() {
-                                _currentStep = 0;
-                              });
-                            },
-                            child: const Text('上一步'),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: _q2Controller.text.trim().isEmpty ? null : _nextStep,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.purple,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('下一步 →'),
-                          ),
-                        ],
-                      ),
-                    ],
-                    // 步骤2: 第三问
-                    if (_currentStep == 2) ...[
-                      const Text(
-                        '第三步：预见结果',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.purple),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '做完这一步会怎样？',
-                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: _q3Controller,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          hintText: '写下你的回答...',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              setState(() {
-                                _currentStep = 1;
-                              });
-                            },
-                            child: const Text('上一步'),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: _q3Controller.text.trim().isEmpty ? null : _nextStep,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.purple,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('完成三问 →'),
-                          ),
-                        ],
-                      ),
-                    ],
-                    // 步骤3: 过渡 + 行动区
-                    if (_currentStep == 3) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.amber.shade200),
-                        ),
-                        child: const Text(
-                          '✨ 那我们计划行动',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      // 行动输入
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _subtaskController,
-                              decoration: InputDecoration(
-                                hintText: '输入具体行动...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              ),
-                              onSubmitted: (_) => _addAction(),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle, color: Colors.purple),
-                            onPressed: _addAction,
-                            tooltip: '添加行动',
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      // 行动列表
-                      if (currentDraft.actions.isNotEmpty)
-                        ...currentDraft.actions.map((action) => _buildActionItem(action)),
-                      if (currentDraft.actions.isEmpty)
-                        const Text(
-                          '还没有行动，添加一条吧',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              setState(() {
-                                _currentStep = 2;
-                              });
-                            },
-                            child: const Text('上一步'),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: currentDraft.actions.isEmpty ? null : _confirmTask,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('确认并折叠'),
-                          ),
-                        ],
-                      ),
-                      // 如果已经至少完成一个任务，显示"再探究一个"
-                      if (hasAnyConfirmed) ...[
-                        const SizedBox(height: 8),
-                        Center(
-                          child: TextButton.icon(
-                            onPressed: _resetForNewTask,
-                            icon: const Icon(Icons.add, size: 16),
-                            label: const Text('＋ 再探究一个问题'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.purple,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                    // 步骤4: 折叠展示态（仅显示再探究按钮）
-                    if (_currentStep == 4) ...[
-                      if (hasAnyConfirmed) ...[
-                        const SizedBox(height: 8),
-                        Center(
-                          child: TextButton.icon(
-                            onPressed: _resetForNewTask,
-                            icon: const Icon(Icons.add, size: 16),
-                            label: const Text('＋ 再探究一个问题'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.purple,
-                            ),
-                          ),
-                        ),
-                      ] else ...[
-                        const Text(
-                          '没有已生成的探究，请先完成一个任务。',
-                          style: TextStyle(fontSize: 13, color: Colors.grey),
-                        ),
-                      ],
-                    ],
-                  ],
-                ),
-              ),
-            ),
-
-            // ─── 底部按钮 ──────────────────────────
-            const Divider(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    // 有任务 → 返回列表；无任务 → 返回 null（关闭弹窗）
-                    if (hasAnyConfirmed) {
-                      _completeAndReturn();
-                    } else {
-                      Navigator.pop(context, null);
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: Text(hasAnyConfirmed ? '生成探究' : '关闭'),
-                ),
-              ],
-            ),
           ],
         ),
       ),
     );
   }
 
-  // ─── 子组件（全屏 + 弹窗共用） ──────────────
-
-  Widget _buildScaffoldCard(ExploreTask task) {
-    final hasAnswers = task.scaffoldAnswers.isNotEmpty;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.purple.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.purple.shade200, width: 0.5),
-      ),
-      child: _isScaffoldEditing
-          ? _buildScaffoldEditor()
-          : _buildScaffoldCardContent(task, hasAnswers),
-    );
-  }
-
-  Widget _buildScaffoldCardContent(ExploreTask task, bool hasAnswers) {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _loadScaffoldAnswers();
-          _isScaffoldEditing = true;
-        });
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            const Text('🧭 ', style: TextStyle(fontSize: 18)),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '最小一步卡',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.purple,
-                    ),
-                  ),
-                  if (hasAnswers) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      '✅ 已回答',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.green.shade700,
-                      ),
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      '💡 点我开始',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.purple),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildScaffoldEditor() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '🧭 最小一步卡 — 三问',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.purple,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildQuestionInput(
-            label: '1. 现在最困扰我的是什么？',
-            controller: _q1Controller,
-          ),
-          const SizedBox(height: 8),
-          _buildQuestionInput(
-            label: '2. 我能做的最小一步是什么？',
-            controller: _q2Controller,
-          ),
-          const SizedBox(height: 8),
-          _buildQuestionInput(
-            label: '3. 做完这一步会怎样？',
-            controller: _q3Controller,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: _cancelScaffoldEditing,
-                child: const Text('取消', style: TextStyle(fontSize: 13)),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: _saveScaffoldAnswers,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('保存', style: TextStyle(fontSize: 13)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuestionInput({
-    required String label,
-    required TextEditingController controller,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        const SizedBox(height: 2),
-        TextField(
-          controller: controller,
-          maxLines: 2,
-          decoration: InputDecoration(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 6,
-            ),
-            isDense: true,
-          ),
-          style: const TextStyle(fontSize: 13),
-          onChanged: (_) => setState(() {}),
-        ),
-      ],
-    );
-  }
+  // ─── 行动项 ─────────────────────────────
 
   Widget _buildActionItem(NoteSubtask action) {
     return Container(
@@ -1224,7 +1430,7 @@ class _InquiryPageState extends State<InquiryPage> {
             child: Icon(
               action.isDone ? Icons.check_circle : Icons.subdirectory_arrow_right,
               color: action.isDone ? Colors.green : Colors.grey.shade500,
-              size: action.isDone ? 22 : 16,
+              size: 16,
             ),
           ),
           const SizedBox(width: 8),
@@ -1245,61 +1451,6 @@ class _InquiryPageState extends State<InquiryPage> {
             constraints: const BoxConstraints(),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTaskItem(ExploreTask task, int index) {
-    final isActive = index == _currentTaskIndex;
-    final actionCount = task.actions.length;
-    final cardType = task.scaffoldCardType ?? '编辑中...';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: isActive ? Colors.purple.shade50 : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isActive ? Colors.purple.shade200 : Colors.grey.shade200,
-          width: isActive ? 1.5 : 0.5,
-        ),
-      ),
-      child: GestureDetector(
-        onTap: () => _switchTask(index),
-        child: Row(
-          children: [
-            const Icon(Icons.task, size: 16, color: Colors.purple),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    cardType,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                      color: isActive ? Colors.purple : Colors.black87,
-                    ),
-                  ),
-                  Text(
-                    actionCount > 0 ? '$actionCount 个行动' : '编辑中...',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isActive ? Colors.purple.shade600 : Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (task.status == ExploreTaskStatus.completed) ...[
-              const Text('✅', style: TextStyle(fontSize: 12)),
-              const SizedBox(width: 4),
-            ],
-            const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
-          ],
-        ),
       ),
     );
   }

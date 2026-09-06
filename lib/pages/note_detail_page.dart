@@ -10,6 +10,8 @@
 // ✅ _handleInquiryConfirmed 先弹窗后保存，避免新建笔记未保存导致弹窗不出现
 // ✅ _openInquiryDialog 增加 question 参数，弹窗关闭后统一保存
 // ✅ 阅读模式增加探究缩略图区块，点击弹出只读概览弹窗
+// ✅ 编辑模式也增加探究缩略图区块
+// ✅ _saveNote 增加 exploreTasks 参数，保存时使用传入参数而非 _entry.exploreTasks
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -66,6 +68,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     String editorMode,
     List<String> tags,
     String? inquiryQuestion,
+    List<ExploreTask> exploreTasks,
   ) async {
     if (_isSaving) return false;
 
@@ -88,7 +91,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         isLocked: _entry.isLocked,
         inquiryQuestion: inquiryQuestion ?? _entry.inquiryQuestion,
         newUnderstanding: _entry.newUnderstanding,
-        exploreTasks: _entry.exploreTasks,
+        exploreTasks: exploreTasks,
       );
 
       await _db.updateNote(updated.toMap());
@@ -593,7 +596,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   // ─── 统一探究弹窗 ─────────────────────────────
   Future<void> _openInquiryDialog({String? question}) async {
-    // 如果传入了问题，先更新内存，但不保存数据库（弹窗关闭后统一保存）
     if (question != null && mounted) {
       setState(() {
         _entry = _entry.copyWith(
@@ -618,7 +620,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ),
     );
 
-    // 弹窗返回后统一保存（问题 + 任务列表）
     if (mounted) {
       try {
         NotebookEntry updatedEntry = _entry;
@@ -628,13 +629,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             updatedAt: DateTime.now(),
           );
         } else if (question != null) {
-          // 如果没返回任务列表但传入了问题，至少保证问题已保存
           updatedEntry = _entry.copyWith(
             inquiryQuestion: question,
             updatedAt: DateTime.now(),
           );
         }
-        // 如果 _entry 已有变化，写入数据库
         if (updatedEntry != _entry) {
           await _db.updateNote(updatedEntry.toMap());
           setState(() {
@@ -691,7 +690,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         actions: [
-          // ✅ 深入按钮始终显示，不限是否来自采集
           IconButton(
             icon: const Icon(Icons.explore, color: Colors.purple),
             tooltip: '深入',
@@ -761,7 +759,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                 );
               },
             ),
-            // ✅ 探究缩略图区块
             if (_entry.exploreTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
               _buildExploreSummaryTile(),
@@ -851,6 +848,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                 style: TextStyle(color: Colors.red.shade800, fontSize: 12),
               ),
             ),
+          if (_entry.exploreTasks.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _buildExploreSummaryTile(),
+          ],
           Expanded(
             child: FullscreenEditor(
               entry: _entry,
