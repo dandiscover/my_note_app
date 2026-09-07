@@ -1,11 +1,13 @@
 // lib/widgets/explore_task_summary_dialog.dart
 // 探究概览弹窗 — 笔记详情页点击缩略图后弹出（只读）
+// ✅ 改为 StatefulWidget，构造函数签名保持不变
+// ✅ 新增问答记录折叠展示，默认折叠
 
 import 'package:flutter/material.dart';
 import '../models/note.dart';
 import '../models/explore_task.dart';
 
-class ExploreTaskSummaryDialog extends StatelessWidget {
+class ExploreTaskSummaryDialog extends StatefulWidget {
   final NotebookEntry entry;
 
   const ExploreTaskSummaryDialog({
@@ -14,7 +16,28 @@ class ExploreTaskSummaryDialog extends StatelessWidget {
   });
 
   @override
+  State<ExploreTaskSummaryDialog> createState() =>
+      _ExploreTaskSummaryDialogState();
+}
+
+class _ExploreTaskSummaryDialogState
+    extends State<ExploreTaskSummaryDialog> {
+  final Set<String> _expandedAnswerIds = {};
+
+  void _toggleAnswerExpand(String taskId) {
+    setState(() {
+      if (_expandedAnswerIds.contains(taskId)) {
+        _expandedAnswerIds.remove(taskId);
+      } else {
+        _expandedAnswerIds.add(taskId);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final entry = widget.entry;
+
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
       child: Container(
@@ -99,6 +122,7 @@ class ExploreTaskSummaryDialog extends StatelessWidget {
     final doneCount = task.actions.where((a) => a.isDone).length;
     final totalCount = task.actions.length;
     final taskName = task.scaffoldCardType ?? '任务 ${index + 1}';
+    final isAnswerExpanded = _expandedAnswerIds.contains(task.id);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -190,6 +214,71 @@ class ExploreTaskSummaryDialog extends StatelessWidget {
               ),
             ],
 
+            // ─── 问答记录折叠展示 ──────────────────────
+            if (task.scaffoldAnswers.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () => _toggleAnswerExpand(task.id),
+                child: Row(
+                  children: [
+                    Icon(
+                      isAnswerExpanded
+                          ? Icons.expand_less
+                          : Icons.chevron_right,
+                      size: 18,
+                      color: Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '问答记录',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isAnswerExpanded)
+                Container(
+                  margin: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: task.scaffoldAnswers.map((answer) {
+                      final label = answer['label']?.toString() ?? '';
+                      final value = answer['value']?.toString() ?? '';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              value,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+            ],
+
             // ─── 发现内容 ──────────────────────────────
             if (task.findings != null && task.findings!.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -227,6 +316,7 @@ class ExploreTaskSummaryDialog extends StatelessWidget {
   }
 
   Widget _buildNewUnderstandingArea() {
+    final entry = widget.entry;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

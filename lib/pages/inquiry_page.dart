@@ -14,6 +14,8 @@
 // ✅ 空状态仅显示引导文案，不显示新理解区域
 // ✅ 已有探究任务时才显示新理解相关区域
 // ✅ 关闭弹窗时，若有已确认任务返回任务列表，否则返回 null
+// ✅ 行动项只读，不可勾选完成；行动列表上方提示去任务页完成
+// ✅ 探究页移除新理解区域，改为轻提示
 
 import 'package:flutter/material.dart';
 import '../database_service.dart';
@@ -386,24 +388,6 @@ class _InquiryPageState extends State<InquiryPage> {
     setState(() {});
   }
 
-  void _toggleAction(String id) {
-    final current = _exploreTasks[_currentTaskIndex];
-    final actions = current.actions.map((a) {
-      if (a.id == id) {
-        return a.copyWith(
-          isDone: !a.isDone,
-          completedAt: a.isDone ? null : DateTime.now(),
-        );
-      }
-      return a;
-    }).toList();
-    _exploreTasks[_currentTaskIndex] = current.copyWith(
-      actions: actions,
-      updatedAt: DateTime.now(),
-    );
-    setState(() {});
-  }
-
   void _deleteAction(String id) {
     final current = _exploreTasks[_currentTaskIndex];
     final actions = current.actions.where((a) => a.id != id).toList();
@@ -433,48 +417,6 @@ class _InquiryPageState extends State<InquiryPage> {
     setState(() {
       _phase = _phaseSelectCard;
     });
-  }
-
-  // ─── 新理解 ─────────────────────────────────
-
-  void _toggleNewUnderstandingEditing() {
-    if (_isNewUnderstandingEditing) {
-      _understandingController.text = _newUnderstanding ?? '';
-      setState(() {
-        _isNewUnderstandingEditing = false;
-      });
-    } else {
-      setState(() {
-        _isNewUnderstandingEditing = true;
-      });
-    }
-  }
-
-  void _saveNewUnderstanding() async {
-    final text = _understandingController.text.trim();
-    if (text.isEmpty) return;
-
-    final filteredTasks = _filterEmptyTasks(_exploreTasks);
-    final updated = widget.entry.copyWith(
-      inquiryQuestion: _questionController.text.trim().isNotEmpty
-          ? _questionController.text.trim()
-          : null,
-      newUnderstanding: text,
-      exploreTasks: filteredTasks,
-      updatedAt: DateTime.now(),
-    );
-    await _db.updateNote(updated.toMap());
-
-    setState(() {
-      _newUnderstanding = text;
-      _isNewUnderstandingEditing = false;
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 新理解已保存，探究结束')),
-      );
-    }
   }
 
   // ─── 保存（全屏模式） ──────────────────────
@@ -997,6 +939,15 @@ class _InquiryPageState extends State<InquiryPage> {
               const SizedBox(height: 12),
               _buildActionInputRow(),
               const SizedBox(height: 8),
+              // ✅ 行动列表上方提示
+              if (_currentDraft.actions.isNotEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '行动已生成，去任务页完成',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
               if (_currentDraft.actions.isNotEmpty)
                 ..._currentDraft.actions.map((action) => _buildActionItem(action)),
               if (_currentDraft.actions.isEmpty)
@@ -1304,104 +1255,29 @@ class _InquiryPageState extends State<InquiryPage> {
                 ),
               ),
             ],
-            // ─── 新理解相关区域（仅当已有探究任务时显示） ──
+            // ─── 已有探究任务时显示轻提示 ──────────
             if (hasAnyConfirmed) ...[
-              if (!_isCompleted) ...[
-                const SizedBox(height: 16),
-                Text(
-                  '💡 现在，你怎么理解「$_currentQuestionText」？',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
                 ),
-                const SizedBox(height: 6),
-                GestureDetector(
-                  onTap: _toggleNewUnderstandingEditing,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        '✍️ 点击写下新理解',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              if (_isNewUnderstandingEditing) ...[
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _understandingController,
-                  maxLines: 4,
-                  decoration: InputDecoration(
-                    hintText: '写下你的新理解...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey.shade50,
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                child: Row(
                   children: [
-                    TextButton(
-                      onPressed: _toggleNewUnderstandingEditing,
-                      child: const Text('取消'),
-                    ),
+                    Icon(Icons.check_circle_outline, size: 18, color: Colors.green.shade600),
                     const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _saveNewUnderstanding,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.purple,
-                        foregroundColor: Colors.white,
+                    Expanded(
+                      child: Text(
+                        '已生成 ${_exploreTasks.where((t) => t.scaffoldCardType != null || t.actions.isNotEmpty).length} 个探究任务，行动已添加到任务页，去那里完成',
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                       ),
-                      child: const Text('保存新理解'),
                     ),
                   ],
                 ),
-              ],
-              if (_newUnderstanding != null) ...[
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.green.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle, color: Colors.green),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _newUnderstanding!,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.green.shade800,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.edit, size: 18),
-                        onPressed: () {
-                          _understandingController.text = _newUnderstanding ?? '';
-                          setState(() {
-                            _isNewUnderstandingEditing = true;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ],
           ],
         ),
@@ -1416,32 +1292,18 @@ class _InquiryPageState extends State<InquiryPage> {
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: action.isDone ? Colors.green.shade50 : Colors.grey.shade50,
+        color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: action.isDone ? Colors.green.shade200 : Colors.grey.shade200,
-          width: 0.5,
-        ),
+        border: Border.all(color: Colors.grey.shade200, width: 0.5),
       ),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => _toggleAction(action.id),
-            child: Icon(
-              action.isDone ? Icons.check_circle : Icons.subdirectory_arrow_right,
-              color: action.isDone ? Colors.green : Colors.grey.shade500,
-              size: 16,
-            ),
-          ),
+          Icon(Icons.subdirectory_arrow_right, color: Colors.grey.shade500, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               action.title,
-              style: TextStyle(
-                fontSize: 14,
-                decoration: action.isDone ? TextDecoration.lineThrough : TextDecoration.none,
-                color: action.isDone ? Colors.grey.shade500 : Colors.black87,
-              ),
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
             ),
           ),
           IconButton(

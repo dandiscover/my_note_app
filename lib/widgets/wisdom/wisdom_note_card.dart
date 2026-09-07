@@ -1,5 +1,7 @@
 // lib/widgets/wisdom/wisdom_note_card.dart
 // 智库 - 笔记卡片（只接收 node，内部查询数据）
+// ✅ 新增可选参数 hasExplore，用于轻量标记“探究中”状态
+// ✅ 保持卡片主体视觉不变，仅右上角增加紫色小圆点
 
 import 'package:flutter/material.dart';
 import '../../models/node.dart';
@@ -14,6 +16,7 @@ class WisdomNoteCard extends StatelessWidget {
   final ValueChanged<bool> onCheckChanged;
   final double cardWidth;
   final double cardHeight;
+  final bool hasExplore;
 
   const WisdomNoteCard({
     super.key,
@@ -24,6 +27,7 @@ class WisdomNoteCard extends StatelessWidget {
     required this.onCheckChanged,
     required this.cardWidth,
     required this.cardHeight,
+    this.hasExplore = false,
   });
 
   @override
@@ -60,6 +64,19 @@ class WisdomNoteCard extends StatelessWidget {
                 child: WisdomCheckbox(
                   value: isSelected,
                   onChanged: (value) => onCheckChanged(value ?? false),
+                ),
+              ),
+            // ✅ 探究中标记：紫色小圆点
+            if (hasExplore && !isSelectMode)
+              Positioned(
+                top: 4, right: 4,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Colors.purple,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
           ],

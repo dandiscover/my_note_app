@@ -24,6 +24,7 @@ class _ExploreTaskExecuteDialogState
     extends State<ExploreTaskExecuteDialog> {
   late NotebookEntry _entry;
   final Set<String> _expandedTaskIds = {};
+  final Set<String> _expandedAnswerIds = {}; // ✅ 新增：问答记录折叠状态
   String? _completingTaskId;
   final TextEditingController _findingController = TextEditingController();
   final TextEditingController _newUnderstandingController =
@@ -114,6 +115,16 @@ class _ExploreTaskExecuteDialogState
     });
   }
 
+  void _toggleAnswerExpand(String taskId) {
+    setState(() {
+      if (_expandedAnswerIds.contains(taskId)) {
+        _expandedAnswerIds.remove(taskId);
+      } else {
+        _expandedAnswerIds.add(taskId);
+      }
+    });
+  }
+
   bool _allSubtasksDone(List<NoteSubtask> actions) {
     if (actions.isEmpty) return false;
     return actions.every((a) => a.isDone);
@@ -123,9 +134,27 @@ class _ExploreTaskExecuteDialogState
     return actions.where((a) => a.isDone).length;
   }
 
+  // ✅ 新增：计算剩余未完成行动数
+  int get _remainingIncompleteActions {
+    int count = 0;
+    for (final task in _entry.exploreTasks) {
+      if (task.status == ExploreTaskStatus.completed) continue;
+      for (final action in task.actions) {
+        if (!action.isDone) count++;
+      }
+    }
+    return count;
+  }
+
+  // ✅ 新增：是否应简化复盘流程（剩余未完成行动数为 1 时）
+  bool get _shouldSimplifyReview => _remainingIncompleteActions == 1;
+
   Future<void> _onSubtaskTap(ExploreTask parentTask, NoteSubtask subtask) async {
     if (subtask.isDone) return;
     if (_isSaving) return;
+
+    // ✅ 在状态改变前记录简化状态
+    final shouldSimplify = _shouldSimplifyReview;
 
     final result = await _showMoodDialog(context);
     if (result == null) return;
@@ -142,12 +171,27 @@ class _ExploreTaskExecuteDialogState
       return a;
     }).toList();
 
-    final updatedTasks = _entry.exploreTasks.map((t) {
+    var updatedTasks = _entry.exploreTasks.map((t) {
       if (t.id == parentTask.id) {
         return t.copyWith(actions: updatedActions, updatedAt: DateTime.now());
       }
       return t;
     }).toList();
+
+    // ✅ 如果此前判定为简化复盘，完成最后一个行动后自动完成所属任务
+    if (shouldSimplify) {
+      updatedTasks = updatedTasks.map((t) {
+        if (t.id == parentTask.id) {
+          return t.copyWith(
+            status: ExploreTaskStatus.completed,
+            completedAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            findings: null, // 留空
+          );
+        }
+        return t;
+      }).toList();
+    }
 
     setState(() {
       _entry = _entry.copyWith(exploreTasks: updatedTasks);
@@ -418,8 +462,8 @@ class _ExploreTaskExecuteDialogState
     final allDone = _allSubtasksDone(task.actions);
     final isCompleted = task.status == ExploreTaskStatus.completed;
     final isCompleting = _completingTaskId == task.id;
-
     final taskName = task.scaffoldCardType ?? '任务 ${index + 1}';
+    final isAnswerExpanded = _expandedAnswerIds.contains(task.id);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -542,6 +586,71 @@ class _ExploreTaskExecuteDialogState
                       ),
                     ),
 
+                  // ✅ 问答记录折叠展示
+                  if (task.scaffoldAnswers.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () => _toggleAnswerExpand(task.id),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isAnswerExpanded
+                                ? Icons.expand_less
+                                : Icons.chevron_right,
+                            size: 18,
+                            color: Colors.grey.shade600,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '问答记录',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (isAnswerExpanded)
+                      Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: task.scaffoldAnswers.map((answer) {
+                            final label = answer['label']?.toString() ?? '';
+                            final value = answer['value']?.toString() ?? '';
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    label,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    value,
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                  ],
+
                   // 已完成任务的发现展示
                   if (isCompleted && task.findings != null) ...[
                     const SizedBox(height: 8),
@@ -574,6 +683,7 @@ class _ExploreTaskExecuteDialogState
                   ],
 
                   // 完成行动区域（仅当所有子任务完成且任务未完成时）
+                  // ✅ 修正：不再受简化流程影响，避免多任务死锁
                   if (allDone && !isCompleted) ...[
                     const SizedBox(height: 10),
                     if (isCompleting) ...[

@@ -10,6 +10,7 @@
 // ✅ 适配：_createNote 中 onSave 回调增加 inquiryQuestion 参数
 // ✅ 新增：Split 视图左侧递归文件夹树，支持展开/折叠
 // ✅ 修改：_createNote 的 onSave 增加 exploreTasks 参数，并写入本地 noteMap
+// ✅ 修改：_buildCard 的 note 分支增加 hasExplore 判断，并传给 WisdomNoteCard
 
 import 'package:flutter/material.dart';
 
@@ -604,9 +605,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade200))),
           child: ListView(
             children: [
-              // ─── 我的文件夹 ──────────────────────────────
               ..._buildUserFolderTreeItems(),
-              // ─── 系统文件夹 ──────────────────────────────
               if (_systemFolders.isNotEmpty) ...[
                 const Divider(),
                 const Padding(
@@ -1007,8 +1006,15 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         },
       );
     } else if (node.nodeType == 'note') {
+      // ✅ 修改：通过 _notes 查 note，计算 hasExplore
+      final note = _notes.firstWhere(
+        (n) => n.id == node.targetId,
+        orElse: () => NotebookEntry.empty,
+      );
+      final hasExplore = note.exploreTasks.isNotEmpty && note.newUnderstanding == null;
       cardContent = WisdomNoteCard(
         node: node,
+        hasExplore: hasExplore,
         isSelectMode: _isSelectMode,
         isSelected: _selectedIds.contains(node.id),
         onTap: () => _openNode(node),
