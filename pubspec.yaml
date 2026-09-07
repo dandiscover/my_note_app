@@ -1,5 +1,5 @@
 name: my_note_app
-description: "云脑计划 - 个人知识管理工具"
+description: "浜戣剳璁″垝 - 涓汉鐭ヨ瘑绠＄悊宸ュ叿"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -10,54 +10,56 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # 本地存储
+  # 鏈湴瀛樺偍
   sqflite: ^2.3.0
   path: ^1.9.0
   shared_preferences: ^2.2.0
   sqflite_common_ffi: ^2.3.0
 
-  # 文件选择
-  file_picker: ^8.0.0
+  # 鏂囦欢閫夋嫨
+  file_picker: 12.2.0
 
-  # 网络请求
+  # 缃戠粶璇锋眰
   http: ^1.1.0
 
-  # 路径和文件操作
+  # 璺緞鍜屾枃浠舵搷浣?
   path_provider: ^2.1.0
 
-  # Markdown 支持
+  # Markdown 鏀寔
   flutter_markdown: ^0.7.0
 
-  # 瀑布流网格
+  # 鐎戝竷娴佺綉鏍?
   flutter_staggered_grid_view: ^0.7.0
 
   image_picker: ^1.1.0 
 
-  # 社交分享
-  share_plus: ^7.0.0
+  # 绀句氦鍒嗕韩
+  share_plus: 13.3.0
 
-  # ❌ 移除 printing（不再需要）
+  # 鉂?绉婚櫎 printing锛堜笉鍐嶉渶瑕侊級
   # printing: ^5.9.0
 
-  # ✅ PDF 编辑器（纯 Dart，跨平台，支持标注/批注/高亮）
+  # 鉁?PDF 缂栬緫鍣紙绾?Dart锛岃法骞冲彴锛屾敮鎸佹爣娉?鎵规敞/楂樹寒锛?
   dart_pdf_editor: ^2.0.0
 
-  # EPUB 解析
+  # EPUB 瑙ｆ瀽
   epubx: ^3.0.0
 
-  # SVG 支持
+  # SVG 鏀寔
   flutter_svg: ^2.0.0
 
-  # Supabase 云存储
+  # Supabase 浜戝瓨鍌?
   supabase_flutter: ^2.8.0
 
-  # 环境变量
+  # 鐜鍙橀噺
   flutter_dotenv: ^5.1.0
 
-  # HTML 渲染（EPUB）
+  # HTML 娓叉煋锛圗PUB锛?
   flutter_widget_from_html: ^0.15.0
 
   cupertino_icons: ^1.0.8
+  package_info_plus: 10.2.1
+  wakelock_plus: 1.8.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
