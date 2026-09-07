@@ -2,6 +2,7 @@
 // 采集页 — 灵感笔记自动归档提醒 + 图书导入入口（支持 Web/桌面）
 // ✅ 删除条件②重复逻辑，保留条件①
 // ✅ 新增：拍照记录（移动端可用，桌面端/Web 占位提示）
+// ✅ 修复：file_picker 12.x API 兼容（pickFiles 返回 List<PlatformFile>?）
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
@@ -419,7 +420,8 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
   /// ✅ 核心修复：Windows 端直接从文件路径读取内容
   Future<Uint8List?> _readFileBytes(PlatformFile file) async {
     if (kIsWeb) {
-      return file.bytes;
+      // ✅ file_picker 12.x: 使用 xFile.readAsBytes()
+      return await file.xFile.readAsBytes();
     }
 
     try {
@@ -449,15 +451,16 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
   /// 通用导入逻辑
   Future<void> _importBookWithMode({required bool uploadToCloud}) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      // ✅ file_picker 12.x: pickFiles 返回 List<PlatformFile>?
+      final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'epub', 'mobi', 'azw3'],
       );
-      if (result == null) return;
+      if (files == null || files.isEmpty) return;
 
-      final file = result.files.first;
+      final file = files.first;
       print('📁 文件名: ${file.name}');
-      print('📁 文件大小: ${file.size} bytes');
+      print('📁 文件大小: ${await file.length()} bytes');
 
       final bytes = await _readFileBytes(file);
 

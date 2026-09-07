@@ -1,5 +1,6 @@
 // lib/pages/book_detail_page.dart
 // 书籍详情页 — 支持云端同步 + Windows 双入口
+// ✅ 修复：file_picker 12.x API 兼容（pickFiles 返回 List<PlatformFile>?）
 
 import 'dart:convert';
 import 'dart:io';
@@ -139,7 +140,8 @@ class _BookDetailPageState extends State<BookDetailPage>
   /// ✅ 核心修复：Windows 端直接从文件路径读取内容
   Future<Uint8List?> _readFileBytes(PlatformFile file) async {
     if (kIsWeb) {
-      return file.bytes;
+      // ✅ file_picker 12.x: 使用 xFile.readAsBytes()
+      return await file.xFile.readAsBytes();
     }
 
     try {
@@ -171,18 +173,19 @@ class _BookDetailPageState extends State<BookDetailPage>
     setState(() => _isImporting = true);
 
     try {
-      final result = await FilePicker.platform.pickFiles(
+      // ✅ file_picker 12.x: pickFiles 返回 List<PlatformFile>?
+      final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'epub', 'mobi', 'azw3'],
       );
-      if (result == null) {
+      if (files == null || files.isEmpty) {
         setState(() => _isImporting = false);
         return;
       }
 
-      final file = result.files.first;
+      final file = files.first;
       print('📁 文件名: ${file.name}');
-      print('📁 文件大小: ${file.size} bytes');
+      print('📁 文件大小: ${await file.length()} bytes');
 
       final bytes = await _readFileBytes(file);
 

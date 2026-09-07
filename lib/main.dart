@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'models/pet.dart';
-
+import 'dart:io';
 import 'web_shortcut.dart'
     if (dart.library.html) 'web_shortcut.dart'
     if (dart.library.io) 'web_shortcut_stub.dart';
@@ -33,8 +33,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (!kIsWeb) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+    if (Platform.isWindows || Platform.isLinux) {
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
+}
   }
 
   final supabaseUrl = EnvService.supabaseUrl;
