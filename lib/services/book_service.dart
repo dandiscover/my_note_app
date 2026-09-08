@@ -1,5 +1,7 @@
 // lib/services/book_service.dart
 // 图书服务层 — Windows 用本地文件，Web 用 Supabase，导入时同步云端
+// ✅ 新增：importBook 中创建 Book 时设置 source = 'import'
+// ✅ 新增：导入时从文件名提取 ISBN，查询封面，存入 coverUrl（非阻塞）
 
 import 'dart:convert';
 import 'dart:io';
@@ -8,6 +10,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:http/http.dart' as http;
 import '../models/book.dart';
 import '../models/book_note.dart';
 import '../database_service.dart';
@@ -53,6 +56,110 @@ class BookService {
       } catch (_) {
         SyncManager().markDirty();
       }
+    }
+  }
+
+  // ─── ISBN 提取（从文件名） ─────────────────────────────
+
+  /// 从文件名中提取 ISBN（10位或13位）
+  String? _extractIsbnFromFile(String fileName) {
+    if (fileName.isEmpty) return null;
+
+    // 尝试匹配 13 位 ISBN（纯数字）
+    final isbn13Regex = RegExp(r'(?<![0-9])(978|979)[0-9]{10}(?![0-9])');
+    final match13 = isbn13Regex.firstMatch(fileName);
+    if (match13 != null) {
+      return match13.group(0);
+    }
+
+    // 尝试匹配 10 位 ISBN（含 X）
+    final isbn10Regex = RegExp(r'(?<![0-9X])[0-9]{9}[0-9X](?![0-9X])');
+    final match10 = isbn10Regex.firstMatch(fileName);
+    if (match10 != null) {
+      return match10.group(0);
+    }
+
+    return null;
+  }
+
+  // ─── ISBN 查询（先缓存，再探数，再 Open Library） ─────────
+
+  /// 根据 ISBN 查询封面 URL
+  /// 查询顺序：isbn_cache → 探数数据 → Open Library
+  /// 全程 try-catch，失败返回 null
+  Future<String?> _fetchCoverForBook(String isbn) async {
+    try {
+      // 1. 本地缓存
+      final cached = await _db.getIsbnCache(isbn);
+      if (cached != null) {
+        final coverUrl = cached['cover_url'] as String?;
+        if (coverUrl != null && coverUrl.isNotEmpty) {
+          return coverUrl;
+        }
+      }
+
+      // 2. 探数数据（仅当有 API Key 时）
+      final apiKey = const String.fromEnvironment('TANSHU_API_KEY');
+      if (apiKey.isNotEmpty) {
+        try {
+          final url = Uri.parse(
+              'https://api.tanshuapi.com/api/isbn_base/v1/index?key=$apiKey&isbn=$isbn');
+          final response = await http.get(url).timeout(const Duration(seconds: 8));
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body) as Map<String, dynamic>;
+            if (data['code'] == 1) {
+              final bookData = data['data'] as Map<String, dynamic>?;
+              final coverUrl = bookData?['img'] as String?;
+              if (coverUrl != null && coverUrl.isNotEmpty) {
+                // 保存到缓存
+                await _db.saveIsbnCache(
+                  isbn: isbn,
+                  title: bookData?['title'] as String? ?? '',
+                  author: bookData?['author'] as String? ?? '',
+                  coverUrl: coverUrl,
+                  source: 'tanshu',
+                );
+                return coverUrl;
+              }
+            }
+          }
+        } catch (_) {
+          // 探数失败，继续 fallback
+        }
+      }
+
+      // 3. Open Library fallback
+      try {
+        final url = Uri.parse(
+            'https://openlibrary.org/api/books?bibkeys=ISBN:$isbn&format=json&jscmd=data');
+        final response = await http.get(url).timeout(const Duration(seconds: 6));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          final key = 'ISBN:$isbn';
+          if (data.containsKey(key) && data[key] != null) {
+            final bookData = data[key] as Map<String, dynamic>;
+            final cover = bookData['cover'] as Map<String, dynamic>?;
+            final coverUrl = cover?['medium'] as String? ?? cover?['large'] as String?;
+            if (coverUrl != null && coverUrl.isNotEmpty) {
+              // 保存到缓存
+              await _db.saveIsbnCache(
+                isbn: isbn,
+                title: bookData['title'] as String? ?? '',
+                author: '',
+                coverUrl: coverUrl,
+                source: 'openlibrary',
+              );
+              return coverUrl;
+            }
+          }
+        }
+      } catch (_) {
+        // Open Library 失败，静默返回
+      }
+
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -176,7 +283,29 @@ class BookService {
       print('📥 仅导入到本地: $storedPath');
     }
 
-    // ─── 4. 创建 Book 对象并保存到本地数据库 ──────────────
+    // ─── 4. 查询封面（非阻塞，失败不影响导入） ──────────────
+
+    String coverUrl = '';
+    try {
+      // ✅ 从 title 参数提取 ISBN（Web/桌面均可用）
+      final isbn = _extractIsbnFromFile(title);
+      if (isbn != null) {
+        final fetched = await _fetchCoverForBook(isbn);
+        if (fetched != null && fetched.isNotEmpty) {
+          coverUrl = fetched;
+          print('📚 封面查询成功: $coverUrl');
+        } else {
+          print('📚 封面查询失败，继续导入');
+        }
+      } else {
+        print('📚 文件名中未检测到 ISBN，跳过封面查询');
+      }
+    } catch (_) {
+      // 封面查询任何异常都不阻断导入
+      print('📚 封面查询异常，继续导入');
+    }
+
+    // ─── 5. 创建 Book 对象并保存到本地数据库 ──────────────
 
     final book = Book(
       id: bookId,
@@ -188,11 +317,13 @@ class BookService {
       fileSize: fileBytes.length,
       status: 'want',
       createdAt: DateTime.now(),
+      source: 'import',
+      coverUrl: coverUrl, // ✅ 新增：封面 URL（可能为空）
     );
 
     await _db.insertBook(book.toMap());
 
-    // ─── 5. 查找或创建"图书馆"文件夹（统一入口）─────────────
+    // ─── 6. 查找或创建"图书馆"文件夹（统一入口）─────────────
 
     // ✅ 修复：不再依赖外部传入的 parentFolderId，内部自动获取
     String? folderId = await _db.ensureLibraryFolder();
@@ -212,7 +343,7 @@ class BookService {
       parentId: folderId,
     );
 
-    // ─── 6. 如果上传到云端，同时同步元数据 ─────────────────
+    // ─── 7. 如果上传到云端，同时同步元数据 ─────────────────
 
     if (uploadToCloud && SupabaseService().isLoggedIn) {
       try {

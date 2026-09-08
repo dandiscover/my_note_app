@@ -1,5 +1,6 @@
 // lib/models/book.dart
 // 图书模型
+// ✅ 新增 source 字段：记录图书来源（import / scan / manual）
 
 class Book {
   final String id;
@@ -16,6 +17,7 @@ class Book {
   final int totalPages;
   final DateTime createdAt;
   final DateTime? lastReadAt;
+  final String source; // ✅ 新增：来源（import / scan / manual）
 
   const Book({
     required this.id,
@@ -32,6 +34,7 @@ class Book {
     this.totalPages = 0,
     required this.createdAt,
     this.lastReadAt,
+    this.source = '', // ✅ 新增，默认空字符串
   });
 
   /// ✅ 空对象（用于 orElse 安全返回）
@@ -50,6 +53,7 @@ class Book {
     totalPages: 0,
     createdAt: DateTime.fromMillisecondsSinceEpoch(0),
     lastReadAt: null,
+    source: '', // ✅ 新增
   );
 
   factory Book.fromMap(Map<String, dynamic> map) {
@@ -68,6 +72,7 @@ class Book {
       totalPages: map['totalPages'] ?? 0,
       createdAt: DateTime.parse(map['createdAt']),
       lastReadAt: map['lastReadAt'] != null ? DateTime.parse(map['lastReadAt']) : null,
+      source: map['source'] ?? '', // ✅ 新增
     );
   }
 
@@ -87,6 +92,7 @@ class Book {
       'totalPages': totalPages,
       'createdAt': createdAt.toIso8601String(),
       'lastReadAt': lastReadAt?.toIso8601String(),
+      'source': source, // ✅ 新增
     };
   }
 
@@ -105,6 +111,7 @@ class Book {
     int? totalPages,
     DateTime? createdAt,
     DateTime? lastReadAt,
+    String? source, // ✅ 新增
   }) {
     return Book(
       id: id ?? this.id,
@@ -121,6 +128,7 @@ class Book {
       totalPages: totalPages ?? this.totalPages,
       createdAt: createdAt ?? this.createdAt,
       lastReadAt: lastReadAt ?? this.lastReadAt,
+      source: source ?? this.source, // ✅ 新增
     );
   }
 

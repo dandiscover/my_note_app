@@ -1,5 +1,6 @@
 // lib/services/sync/cloud_sync_service.dart
 // 云端同步核心服务 — 完整版（含 deleteNote）
+// ✅ 修复：pullBooks 中构造 Book 时增加 source 字段
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../supabase_service.dart';
@@ -164,6 +165,7 @@ class CloudSyncService {
         'total_pages': book.totalPages,
         'created_at': book.createdAt.toIso8601String(),
         'last_read_at': book.lastReadAt?.toIso8601String(),
+        'source': book.source, // ✅ 新增：同步 source 字段
       });
     } catch (e) {
       _addToRetryQueue('book', book.id, book.toMap());
@@ -220,6 +222,7 @@ class CloudSyncService {
       lastReadAt: m['last_read_at'] != null
           ? DateTime.tryParse(m['last_read_at'])
           : null,
+      source: m['source'] ?? '', // ✅ 新增：从云端读取 source 字段
     )).toList();
   }
 

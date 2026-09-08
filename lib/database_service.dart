@@ -1,14 +1,9 @@
 // lib/database_service.dart
-// 数据层 — 统一字段标准：代码层驼峰，数据库层下划线，tags 统一 List<String> 进模型，String 入库
-// ✅ 数据库版本 8 → 9：新增 inquiry_question / scaffold_sessions / subtasks 三列
-// ✅ 数据库版本 9 → 10：新增 new_understanding 列
-// ✅ 数据库版本 10 → 11：新增 explore_tasks 列，废弃 scaffold_sessions / subtasks
-// ✅ _prepareNoteForDb / _cleanNoteMap 支持新字段序列化/反序列化
-// ✅ Web 端读取 notes_data 时补默认值
-// ✅ SQLite 端读取时下划线 → 驼峰映射（含旧字段以支持迁移）
-// ✅ 新增 ensureExploreMigration() 迁移旧数据到多任务模型
-// ✅ 迁移时过滤空任务：只有存在行动时才生成 ExploreTask
-// ✅ 迁移标记键统一为 explore_notes_migrated / explore_tasks_cleaned
+// 数据层 — 统一字段标准：代码层驼峰，数据库层下划线
+// ✅ 数据库版本 12 → 13：books 表新增 source 列
+// ✅ _createTables 中 books 表增加 source 字段
+// ✅ _onUpgrade 中 oldVersion < 13 时执行 ALTER TABLE 及数据迁移
+// ✅ _mapBookDbRowToCamel 和 _prepareBookForDb 支持 source 字段
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -20,6 +15,7 @@ import 'models/book.dart';
 import 'models/node.dart';
 import 'models/explore_task.dart';
 import 'models/note_subtask.dart';
+
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
@@ -27,9 +23,7 @@ class DatabaseService {
 
   bool get _isWeb => kIsWeb;
 
-  // ═══════════════════════════════════════════════════════════════
-  // 0. 清理旧探究任务数据（迁移入口）
-  // ═══════════════════════════════════════════════════════════════
+  // ─── 迁移与清理 ──────────────────────────────────────────
 
   static Future<void> ensureMigrationAndCleanup() async {
     final prefs = await SharedPreferences.getInstance();
@@ -43,10 +37,8 @@ class DatabaseService {
   static Future<void> _clearLegacyExploreTasks() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. 读取所有任务
     final tasksJson = prefs.getStringList('tasks') ?? [];
 
-    // 2. 分离 explore 任务和普通任务
     final exploreTaskIds = <String>[];
     final remainingTasks = <String>[];
 
@@ -59,15 +51,12 @@ class DatabaseService {
           remainingTasks.add(json);
         }
       } catch (_) {
-        // 格式异常的条目，保留（不丢失数据）
         remainingTasks.add(json);
       }
     }
 
-    // 3. 写回剩余任务
     await prefs.setStringList('tasks', remainingTasks);
 
-    // 4. 清理属于已删除探究任务的子任务
     if (exploreTaskIds.isNotEmpty) {
       final subtasksJson = prefs.getStringList('subtasks') ?? [];
       final remainingSubtasks = subtasksJson.where((json) {
@@ -83,27 +72,20 @@ class DatabaseService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // 0.1 迁移旧探究数据到多任务模型（实例方法）
-  // ═══════════════════════════════════════════════════════════════
-
   Future<void> ensureExploreMigration() async {
     final prefs = await SharedPreferences.getInstance();
     final migrated = prefs.getBool('explore_notes_migrated') ?? false;
     if (migrated) return;
 
     try {
-      // 复用现有读取路径（SQLite 端已将旧下划线字段映射为驼峰）
       final allNotes = await _getAllNotesInternal(includeDeleted: true);
 
       bool anyMigrated = false;
       for (var note in allNotes) {
-        // 如果已经有 exploreTasks，跳过
         if (note.containsKey('exploreTasks') && note['exploreTasks'] != null && note['exploreTasks'].isNotEmpty) {
           continue;
         }
 
-        // ✅ 兼容驼峰和下划线两种键名
         final sessions = note['scaffoldSessions'] ?? note['scaffold_sessions'];
         final subtasks = note['subtasks'] ?? note['subtasks'];
 
@@ -111,7 +93,6 @@ class DatabaseService {
         final hasSubtasks = subtasks != null && subtasks.isNotEmpty;
         if (!hasSessions && !hasSubtasks) continue;
 
-        // ─── 解析旧字段：兼容 String（SQLite JSON）和 List（Web） ───
         List<Map<String, dynamic>> parsedSessions = [];
         if (sessions is String && sessions.isNotEmpty) {
           try {
@@ -136,7 +117,6 @@ class DatabaseService {
           parsedSubtasks = subtasks.map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>)).toList();
         }
 
-        // ✅ 空任务过滤：只有存在行动时才生成 ExploreTask
         if (parsedSubtasks.isEmpty) {
           note.remove('scaffoldSessions');
           note.remove('scaffold_sessions');
@@ -147,7 +127,7 @@ class DatabaseService {
         final task = ExploreTask(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           scaffoldCardType: 'minimal_step',
-          scaffoldAnswers: const [],  // ✅ 白要求：置空
+          scaffoldAnswers: const [],
           actions: parsedSubtasks,
           status: ExploreTaskStatus.active,
           createdAt: DateTime.now(),
@@ -170,7 +150,6 @@ class DatabaseService {
       }
     } catch (e) {
       print('❌ 迁移旧探究数据失败: $e');
-      // 不置标志，下次启动重试
     }
   }
 
@@ -250,11 +229,9 @@ class DatabaseService {
     final tags = map['tags'];
     final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
 
-    // 清理 parentId：空字符串或 'null' 字符串 → null
     final parentId = map['parentId'];
     final cleanedParentId = (parentId == '' || parentId == 'null') ? null : parentId;
 
-    // 清理 targetId：空字符串或 'null' 字符串 → null
     final targetId = map['targetId'];
     final cleanedTargetId = (targetId == '' || targetId == 'null') ? null : targetId;
 
@@ -535,7 +512,6 @@ class DatabaseService {
       final List<dynamic> list = jsonDecode(data);
       final allNotes = list.map((e) => _cleanNoteMap(Map<String, dynamic>.from(e))).toList();
 
-      // ✅ Web 端：自动补默认值
       for (var note in allNotes) {
         if (!note.containsKey('inquiryQuestion')) note['inquiryQuestion'] = null;
         if (!note.containsKey('newUnderstanding')) note['newUnderstanding'] = null;
@@ -548,14 +524,11 @@ class DatabaseService {
       final db = await _getDatabase();
       final rows = await db.query('notes', orderBy: 'updatedAt DESC');
 
-      // ✅ SQLite 端：下划线 → 驼峰映射（在调用 _cleanNoteMap 之前完成）
-      // 旧字段 scaffold_sessions / subtasks 也映射为驼峰，供迁移函数使用
       final allNotes = rows.map((row) {
         final mapped = Map<String, dynamic>.from(row);
         mapped['inquiryQuestion'] = mapped['inquiry_question'];
         mapped['newUnderstanding'] = mapped['new_understanding'];
         mapped['exploreTasks'] = mapped['explore_tasks'];
-        // 旧字段映射（仅用于迁移，_cleanNoteMap 不会处理这两个键）
         mapped['scaffoldSessions'] = mapped['scaffold_sessions'];
         mapped['subtasks'] = mapped['subtasks'];
         return _cleanNoteMap(mapped);
@@ -569,7 +542,6 @@ class DatabaseService {
   Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
     final cleaned = Map<String, dynamic>.from(map);
 
-    // tags: String → List<String>
     final tagsRaw = cleaned['tags'];
     if (tagsRaw is String) {
       cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
@@ -579,7 +551,6 @@ class DatabaseService {
       cleaned['tags'] = [];
     }
 
-    // ✅ exploreTasks: String → List<Map>（由 NotebookEntry.fromMap 转为 List<ExploreTask>）
     final tasksRaw = cleaned['exploreTasks'];
     if (tasksRaw is String && tasksRaw.isNotEmpty) {
       try {
@@ -598,14 +569,8 @@ class DatabaseService {
       cleaned['exploreTasks'] = [];
     }
 
-    // inquiryQuestion: 直接透传
     cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
-
-    // newUnderstanding: 直接透传
     cleaned['newUnderstanding'] = cleaned['newUnderstanding'] as String?;
-
-    // ⚠️ scaffoldSessions 和 subtasks 已废弃，_cleanNoteMap 不处理
-    // 它们仅在 SQLite 映射阶段存在，供迁移函数使用
 
     return cleaned;
   }
@@ -614,7 +579,6 @@ class DatabaseService {
     final tags = map['tags'];
     final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
 
-    // ✅ exploreTasks: List<ExploreTask> → String
     final tasks = map['exploreTasks'];
     final tasksStr = tasks is List && tasks.isNotEmpty
         ? jsonEncode(tasks.map((e) {
@@ -755,7 +719,7 @@ class DatabaseService {
   }
 
   // ============================================================
-  // 书籍 CRUD
+  // 图书 CRUD
   // ============================================================
 
   Future<void> insertBook(Map<String, dynamic> bookMap) async {
@@ -845,6 +809,7 @@ class DatabaseService {
       'totalPages': row['total_pages'],
       'createdAt': row['created_at'],
       'lastReadAt': row['last_read_at'],
+      'source': row['source'] ?? '', // ✅ 新增
     };
   }
 
@@ -868,6 +833,7 @@ class DatabaseService {
       'total_pages': map['totalPages'],
       'created_at': map['createdAt'],
       'last_read_at': map['lastReadAt'],
+      'source': map['source'] ?? '', // ✅ 新增
     };
   }
 
@@ -1184,7 +1150,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'notebook.db');
     _database = await openDatabase(
       path,
-      version: 11,  // ✅ 版本 10 → 11
+      version: 13, // ✅ 版本升级到 13
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -1252,8 +1218,6 @@ class DatabaseService {
         ''');
       } catch (_) {}
     }
-
-    // ✅ 版本 8 → 9：新增 inquiry_question / scaffold_sessions / subtasks 三列
     if (oldVersion < 9) {
       try {
         await db.execute('ALTER TABLE notes ADD COLUMN inquiry_question TEXT');
@@ -1261,18 +1225,44 @@ class DatabaseService {
         await db.execute('ALTER TABLE notes ADD COLUMN subtasks TEXT DEFAULT "[]"');
       } catch (_) {}
     }
-
-    // ✅ 版本 9 → 10：新增 new_understanding 列
     if (oldVersion < 10) {
       try {
         await db.execute('ALTER TABLE notes ADD COLUMN new_understanding TEXT');
       } catch (_) {}
     }
-
-    // ✅ 版本 10 → 11：新增 explore_tasks 列
     if (oldVersion < 11) {
       try {
         await db.execute('ALTER TABLE notes ADD COLUMN explore_tasks TEXT DEFAULT "[]"');
+      } catch (_) {}
+    }
+    if (oldVersion < 12) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS isbn_cache(
+            isbn TEXT PRIMARY KEY,
+            title TEXT,
+            author TEXT,
+            cover_url TEXT,
+            source TEXT,
+            updated_at TEXT
+          )
+        ''');
+      } catch (_) {}
+    }
+    // ✅ 版本 12 → 13：books 表增加 source 列
+    if (oldVersion < 13) {
+      try {
+        await db.execute("ALTER TABLE books ADD COLUMN source TEXT DEFAULT ''");
+      } catch (_) {}
+      try {
+        await db.execute(
+          "UPDATE books SET source = 'import' WHERE file_path IS NOT NULL AND file_path != ''",
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          "UPDATE books SET source = 'scan' WHERE file_path IS NULL OR file_path = ''",
+        );
       } catch (_) {}
     }
   }
@@ -1309,7 +1299,8 @@ class DatabaseService {
         reading_progress INTEGER DEFAULT 0,
         total_pages INTEGER DEFAULT 0,
         created_at TEXT,
-        last_read_at TEXT
+        last_read_at TEXT,
+        source TEXT DEFAULT ''
       )
     ''');
 
@@ -1340,5 +1331,51 @@ class DatabaseService {
         updated_at TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS isbn_cache(
+        isbn TEXT PRIMARY KEY,
+        title TEXT,
+        author TEXT,
+        cover_url TEXT,
+        source TEXT,
+        updated_at TEXT
+      )
+    ''');
+  }
+
+  Future<Map<String, dynamic>?> getIsbnCache(String isbn) async {
+    if (_isWeb) return null;
+    final db = await _getDatabase();
+    final rows = await db.query(
+      'isbn_cache',
+      where: 'isbn = ?',
+      whereArgs: [isbn],
+    );
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  Future<void> saveIsbnCache({
+    required String isbn,
+    required String title,
+    required String author,
+    required String coverUrl,
+    required String source,
+  }) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.insert(
+      'isbn_cache',
+      {
+        'isbn': isbn,
+        'title': title,
+        'author': author,
+        'cover_url': coverUrl,
+        'source': source,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 }

@@ -3,6 +3,7 @@
 // ✅ 删除条件②重复逻辑，保留条件①
 // ✅ 新增：拍照记录（移动端可用，桌面端/Web 占位提示）
 // ✅ 修复：file_picker 12.x API 兼容（pickFiles 返回 List<PlatformFile>?）
+// ✅ 扫ISBN 菜单跳转 ScanIsbnPage
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ import '../widgets/floating_pet.dart';
 import 'creation_page.dart' as creation;
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
+import 'scan_isbn_page.dart';
 
 class CollectionPage extends StatefulWidget {
   final GlobalKey<creation.CreationPageState>? creationKey;
@@ -533,9 +535,11 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     }
   }
 
+  /// ✅ 扫ISBN — 跳转到扫码页面
   void _scanISBN() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('📷 扫码功能开发中...'), duration: Duration(seconds: 1)),
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ScanIsbnPage()),
     );
   }
 

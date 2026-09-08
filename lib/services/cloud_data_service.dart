@@ -1,5 +1,6 @@
 // lib/services/cloud_data_service.dart
 // 云端数据同步服务
+// ✅ 修复：syncBook 中写入 source 字段，pullBooks 中读取 source 字段
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/book.dart';
@@ -38,6 +39,7 @@ class CloudDataService {
       'total_pages': book.totalPages,
       'created_at': book.createdAt.toIso8601String(),
       'last_read_at': book.lastReadAt?.toIso8601String(),
+      'source': book.source, // ✅ 新增：写入 source 字段
     });
   }
 
@@ -75,6 +77,7 @@ class CloudDataService {
       lastReadAt: m['last_read_at'] != null
           ? DateTime.tryParse(m['last_read_at'])
           : null,
+      source: m['source'] ?? '', // ✅ 新增：从云端读取 source 字段
     )).toList();
   }
 

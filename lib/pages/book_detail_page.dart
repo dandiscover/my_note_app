@@ -1,6 +1,8 @@
 // lib/pages/book_detail_page.dart
 // 书籍详情页 — 支持云端同步 + Windows 双入口
 // ✅ 修复：file_picker 12.x API 兼容（pickFiles 返回 List<PlatformFile>?）
+// ✅ 新增：来源标识展示（电子书/实体书）
+// ✅ 新增：封面展示
 
 import 'dart:convert';
 import 'dart:io';
@@ -525,66 +527,102 @@ class _BookDetailPageState extends State<BookDetailPage>
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!_isEditing) ...[
-              Text(_book!.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              Text('作者：${_book!.author.isNotEmpty ? _book!.author : '未知'}'),
-              if (_book!.isbn.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text('ISBN：${_book!.isbn}'),
-              ],
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Text('状态：'),
-                  Chip(label: Text(_book!.statusLabel), backgroundColor: _getStatusColor(_book!.status)),
-                  const SizedBox(width: 16),
-                  Text('进度：${_book!.readingProgress}%'),
-                  if (_book!.totalPages > 0) Text(' / ${_book!.totalPages}页'),
-                ],
-              ),
-              if (_book!.hasEbook) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.check_circle, size: 14, color: Colors.green),
-                      const SizedBox(width: 4),
-                      Text('已导入 ${_book!.fileTypeLabel}', style: const TextStyle(fontSize: 12, color: Colors.green)),
-                      const SizedBox(width: 8),
-                      Text('${(_book!.fileSize / 1024 / 1024).toStringAsFixed(1)} MB',
-                          style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
-                    ],
-                  ),
+            // ─── 封面 ──────────────────────────────────
+            if (_book!.coverUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  _book!.coverUrl,
+                  width: 100,
+                  height: 140,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _buildCoverPlaceholder(100, 140),
                 ),
-              ],
-            ] else ...[
-              _buildEditField('作者', _authorController),
-              const SizedBox(height: 8),
-              Row(
+              )
+            else
+              _buildCoverPlaceholder(100, 140),
+            const SizedBox(width: 16),
+            // ─── 书籍信息 ──────────────────────────────
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('状态：'),
-                  const SizedBox(width: 8),
-                  DropdownButton<String>(
-                    value: _selectedStatus,
-                    items: const [
-                      DropdownMenuItem(value: 'want', child: Text('想读')),
-                      DropdownMenuItem(value: 'reading', child: Text('在读')),
-                      DropdownMenuItem(value: 'read', child: Text('读完')),
+                  if (!_isEditing) ...[
+                    Text(_book!.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text('作者：${_book!.author.isNotEmpty ? _book!.author : '未知'}'),
+                    if (_book!.isbn.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text('ISBN：${_book!.isbn}'),
                     ],
-                    onChanged: (value) {
-                      if (value != null) setState(() => _selectedStatus = value);
-                    },
-                  ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Text('状态：'),
+                        Chip(label: Text(_book!.statusLabel), backgroundColor: _getStatusColor(_book!.status)),
+                        const SizedBox(width: 16),
+                        Text('进度：${_book!.readingProgress}%'),
+                        if (_book!.totalPages > 0) Text(' / ${_book!.totalPages}页'),
+                      ],
+                    ),
+                    if (_book!.hasEbook) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle, size: 14, color: Colors.green),
+                            const SizedBox(width: 4),
+                            Text('已导入 ${_book!.fileTypeLabel}', style: const TextStyle(fontSize: 12, color: Colors.green)),
+                            const SizedBox(width: 8),
+                            Text('${(_book!.fileSize / 1024 / 1024).toStringAsFixed(1)} MB',
+                                style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                          ],
+                        ),
+                      ),
+                    ],
+                    // ✅ 来源标识
+                    if (_book!.source.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Text('来源：', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          Text(
+                            _book!.source == 'import' ? '📄 导入的电子书' : '📚 扫码添加',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ] else ...[
+                    _buildEditField('作者', _authorController),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Text('状态：'),
+                        const SizedBox(width: 8),
+                        DropdownButton<String>(
+                          value: _selectedStatus,
+                          items: const [
+                            DropdownMenuItem(value: 'want', child: Text('想读')),
+                            DropdownMenuItem(value: 'reading', child: Text('在读')),
+                            DropdownMenuItem(value: 'read', child: Text('读完')),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) setState(() => _selectedStatus = value);
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -615,6 +653,24 @@ class _BookDetailPageState extends State<BookDetailPage>
       case 'read': return Colors.green.shade100;
       default: return Colors.grey.shade100;
     }
+  }
+
+  Widget _buildCoverPlaceholder(double width, double height) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.book,
+          size: 40,
+          color: Colors.grey.shade400,
+        ),
+      ),
+    );
   }
 
   Widget _buildImportSection() {

@@ -11,6 +11,8 @@
 // ✅ 新增：Split 视图左侧递归文件夹树，支持展开/折叠
 // ✅ 修改：_createNote 的 onSave 增加 exploreTasks 参数，并写入本地 noteMap
 // ✅ 修改：_buildCard 的 note 分支增加 hasExplore 判断，并传给 WisdomNoteCard
+// ✅ 新增：图书馆书籍状态筛选（全部/想读/在读/读完）
+// ✅ 修改：WisdomBookCard 传入 Book 对象以显示来源标识
 
 import 'package:flutter/material.dart';
 
@@ -63,6 +65,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
   WisdomViewMode _viewMode = WisdomViewMode.grid;
   bool _fabExpanded = false;
+
+  // ✅ 图书状态筛选
+  String _bookStatusFilter = 'all'; // all / want / reading / read
 
   List<Node>? _cachedFilteredNodes;
   static const String _cacheKeyNodes = 'wisdom_nodes';
@@ -211,6 +216,17 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
     if (node.id.isEmpty) return false;
     return node.title == '卡片盒' && node.isFolder && node.parentId == null;
+  }
+
+  /// 判断当前文件夹是否为图书馆
+  bool get _isLibraryFolder {
+    if (_currentFolderId == null) return false;
+    final node = _nodes.firstWhere(
+      (n) => n.id == _currentFolderId,
+      orElse: () => Node.empty,
+    );
+    if (node.id.isEmpty) return false;
+    return node.title == '图书馆' && node.isFolder && node.parentId == null;
   }
 
   List<Node> get _children => _nodes.where((n) => n.parentId == _currentFolderId).toList();
@@ -477,6 +493,63 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
   }
 
+  // ─── 图书筛选栏 ──────────────────────────────────
+
+  Widget _buildBookFilterBar() {
+    final Map<String, String> filterMap = {
+      'all': '全部',
+      'want': '想读',
+      'reading': '在读',
+      'read': '读完',
+    };
+    final filters = ['all', 'want', 'reading', 'read'];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: filters.map((key) {
+            final isSelected = _bookStatusFilter == key;
+            return Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: FilterChip(
+                label: Text(filterMap[key] ?? key),
+                selected: isSelected,
+                onSelected: (_) {
+                  setState(() {
+                    _bookStatusFilter = key;
+                  });
+                },
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                backgroundColor: Colors.grey.shade50,
+                selectedColor: Colors.blue.shade100,
+                checkmarkColor: Colors.blue,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  /// 对 children 应用书籍状态筛选（仅当在图书馆文件夹时生效）
+  List<Node> _applyBookFilter(List<Node> nodes) {
+    if (!_isLibraryFolder || _bookStatusFilter == 'all') return nodes;
+    return nodes.where((node) {
+      // 非书籍节点保留
+      if (node.nodeType != 'book') return true;
+      final book = _books.firstWhere(
+        (b) => b.id == node.targetId,
+        orElse: () => Book.empty,
+      );
+      return book.status == _bookStatusFilter;
+    }).toList();
+  }
+
+  // ─── UI ──────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
@@ -529,6 +602,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           onBatchDelete: _batchDelete,
           onBatchMove: _batchMove,
         ),
+        // ✅ 图书馆筛选栏
+        if (_isLibraryFolder) _buildBookFilterBar(),
         Expanded(
           child: children.isEmpty && systemFolders.isEmpty
               ? _buildEmptyState()
@@ -598,6 +673,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   // ─── Split 视图左侧递归树 ──────────────────────────────
 
   Widget _buildSplitView(List<Node> children, Map<String, Map<String, int>> folderStats, List<Map<String, dynamic>> systemFolders) {
+    // ✅ 应用书籍状态筛选
+    final filteredChildren = _applyBookFilter(children);
+
     return Row(
       children: [
         Container(
@@ -623,7 +701,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           ),
         ),
         Expanded(
-          child: children.isEmpty
+          child: filteredChildren.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -634,7 +712,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
                     ],
                   ),
                 )
-              : _buildContentGrid(children, folderStats),
+              : _buildContentGrid(filteredChildren, folderStats),
         ),
       ],
     );
@@ -761,7 +839,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       }
     }
 
-    final nonSystemChildren = children.where((n) => !n.isSystemFolder).toList();
+    // ✅ 应用书籍状态筛选
+    final filteredChildren = _applyBookFilter(children);
+    final nonSystemChildren = filteredChildren.where((n) => !n.isSystemFolder).toList();
 
     if (nonSystemChildren.isNotEmpty) {
       if (_viewMode == WisdomViewMode.list) {
@@ -796,7 +876,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   Widget _buildContentGrid(List<Node> children, Map<String, Map<String, int>> folderStats) {
-    final nonSystemChildren = children.where((n) => !n.isSystemFolder).toList();
+    // ✅ 应用书籍状态筛选
+    final filteredChildren = _applyBookFilter(children);
+    final nonSystemChildren = filteredChildren.where((n) => !n.isSystemFolder).toList();
 
     return GridView.builder(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1023,8 +1105,14 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         cardHeight: cardHeight,
       );
     } else if (node.nodeType == 'book') {
+      // ✅ 修改：传入 Book 对象
+      final book = _books.firstWhere(
+        (b) => b.id == node.targetId,
+        orElse: () => Book.empty,
+      );
       cardContent = WisdomBookCard(
         node: node,
+        book: book.id.isNotEmpty ? book : null,
         isSelectMode: _isSelectMode,
         isSelected: _selectedIds.contains(node.id),
         onTap: () => _openNode(node),
