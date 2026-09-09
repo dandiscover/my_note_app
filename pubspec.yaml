@@ -60,6 +60,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   package_info_plus: 10.2.1
   wakelock_plus: 1.8.0
+  mobile_scanner: ^7.4.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
