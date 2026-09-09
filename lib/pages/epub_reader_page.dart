@@ -1,6 +1,8 @@
 // lib/pages/epub_reader_page.dart
-// 最终稳定方案：SelectableText.rich + TextSpan.recognizer，无 WidgetSpan
-// 修复语法错误：完整闭合所有括号、方括号，确保文件结构正确
+// EPUB 阅读器 — 增强稳定版
+// 功能：划线留痕（短文本黄底/长文本侧边竖线）、批注/卡片图标、专注模式、右侧标注面板
+// 使用 SelectableText.rich + AdaptiveTextSelectionToolbar 自定义菜单
+// 修复：长按标注条目不再关闭面板，直接在面板内弹菜单，避免 context 失效
 
 import 'dart:async';
 import 'dart:convert';
@@ -8,7 +10,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/gestures.dart';
 import 'package:epubx/epubx.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -69,7 +70,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   Color _customTextColor = const Color(0xFF4E342E);
 
   DateTime? _readingStartTime;
-  bool _isFocusMode = false;
+  bool _isFocusMode = true;
   String _searchQuery = '';
   List<Map<String, dynamic>> _searchResults = [];
   double _dailyGoalMinutes = 0.0;
@@ -85,60 +86,25 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   final ScrollController _scrollController = ScrollController();
 
   String? _selectedText;
-  final TextEditingController _noteController = TextEditingController();
   final PageController _pageController = PageController();
 
-  // 高亮索引映射
   final Map<int, List<_HighlightRange>> _highlightRanges = {};
-
-  // 工具条相关
-  OverlayEntry? _toolbarOverlay;
-  Timer? _debounceTimer;
-  Offset? _toolbarAnchor;
-  String? _currentSelectedText;
-  int? _currentChapterForSelection;
-
-  // 输入浮层
-  OverlayEntry? _inputOverlay;
-  final TextEditingController _inlineInputController = TextEditingController();
-
-  // 卡片标记缓存
   final Set<String> _highlightedWithCard = {};
-
-  // 防抖延迟常量
-  static const Duration _debounceDelay = Duration(milliseconds: 300);
-
-  // 工具条尺寸
-  static const double _toolbarWidth = 240.0;
-  static const double _toolbarHeight = 52.0;
 
   @override
   void initState() {
     super.initState();
     _readingStartTime = DateTime.now();
-    _scrollController.addListener(_onScroll);
     _loadBook();
   }
 
   @override
   void dispose() {
-    _debounceTimer?.cancel();
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
-    _noteController.dispose();
     _pageController.dispose();
+    _scrollController.dispose();
     _reminderTimer?.cancel();
     _saveReadingTime();
-    _removeToolbar();
-    _removeInputOverlay();
-    _inlineInputController.dispose();
     super.dispose();
-  }
-
-  void _onScroll() {
-    if (_toolbarOverlay != null) {
-      _removeToolbar();
-    }
   }
 
   // ---------------------- 数据加载 ----------------------
@@ -151,6 +117,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     await _loadUISettings();
     await _loadDailyGoal();
     await _loadReminderSettings();
+    await _refreshCardMarkers();
     await _loadEpub();
   }
 
@@ -161,8 +128,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         _notes = notes;
         _rebuildHighlightRanges();
       });
-      await _refreshCardMarkers();
-      setState(() {});
     } catch (e) {
       debugPrint('加载标注失败: $e');
     }
@@ -191,29 +156,14 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       final plain = _stripHtmlTags(content);
       final ranges = <_HighlightRange>[];
       final pageNotes = _notes.where((n) => n.pageNumber == i + 1 && n.isHighlight).toList();
-      String remaining = plain;
-      int offset = 0;
       for (var note in pageNotes) {
         final text = note.selectedText.trim();
         if (text.isEmpty) continue;
-        final index = remaining.indexOf(text);
-        if (index != -1) {
-          final start = offset + index;
-          final end = start + text.length;
-          ranges.add(_HighlightRange(start, end, note));
-          remaining = remaining.substring(index + text.length);
-          offset = end;
-        } else {
-          final trimmed = text.trim();
-          if (trimmed.isNotEmpty && remaining.contains(trimmed)) {
-            final idx = remaining.indexOf(trimmed);
-            final start = offset + idx;
-            final end = start + trimmed.length;
-            ranges.add(_HighlightRange(start, end, note));
-            remaining = remaining.substring(idx + trimmed.length);
-            offset = end;
-          }
-        }
+        final index = plain.indexOf(text);
+        if (index == -1) continue;
+        final start = index;
+        final end = start + text.length;
+        ranges.add(_HighlightRange(start, end, note));
       }
       if (ranges.isNotEmpty) {
         _highlightRanges[i] = ranges;
@@ -454,14 +404,8 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  Color get _appBarColor {
-    switch (_themeMode) {
-      case 0: return Colors.orange.shade900;
-      case 1: return const Color(0xFF8D6E63);
-      case 2: return Colors.grey.shade900;
-      default: return Colors.orange.shade900;
-    }
-  }
+  Color get _appBarBgColor => Colors.grey.shade100;
+  Color get _appBarFgColor => Colors.black87;
 
   void _openSettings() {
     showModalBottomSheet(
@@ -822,7 +766,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // 专注模式
   void _toggleFocusMode() {
     setState(() => _isFocusMode = !_isFocusMode);
   }
@@ -873,130 +816,8 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 思维导图已复制为 Markdown')));
   }
 
-  // ---------------------- 选区处理 ----------------------
-  String _getCurrentPlainText() {
-    if (_currentChapterIndex < 0 || _currentChapterIndex >= _chapterContents.length) return '';
-    return _stripHtmlTags(_chapterContents[_currentChapterIndex]);
-  }
-
-  String _getSelectedTextFromSelection(TextSelection selection) {
-    final plain = _getCurrentPlainText();
-    if (selection.start < 0 || selection.end > plain.length) return '';
-    return plain.substring(selection.start, selection.end);
-  }
-
-  void _onSelectionChanged(TextSelection selection, SelectionChangedCause? cause) {
-    _debounceTimer?.cancel();
-    if (!selection.isValid || selection.isCollapsed) {
-      _removeToolbar();
-      return;
-    }
-    final text = _getSelectedTextFromSelection(selection);
-    if (text.isEmpty) {
-      _removeToolbar();
-      return;
-    }
-    _currentSelectedText = text;
-    _currentChapterForSelection = _currentChapterIndex;
-    _debounceTimer = Timer(_debounceDelay, () {
-      if (mounted) {
-        _autoHighlightSelected(text);
-        final anchor = _toolbarAnchor ?? Offset(MediaQuery.of(context).size.width / 2, 200);
-        _showToolbar(text, anchor);
-      }
-    });
-  }
-
-  // ---------------------- 工具条管理 ----------------------
-  void _showToolbar(String text, Offset anchor) {
-    _removeToolbar();
-    final overlay = Overlay.of(context);
-    final screenSize = MediaQuery.of(context).size;
-    final centerX = anchor.dx;
-    final topY = anchor.dy - _toolbarHeight - 12;
-    double x = (centerX - _toolbarWidth / 2).clamp(8.0, screenSize.width - _toolbarWidth - 8).toDouble();
-    double y = topY.clamp(8.0, screenSize.height - _toolbarHeight - 8).toDouble();
-    if (topY < _toolbarHeight + 16) {
-      y = (anchor.dy + 12).clamp(8.0, screenSize.height - _toolbarHeight - 8).toDouble();
-    }
-    final toolbarRect = Rect.fromLTWH(x, y, _toolbarWidth, _toolbarHeight);
-    _toolbarOverlay = OverlayEntry(
-      builder: (context) => Positioned(
-        left: x,
-        top: y,
-        width: _toolbarWidth,
-        height: _toolbarHeight,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.85),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
-              ],
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _toolbarButton(
-                  icon: Icons.copy,
-                  label: '复制',
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: text));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 已复制')));
-                  },
-                ),
-                _toolbarButton(
-                  icon: Icons.edit_note,
-                  label: '写想法',
-                  onTap: () => _showInlineInput(text, toolbarRect),
-                ),
-                _toolbarButton(
-                  icon: Icons.credit_card,
-                  label: '做卡片',
-                  onTap: () {
-                    _createCardDirectly(text);
-                    _removeToolbar();
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    overlay.insert(_toolbarOverlay!);
-  }
-
-  void _removeToolbar() {
-    _debounceTimer?.cancel();
-    _toolbarOverlay?.remove();
-    _toolbarOverlay = null;
-    _currentSelectedText = null;
-    _currentChapterForSelection = null;
-  }
-
-  Widget _toolbarButton({required IconData icon, required String label, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 10)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------------- 自动高亮 ----------------------
-  Future<void> _autoHighlightSelected(String selectedText) async {
+  // ---------------------- 核心交互 ----------------------
+  Future<void> _saveHighlight(String selectedText) async {
     if (selectedText.isEmpty) return;
     final exists = _notes.any((n) =>
         n.selectedText == selectedText &&
@@ -1014,30 +835,82 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
     await _bookService.saveNote(note);
     await _loadNotes();
-    await _refreshCardMarkers();
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🖍️ 已高亮')));
   }
 
-  // ---- 取消高亮 ----
-  Future<void> _cancelHighlight(BookNote note) async {
-    await _bookService.deleteNote(widget.bookId, note.id);
-    try {
-      final allCards = await _cardService.getAllCards();
-      for (var card in allCards) {
-        if (card.highlight == note.selectedText &&
-            card.sourceId == widget.bookId &&
-            card.sourceType == 'book') {
-          await _cardService.deleteCard(card.id);
-        }
-      }
-    } catch (_) {}
-    await _loadNotes();
-    _removeToolbar();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🔄 已取消高亮')));
-    }
+  void _showWriteThoughtDialog(String selectedText) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: const Text('💭 写想法'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('原文：', style: TextStyle(fontWeight: FontWeight.bold)),
+              Container(
+                padding: const EdgeInsets.all(8),
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+                child: Text(selectedText, style: const TextStyle(fontSize: 14)),
+              ),
+              TextField(
+                controller: controller,
+                maxLines: 4,
+                decoration: const InputDecoration(hintText: '写下你的想法...', border: OutlineInputBorder()),
+                autofocus: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+            ElevatedButton(
+              onPressed: () async {
+                final comment = controller.text.trim();
+                Navigator.pop(context);
+                final exists = _notes.any((n) =>
+                    n.selectedText == selectedText &&
+                    n.pageNumber == _currentChapterIndex + 1 &&
+                    n.isHighlight);
+                final note = BookNote(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  bookId: widget.bookId,
+                  pageNumber: _currentChapterIndex + 1,
+                  selectedText: selectedText,
+                  comment: comment,
+                  color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
+                  isHighlight: true,
+                );
+                if (exists) {
+                  final existing = _notes.firstWhere((n) =>
+                      n.selectedText == selectedText &&
+                      n.pageNumber == _currentChapterIndex + 1 &&
+                      n.isHighlight);
+                  final updated = BookNote(
+                    id: existing.id,
+                    bookId: existing.bookId,
+                    pageNumber: existing.pageNumber,
+                    selectedText: existing.selectedText,
+                    comment: comment,
+                    color: existing.color,
+                    isHighlight: true,
+                  );
+                  await _bookService.saveNote(updated);
+                } else {
+                  await _bookService.saveNote(note);
+                }
+                await _loadNotes();
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('💭 想法已保存')));
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
-  // ---- 直接生成卡片 ----
   Future<void> _createCardDirectly(String selectedText) async {
     if (selectedText.isEmpty) return;
     try {
@@ -1079,7 +952,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // ---- 从标注生成卡片 ----
   Future<void> _generateCardFromNote(BookNote note) async {
     try {
       final allCards = await _cardService.getAllCards();
@@ -1120,175 +992,61 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // ---- 写想法浮层 ----
-  void _showInlineInput(String selectedText, Rect anchorRect) {
-    _removeInputOverlay();
-    _inlineInputController.clear();
-    final overlay = Overlay.of(context);
-    final screenSize = MediaQuery.of(context).size;
-    final x = anchorRect.left;
-    final y = anchorRect.bottom + 8;
-    final inputWidth = _toolbarWidth;
-    final inputHeight = 160.0;
-    final left = (x.clamp(8.0, screenSize.width - inputWidth - 8)).toDouble();
-    final top = (y.clamp(8.0, screenSize.height - inputHeight - 8)).toDouble();
-    _inputOverlay = OverlayEntry(
-      builder: (context) => Positioned(
-        left: left,
-        top: top,
-        width: inputWidth,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.grey.shade800.withOpacity(0.95),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
-              ],
-            ),
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('💭 想法', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _inlineInputController,
-                  style: TextStyle(color: Colors.white, fontSize: _fontSize - 2),
-                  decoration: const InputDecoration(
-                    hintText: '写下你的想法...',
-                    hintStyle: TextStyle(color: Colors.white54),
-                    border: InputBorder.none,
-                    filled: true,
-                    fillColor: Colors.white12,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  ),
-                  maxLines: 3,
-                  autofocus: true,
-                  onSubmitted: (_) => _saveInlineInput(selectedText),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: _removeInputOverlay,
-                      child: const Text('取消', style: TextStyle(color: Colors.white54)),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: () => _saveInlineInput(selectedText),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                      child: const Text('保存', style: TextStyle(color: Colors.white)),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    overlay.insert(_inputOverlay!);
-  }
-
-  void _removeInputOverlay() {
-    _inputOverlay?.remove();
-    _inputOverlay = null;
-  }
-
-  Future<void> _saveInlineInput(String selectedText) async {
-    final text = _inlineInputController.text.trim();
-    if (selectedText.isEmpty) {
-      _removeInputOverlay();
-      return;
-    }
-    final exists = _notes.any((n) =>
-        n.selectedText == selectedText &&
-        n.pageNumber == _currentChapterIndex + 1 &&
-        n.isHighlight);
-    if (!exists) {
-      await _autoHighlightSelected(selectedText);
-    }
-    final existingNote = _notes.firstWhere(
-      (n) => n.selectedText == selectedText && n.pageNumber == _currentChapterIndex + 1 && n.isHighlight,
-      orElse: () => BookNote(
-        id: '',
-        bookId: widget.bookId,
-        pageNumber: _currentChapterIndex + 1,
-        selectedText: selectedText,
-        comment: '',
-        color: '',
-        isHighlight: true,
-      ),
-    );
-    if (existingNote.id.isNotEmpty) {
-      final updated = BookNote(
-        id: existingNote.id,
-        bookId: existingNote.bookId,
-        pageNumber: existingNote.pageNumber,
-        selectedText: existingNote.selectedText,
-        comment: text,
-        color: existingNote.color,
-        isHighlight: existingNote.isHighlight,
-      );
-      await _bookService.saveNote(updated);
-      await _loadNotes();
-    } else {
-      final newNote = BookNote(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        bookId: widget.bookId,
-        pageNumber: _currentChapterIndex + 1,
-        selectedText: selectedText,
-        comment: text,
-        color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
-        isHighlight: true,
-      );
-      await _bookService.saveNote(newNote);
-      await _loadNotes();
-    }
-    _removeInputOverlay();
-    _removeToolbar();
+  Future<void> _deleteHighlightNote(BookNote note) async {
+    await _bookService.deleteNote(widget.bookId, note.id);
+    try {
+      final allCards = await _cardService.getAllCards();
+      for (var card in allCards) {
+        if (card.highlight == note.selectedText &&
+            card.sourceId == widget.bookId &&
+            card.sourceType == 'book') {
+          await _cardService.deleteCard(card.id);
+        }
+      }
+    } catch (_) {}
+    await _loadNotes();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('💭 想法已保存')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🔄 已删除高亮')));
     }
   }
 
-  // ---- 构建富文本 ----
+  // ---------------------- 构建富文本 ----------------------
   Widget _buildRichText(String content, int chapterIndex) {
-    final plain = _stripHtmlTags(content);
-    if (plain.isEmpty) {
-      return Text(
-        '（本章无内容）',
+  final plain = _stripHtmlTags(content);
+  if (plain.isEmpty) {
+    return Text(
+      '（本章无内容）',
+      style: TextStyle(fontSize: _fontSize, height: _lineHeight, color: _textColor, fontFamily: _fontFamily),
+    );
+  }
+
+  final ranges = _highlightRanges[chapterIndex] ?? [];
+  final List<InlineSpan> spans = [];
+  int currentPos = 0;
+  final sorted = List<_HighlightRange>.from(ranges)..sort((a, b) => a.start.compareTo(b.start));
+
+  const int shortTextThreshold = 50;
+
+  for (var range in sorted) {
+    if (range.start > plain.length) continue;
+    if (range.start < currentPos) continue;
+    if (range.start > currentPos) {
+      spans.add(TextSpan(
+        text: plain.substring(currentPos, range.start),
         style: TextStyle(fontSize: _fontSize, height: _lineHeight, color: _textColor, fontFamily: _fontFamily),
-      );
+      ));
     }
 
-    final ranges = _highlightRanges[chapterIndex] ?? [];
-    final List<TextSpan> spans = [];
-    int currentPos = 0;
-    final sorted = List<_HighlightRange>.from(ranges)..sort((a, b) => a.start.compareTo(b.start));
+    final end = range.end > plain.length ? plain.length : range.end;
+    String highlightedText = plain.substring(range.start, end);
+    final bool isLong = highlightedText.length > shortTextThreshold;
+    final bool hasComment = range.note.comment.isNotEmpty;
+    final bool hasCard = _highlightedWithCard.contains(range.note.selectedText);
 
-    for (var range in sorted) {
-      if (range.start > plain.length) continue;
-      if (range.start < currentPos) continue;
-      if (range.start > currentPos) {
-        spans.add(TextSpan(
-          text: plain.substring(currentPos, range.start),
-          style: TextStyle(fontSize: _fontSize, height: _lineHeight, color: _textColor, fontFamily: _fontFamily),
-        ));
-      }
-      final end = range.end > plain.length ? plain.length : range.end;
-      String highlightedText = plain.substring(range.start, end);
-      final hasCard = _highlightedWithCard.contains(range.note.selectedText);
-      String displayText = highlightedText;
-      if (hasCard && highlightedText.length < 100) {
-        displayText = highlightedText + ' 📇';
-      }
+    if (!isLong) {
+      // ---------- 短文本：黄底 ----------
       spans.add(TextSpan(
-        text: displayText,
+        text: highlightedText,
         style: TextStyle(
           fontSize: _fontSize,
           height: _lineHeight,
@@ -1296,32 +1054,146 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           fontFamily: _fontFamily,
           backgroundColor: _highlightColor.withOpacity(0.6),
         ),
-        recognizer: TapGestureRecognizer()
-          ..onTap = () {
-            _cancelHighlight(range.note);
-          },
       ));
-      currentPos = end;
-    }
-    if (currentPos < plain.length) {
+    } else {
+      // ---------- 长文本：「」+ 竖线 + 轻微暖色背景 ----------
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: Container(
+          width: 4,
+          height: _fontSize * _lineHeight,
+          color: Colors.orange.shade700,
+          margin: const EdgeInsets.only(right: 6),
+        ),
+      ));
+
       spans.add(TextSpan(
-        text: plain.substring(currentPos),
-        style: TextStyle(fontSize: _fontSize, height: _lineHeight, color: _textColor, fontFamily: _fontFamily),
+        text: '「',
+        style: TextStyle(
+          fontSize: _fontSize - 2,
+          height: _lineHeight,
+          color: Colors.orange.shade700,
+          fontFamily: _fontFamily,
+          fontWeight: FontWeight.bold,
+        ),
+      ));
+
+      spans.add(TextSpan(
+        text: highlightedText,
+        style: TextStyle(
+          fontSize: _fontSize,
+          height: _lineHeight,
+          color: _textColor,
+          fontFamily: _fontFamily,
+          backgroundColor: _highlightColor.withOpacity(0.15),
+        ),
+      ));
+
+      spans.add(TextSpan(
+        text: '」',
+        style: TextStyle(
+          fontSize: _fontSize - 2,
+          height: _lineHeight,
+          color: Colors.orange.shade700,
+          fontFamily: _fontFamily,
+          fontWeight: FontWeight.bold,
+        ),
       ));
     }
 
-    return SelectableText.rich(
-      TextSpan(children: spans),
-      style: TextStyle(fontSize: _fontSize, height: _lineHeight, color: _textColor, fontFamily: _fontFamily),
-      onSelectionChanged: _onSelectionChanged,
-      contextMenuBuilder: (context, editableTextState) {
-        _toolbarAnchor = editableTextState.contextMenuAnchors.primaryAnchor;
-        return const SizedBox.shrink();
-      },
-    );
+    if (hasComment) {
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: GestureDetector(
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('💭 ${range.note.comment}')),
+            );
+          },
+          child: Icon(
+            Icons.cloud_outlined,
+            size: _fontSize * 0.9,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ));
+    }
+
+    if (hasCard) {
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: GestureDetector(
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('📇 已生成卡片')),
+            );
+          },
+          child: Icon(
+            Icons.credit_card,
+            size: _fontSize * 0.9,
+            color: Colors.orange.shade600,
+          ),
+        ),
+      ));
+    }
+
+    currentPos = end;
   }
 
-  // ---------------------- 其他原有功能 ----------------------
+  if (currentPos < plain.length) {
+    spans.add(TextSpan(
+      text: plain.substring(currentPos),
+      style: TextStyle(fontSize: _fontSize, height: _lineHeight, color: _textColor, fontFamily: _fontFamily),
+    ));
+  }
+
+  return SelectableText.rich(
+    TextSpan(children: spans),
+    style: TextStyle(fontSize: _fontSize, height: _lineHeight, color: _textColor, fontFamily: _fontFamily),
+    contextMenuBuilder: (context, editableTextState) {
+      final selection = editableTextState.textEditingValue.selection;
+      if (!selection.isValid || selection.isCollapsed) return const SizedBox.shrink();
+      final selectedText = selection.textInside(editableTextState.textEditingValue.text);
+      if (selectedText.isEmpty) return const SizedBox.shrink();
+
+      return AdaptiveTextSelectionToolbar.buttonItems(
+        anchors: editableTextState.contextMenuAnchors,
+        buttonItems: [
+          ContextMenuButtonItem(
+            label: '复制',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: selectedText));
+              editableTextState.hideToolbar();
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 已复制')));
+            },
+          ),
+          ContextMenuButtonItem(
+            label: '高亮',
+            onPressed: () {
+              _saveHighlight(selectedText);
+              editableTextState.hideToolbar();
+            },
+          ),
+          ContextMenuButtonItem(
+            label: '写想法',
+            onPressed: () {
+              editableTextState.hideToolbar();
+              _showWriteThoughtDialog(selectedText);
+            },
+          ),
+          ContextMenuButtonItem(
+            label: '做卡片',
+            onPressed: () {
+              editableTextState.hideToolbar();
+              _createCardDirectly(selectedText);
+            },
+          ),
+        ],
+      );
+    },
+  );
+}
+  // ---------------------- 页边书摘 ----------------------
   void _showQuickNoteInput() {
     showDialog(
       context: context,
@@ -1374,6 +1246,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 书摘已保存')));
   }
 
+  // ---------------------- 其他功能 ----------------------
   void _showBatchCardDialog() {
     showDialog(
       context: context,
@@ -1535,83 +1408,76 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // ---- 标注列表 ----
-  void _showNotesList({String filter = '全部'}) {
-    final grouped = <int, List<BookNote>>{};
-    for (var note in _notes) {
-      if (filter == '高亮' && !note.isHighlight) continue;
-      if (filter == '批注' && note.isHighlight) continue;
-      grouped.putIfAbsent(note.pageNumber, () => []).add(note);
-    }
-    final sortedPages = grouped.keys.toList()..sort();
-    final highlightCount = _notes.where((n) => n.isHighlight).length;
-    final commentCount = _notes.where((n) => !n.isHighlight).length;
-    final bookmarkedCount = _bookmarks.length;
+  // ---- 标注列表（右侧滑出面板） ----
+  void _showNotesPanel() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '关闭标注列表',
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return Material(
+          color: Colors.white,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: double.infinity,
+              color: Colors.white,
+              child: SafeArea(
+                child: _NotesPanelContent(
+                  getNotes: () => _notes,
+                  pageController: _pageController,
+                  chaptersLength: _chapters?.length ?? 0,
+                  onGenerateCard: _generateCardFromNote,
+                  onDeleteHighlight: _deleteHighlightNote,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curve = Curves.easeOut;
+        final curvedAnimation = CurvedAnimation(parent: animation, curve: curve);
+        return SlideTransition(
+          position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+              .animate(curvedAnimation),
+          child: child,
+        );
+      },
+    );
+  }
+
+  // ---- 标注选项（长按菜单） ----
+  void _showNoteOptions(BookNote note) {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        minChildSize: 0.3,
-        expand: false,
-        builder: (context, scrollController) => Column(
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('📑 标注列表', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  Text('高亮 $highlightCount · 批注 $commentCount · 书签 $bookmarkedCount', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
+            ListTile(
+              leading: const Icon(Icons.credit_card),
+              title: const Text('生成卡片'),
+              onTap: () {
+                Navigator.pop(context);
+                _generateCardFromNote(note);
+              },
             ),
-            const Divider(),
-            Expanded(
-              child: _notes.isEmpty
-                  ? const Center(child: Text('暂无标注', style: TextStyle(color: Colors.grey)))
-                  : ListView.builder(
-                      controller: scrollController,
-                      itemCount: sortedPages.length,
-                      itemBuilder: (context, sectionIndex) {
-                        final page = sortedPages[sectionIndex];
-                        final items = grouped[page]!;
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Text('第 $page 章', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade600))),
-                            ...items.map((note) => ListTile(
-                                  dense: true,
-                                  leading: Icon(note.isHighlight ? Icons.highlight : Icons.comment, color: note.isHighlight ? Colors.yellow.shade700 : Colors.orange, size: 20),
-                                  title: Text(note.selectedText, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
-                                  subtitle: note.comment.isNotEmpty ? Text(note.comment, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)) : null,
-                                  onTap: () {
-                                    Navigator.pop(context);
-                                    if (page > 0 && page <= (_chapters?.length ?? 0)) _pageController.jumpToPage(page - 1);
-                                  },
-                                  onLongPress: () {
-                                    Navigator.pop(context);
-                                    _generateCardFromNote(note);
-                                  },
-                                )),
-                          ],
-                        );
-                      },
-                    ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.grey.shade100,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  TextButton(onPressed: () { Navigator.pop(context); _showNotesList(filter: '全部'); }, child: const Text('全部')),
-                  TextButton(onPressed: () { Navigator.pop(context); _showNotesList(filter: '高亮'); }, child: const Text('高亮')),
-                  TextButton(onPressed: () { Navigator.pop(context); _showNotesList(filter: '批注'); }, child: const Text('批注')),
-                  TextButton(onPressed: () { Navigator.pop(context); _showNotesList(filter: '书签'); }, child: const Text('书签')),
-                ],
+            if (note.isHighlight)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('删除高亮', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteHighlightNote(note);
+                },
               ),
+            ListTile(
+              leading: const Icon(Icons.arrow_back),
+              title: const Text('取消'),
+              onTap: () => Navigator.pop(context),
             ),
           ],
         ),
@@ -1849,13 +1715,21 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.fileName), backgroundColor: _appBarColor, foregroundColor: Colors.white),
+        appBar: AppBar(
+          title: Text(widget.fileName),
+          backgroundColor: _appBarBgColor,
+          foregroundColor: _appBarFgColor,
+        ),
         body: const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('加载EPUB中...', style: TextStyle(color: Colors.grey))])),
       );
     }
     if (_errorMessage != null || _chapters == null || _chapters!.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.fileName), backgroundColor: _appBarColor, foregroundColor: Colors.white),
+        appBar: AppBar(
+          title: Text(widget.fileName),
+          backgroundColor: _appBarBgColor,
+          foregroundColor: _appBarFgColor,
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -1866,7 +1740,12 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                 const SizedBox(height: 16),
                 Text(_errorMessage ?? '无法加载EPUB', style: TextStyle(fontSize: 16, color: Colors.grey.shade600), textAlign: TextAlign.center),
                 const SizedBox(height: 16),
-                ElevatedButton.icon(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back), label: const Text('返回'), style: ElevatedButton.styleFrom(backgroundColor: _appBarColor, foregroundColor: Colors.white)),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('返回'),
+                  style: ElevatedButton.styleFrom(backgroundColor: _appBarBgColor, foregroundColor: _appBarFgColor),
+                ),
               ],
             ),
           ),
@@ -1879,16 +1758,24 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     if (_isFocusMode) {
       return Scaffold(
         backgroundColor: _backgroundColor,
-        body: GestureDetector(
-          onTap: _toggleFocusMode,
-          child: PageView(
-            controller: _pageController,
-            onPageChanged: (index) {
-              setState(() => _currentChapterIndex = index);
-              if (index > 0 && index < total) _loadChapterContent(index);
-            },
-            children: List.generate(total, (index) => _buildChapterContent(index)),
-          ),
+        body: Stack(
+          children: [
+            PageView(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() => _currentChapterIndex = index);
+                if (index > 0 && index < total) _loadChapterContent(index);
+              },
+              children: List.generate(total, (index) => _buildChapterContent(index)),
+            ),
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => setState(() => _isFocusMode = false),
+                child: Container(color: Colors.transparent),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -1900,15 +1787,16 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(_bookTitle.isEmpty ? widget.fileName : _bookTitle, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            if (_bookAuthor.isNotEmpty) Text(_bookAuthor, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+            if (_bookAuthor.isNotEmpty) Text(_bookAuthor, style:TextStyle(fontSize: 12, color: Colors.grey.shade600)),
           ],
         ),
-        backgroundColor: _appBarColor,
-        foregroundColor: Colors.white,
+        backgroundColor: _appBarBgColor,
+        foregroundColor: _appBarFgColor,
+        elevation: 0,
         actions: [
           IconButton(icon: const Icon(Icons.menu_book), onPressed: _showToc, tooltip: '目录'),
           IconButton(icon: const Icon(Icons.search), onPressed: _showSearch, tooltip: '搜索'),
-          IconButton(icon: const Icon(Icons.settings), onPressed: _openSettings, tooltip: '设置'),
+          IconButton(icon: const Icon(Icons.format_list_bulleted), onPressed: _showNotesPanel, tooltip: '标注列表'),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
@@ -1918,11 +1806,11 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                 case 'export_mindmap': _exportMindMap(); break;
                 case 'aggregate': _showAggregatedNotes(); break;
                 case 'rating': _showRatingReviewDialog(); break;
-                case 'notes': _showNotesList(); break;
                 case 'stats': _showReadingStats(); break;
                 case 'batch_cards': _showBatchCardDialog(); break;
                 case 'export_notes': _exportNotes(); break;
                 case 'save_progress': _saveProgress(); break;
+                case 'settings': _openSettings(); break;
               }
             },
             itemBuilder: (context) => [
@@ -1931,11 +1819,11 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
               const PopupMenuItem(value: 'export_mindmap', child: Text('导出思维导图')),
               const PopupMenuItem(value: 'aggregate', child: Text('关联聚合')),
               const PopupMenuItem(value: 'rating', child: Text('评分书评')),
-              const PopupMenuItem(value: 'notes', child: Text('标注列表')),
               const PopupMenuItem(value: 'stats', child: Text('阅读统计')),
               const PopupMenuItem(value: 'batch_cards', child: Text('批量生成卡片')),
               const PopupMenuItem(value: 'export_notes', child: Text('导出笔记')),
               const PopupMenuItem(value: 'save_progress', child: Text('保存进度')),
+              const PopupMenuItem(value: 'settings', child: Text('设置')),
             ],
           ),
         ],
@@ -1944,7 +1832,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            color: _appBarColor.withOpacity(0.1),
+            color: Colors.grey.shade200,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1965,12 +1853,20 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            color: _backgroundColor,
+            color: Colors.grey.shade200,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                TextButton.icon(onPressed: current > 0 ? () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null, icon: const Icon(Icons.arrow_back, size: 16), label: const Text('上一章', style: TextStyle(fontSize: 12))),
-                TextButton.icon(onPressed: current < total - 1 ? () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null, icon: const Icon(Icons.arrow_forward, size: 16), label: const Text('下一章', style: TextStyle(fontSize: 12))),
+                TextButton.icon(
+                  onPressed: current > 0 ? () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
+                  icon: const Icon(Icons.arrow_back, size: 16),
+                  label: const Text('上一章', style: TextStyle(fontSize: 12)),
+                ),
+                TextButton.icon(
+                  onPressed: current < total - 1 ? () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
+                  icon: const Icon(Icons.arrow_forward, size: 16),
+                  label: const Text('下一章', style: TextStyle(fontSize: 12)),
+                ),
               ],
             ),
           ),
@@ -1980,11 +1876,198 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   }
 }
 
+// ---- 标注面板内容组件（带筛选功能，支持动态刷新） ----
+class _NotesPanelContent extends StatefulWidget {
+  final List<BookNote> Function() getNotes;
+  final PageController pageController;
+  final int chaptersLength;
+  final Future<void> Function(BookNote) onGenerateCard;
+  final Future<void> Function(BookNote) onDeleteHighlight;
+
+  const _NotesPanelContent({
+    required this.getNotes,
+    required this.pageController,
+    required this.chaptersLength,
+    required this.onGenerateCard,
+    required this.onDeleteHighlight,
+  });
+
+  @override
+  State<_NotesPanelContent> createState() => _NotesPanelContentState();
+}
+
+class _NotesPanelContentState extends State<_NotesPanelContent> {
+  String _filter = 'all'; // 'all', 'highlight', 'comment'
+  List<BookNote> _notes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _notes = widget.getNotes();
+  }
+
+  @override
+  void didUpdateWidget(_NotesPanelContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当父级数据变化时，重新获取最新列表
+    _notes = widget.getNotes();
+  }
+
+  List<BookNote> get _filteredNotes {
+    if (_filter == 'highlight') {
+      return _notes.where((n) => n.isHighlight).toList();
+    } else if (_filter == 'comment') {
+      return _notes.where((n) => n.comment.isNotEmpty).toList();
+    }
+    return _notes;
+  }
+
+  int get _highlightCount => _notes.where((n) => n.isHighlight).length;
+  int get _commentCount => _notes.where((n) => n.comment.isNotEmpty).length;
+
+  // 刷新列表（操作后调用）
+  void _refresh() {
+    setState(() {
+      _notes = widget.getNotes();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 标题栏
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('📑 标注列表', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
+        // 筛选标签
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              _buildFilterChip('全部', _notes.length, 'all'),
+              const SizedBox(width: 8),
+              _buildFilterChip('高亮', _highlightCount, 'highlight'),
+              const SizedBox(width: 8),
+              _buildFilterChip('批注', _commentCount, 'comment'),
+            ],
+          ),
+        ),
+        // 列表
+        Expanded(
+          child: _filteredNotes.isEmpty
+              ? const Center(child: Text('暂无标注', style: TextStyle(color: Colors.grey)))
+              : ListView.builder(
+                  itemCount: _filteredNotes.length,
+                  itemBuilder: (context, index) {
+                    final note = _filteredNotes[index];
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(
+                        note.isHighlight ? Icons.highlight : Icons.comment,
+                        color: note.isHighlight ? Colors.yellow.shade700 : Colors.orange,
+                        size: 20,
+                      ),
+                      title: Text(
+                        note.selectedText,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      subtitle: note.comment.isNotEmpty
+                          ? Text(
+                              note.comment,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            )
+                          : null,
+                      onTap: () {
+                        Navigator.pop(context);
+                        if (note.pageNumber > 0 && note.pageNumber <= widget.chaptersLength) {
+                          widget.pageController.jumpToPage(note.pageNumber - 1);
+                        }
+                      },
+                      onLongPress: () {
+                        // 直接在面板内弹菜单，不关闭面板
+                        showModalBottomSheet(
+                          context: context,
+                          builder: (ctx) => SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ListTile(
+                                  leading: const Icon(Icons.credit_card),
+                                  title: const Text('生成卡片'),
+                                  onTap: () async {
+                                    Navigator.pop(ctx);
+                                    await widget.onGenerateCard(note);
+                                    // 刷新列表
+                                    _refresh();
+                                  },
+                                ),
+                                if (note.isHighlight)
+                                  ListTile(
+                                    leading: const Icon(Icons.delete_outline, color: Colors.red),
+                                    title: const Text('删除高亮', style: TextStyle(color: Colors.red)),
+                                    onTap: () async {
+                                      Navigator.pop(ctx);
+                                      await widget.onDeleteHighlight(note);
+                                      _refresh();
+                                    },
+                                  ),
+                                ListTile(
+                                  leading: const Icon(Icons.arrow_back),
+                                  title: const Text('取消'),
+                                  onTap: () => Navigator.pop(ctx),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String label, int count, String filterValue) {
+    final isSelected = _filter == filterValue;
+    return ChoiceChip(
+      label: Text('$label ($count)'),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => _filter = filterValue);
+        }
+      },
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+}
+
 // ---- 辅助类 ----
 class _HighlightRange {
   final int start;
   final int end;
   final BookNote note;
-
   _HighlightRange(this.start, this.end, this.note);
 }
