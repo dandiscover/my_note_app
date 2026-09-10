@@ -1,9 +1,8 @@
 // lib/database_service.dart
 // 数据层 — 统一字段标准：代码层驼峰，数据库层下划线
-// ✅ 数据库版本 12 → 13：books 表新增 source 列
-// ✅ _createTables 中 books 表增加 source 字段
-// ✅ _onUpgrade 中 oldVersion < 13 时执行 ALTER TABLE 及数据迁移
-// ✅ _mapBookDbRowToCamel 和 _prepareBookForDb 支持 source 字段
+// ✅ 数据库版本 13 → 14：新增 pdf_drawings 表
+// ✅ 新增：savePdfDrawing / getPdfDrawingsByBook / deletePdfDrawingsByBook
+// ✅ 修正：pdf_drawings 表列名改为下划线（book_id / created_at）
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -15,6 +14,7 @@ import 'models/book.dart';
 import 'models/node.dart';
 import 'models/explore_task.dart';
 import 'models/note_subtask.dart';
+import 'models/pdf_drawing.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -809,7 +809,7 @@ class DatabaseService {
       'totalPages': row['total_pages'],
       'createdAt': row['created_at'],
       'lastReadAt': row['last_read_at'],
-      'source': row['source'] ?? '', // ✅ 新增
+      'source': row['source'] ?? '',
     };
   }
 
@@ -833,7 +833,7 @@ class DatabaseService {
       'total_pages': map['totalPages'],
       'created_at': map['createdAt'],
       'last_read_at': map['lastReadAt'],
-      'source': map['source'] ?? '', // ✅ 新增
+      'source': map['source'] ?? '',
     };
   }
 
@@ -1150,7 +1150,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'notebook.db');
     _database = await openDatabase(
       path,
-      version: 13, // ✅ 版本升级到 13
+      version: 14, // ✅ 版本升级到 14
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -1249,7 +1249,6 @@ class DatabaseService {
         ''');
       } catch (_) {}
     }
-    // ✅ 版本 12 → 13：books 表增加 source 列
     if (oldVersion < 13) {
       try {
         await db.execute("ALTER TABLE books ADD COLUMN source TEXT DEFAULT ''");
@@ -1263,6 +1262,21 @@ class DatabaseService {
         await db.execute(
           "UPDATE books SET source = 'scan' WHERE file_path IS NULL OR file_path = ''",
         );
+      } catch (_) {}
+    }
+    // ✅ 版本 13 → 14：新增 pdf_drawings 表（列名下划线）
+    if (oldVersion < 14) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS pdf_drawings(
+            id TEXT PRIMARY KEY,
+            book_id TEXT,
+            page INTEGER,
+            points TEXT,
+            color TEXT,
+            created_at TEXT
+          )
+        ''');
       } catch (_) {}
     }
   }
@@ -1342,6 +1356,18 @@ class DatabaseService {
         updated_at TEXT
       )
     ''');
+
+    // ✅ 新增 pdf_drawings 表（列名下划线）
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS pdf_drawings(
+        id TEXT PRIMARY KEY,
+        book_id TEXT,
+        page INTEGER,
+        points TEXT,
+        color TEXT,
+        created_at TEXT
+      )
+    ''');
   }
 
   Future<Map<String, dynamic>?> getIsbnCache(String isbn) async {
@@ -1376,6 +1402,60 @@ class DatabaseService {
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // ============================================================
+  // PDF 划痕 CRUD
+  // ============================================================
+
+  /// 存或更新一条划痕
+  Future<void> savePdfDrawing(PdfDrawing drawing) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    final map = drawing.toMap();
+    await db.insert(
+      'pdf_drawings',
+      {
+        'id': map['id'],
+        'book_id': map['bookId'],
+        'page': map['page'],
+        'points': map['points'],
+        'color': map['color'],
+        'created_at': map['createdAt'],
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// 按 bookId 读取全部划痕
+  Future<List<PdfDrawing>> getPdfDrawingsByBook(String bookId) async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query(
+      'pdf_drawings',
+      where: 'book_id = ?',
+      whereArgs: [bookId],
+      orderBy: 'page ASC, created_at ASC',
+    );
+    return rows.map((row) => PdfDrawing.fromMap({
+      'id': row['id'],
+      'bookId': row['book_id'],
+      'page': row['page'],
+      'points': row['points'],
+      'color': row['color'],
+      'createdAt': row['created_at'],
+    })).toList();
+  }
+
+  /// 按 bookId 清空全部划痕
+  Future<void> deletePdfDrawingsByBook(String bookId) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.delete(
+      'pdf_drawings',
+      where: 'book_id = ?',
+      whereArgs: [bookId],
     );
   }
 }

@@ -1,10 +1,14 @@
 // test/pdf_draw_validation.dart
-// pdfrx 划线验证 — 坐标互逆 + 划线跟随
-// 只做：加载、划线、坐标对照打印、屏幕绘制、滚动/缩放跟随
-// 不做：存储、文字选择、卡片、笔记
+// pdfrx 划线验证 — 划 → 存 → 重开 → 线还在
+// 存储：SQLite（通过 PdfDrawingService）
+// 坐标：全部转成 PDF 页面坐标存储，渲染时转回屏幕坐标
+// 本轮：加诊断日志，延后加载，try-catch 打印异常
 
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
+
+import '../lib/models/pdf_drawing.dart';
+import '../lib/services/pdf_drawing_service.dart';
 
 void main() => runApp(const ValidationApp());
 
@@ -30,15 +34,35 @@ class ValidationPage extends StatefulWidget {
 
 class _ValidationPageState extends State<ValidationPage> {
   final PdfViewerController _controller = PdfViewerController();
+  final PdfDrawingService _service = PdfDrawingService();
 
   bool _drawMode = false;
   List<Offset> _currentPoints = [];
-  List<_Drawing> _drawings = [];
+  List<PdfDrawing> _drawings = [];
   int _pointCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    debugPrint('🟢 initState 调用');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('🟡 postFrameCallback 触发，准备加载划痕');
+      _loadDrawings();
+    });
+  }
+
+  // ---------- 加载划痕 ----------
+  Future<void> _loadDrawings() async {
+    debugPrint('🔄 _loadDrawings 开始');
+    final loaded = await _service.getByBook('sample');
+    if (mounted) {
+      setState(() => _drawings = loaded);
+    }
+    debugPrint('🔄 _loadDrawings 完成，共 ${_drawings.length} 条');
+  }
 
   // ---------- 坐标互逆验证 ----------
   void _verifyCoordinate(Offset local) {
-    // 1. 判空保护
     if (!_controller.isReady) {
       print('⚠️ 控制器未就绪，跳过坐标验证');
       return;
@@ -49,7 +73,6 @@ class _ValidationPageState extends State<ValidationPage> {
       return;
     }
 
-    // 2. 当前页码（1-based）
     final int currentPage = _controller.pageNumber ?? 1;
     final int pageIndex = currentPage - 1;
     if (pageIndex < 0 || pageIndex >= _controller.pages.length) {
@@ -60,40 +83,30 @@ class _ValidationPageState extends State<ValidationPage> {
     final page = _controller.pages[pageIndex];
     final pageRect = layout.pageLayouts[pageIndex];
 
-    // 3. 验证 pageLayout 尺寸是否等于 PDF 页面尺寸
     final bool widthMatch = (page.width - pageRect.width).abs() < 0.01;
     final bool heightMatch = (page.height - pageRect.height).abs() < 0.01;
     print('📏 page.width=${page.width}, pageRect.width=${pageRect.width}, 相等？$widthMatch');
     print('📏 page.height=${page.height}, pageRect.height=${pageRect.height}, 相等？$heightMatch');
 
-    // 4. 屏幕坐标 → 文档坐标
     final Offset doc = _controller.localToDocument(local);
-
-    // 5. 文档坐标 → PDF 页面坐标（简化公式）
     final double pageX = doc.dx - pageRect.left;
     final double pageY = page.height - (doc.dy - pageRect.top);
 
-    // 6. PDF 页面坐标 → 文档坐标（反推）
     final Offset backDoc = Offset(
       pageRect.left + pageX,
       pageRect.top + (page.height - pageY),
     );
-
-    // 7. 文档坐标 → 屏幕坐标（反推）
     final Offset backLocal = _controller.documentToLocal(backDoc);
 
-    // 8. 打印完整对照
     print('📍 屏幕坐标: $local');
     print('📄 文档坐标: $doc');
     print('📐 PDF页面坐标: ($pageX, $pageY)');
     print('🔄 反推文档坐标: $backDoc');
     print('🔄 反推屏幕坐标: $backLocal');
 
-    // 9. 完整链路是否可逆
     final double diff = (backLocal - local).distance;
     print('✅ 完整链路可逆？ ${diff < 0.01} (偏差: $diff)');
 
-    // 10. PDF 页面坐标是否在页面范围内
     final bool inRange = pageX >= 0 &&
         pageX <= page.width &&
         pageY >= 0 &&
@@ -131,7 +144,6 @@ class _ValidationPageState extends State<ValidationPage> {
     return _controller.documentToLocal(doc);
   }
 
-  // ---------- 已保存划痕转屏幕坐标 ----------
   List<List<Offset>> _savedScreenLines() {
     if (!_controller.isReady) return [];
     final currentPage = _controller.pageNumber ?? 1;
@@ -178,7 +190,6 @@ class _ValidationPageState extends State<ValidationPage> {
     final currentPage = _controller.pageNumber ?? 1;
     final pageIndex = currentPage - 1;
 
-    // 逐点转为 PDF 页面坐标
     final pdfPoints = <Offset>[];
     for (final sp in _currentPoints) {
       final pdf = _screenToPdf(sp, pageIndex);
@@ -190,15 +201,19 @@ class _ValidationPageState extends State<ValidationPage> {
       return;
     }
 
-    final drawing = _Drawing(
+    final drawing = PdfDrawing(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
+      bookId: 'sample',
       page: currentPage,
       pdfPoints: pdfPoints,
+      createdAt: DateTime.now(),
     );
+
+    await _service.save(drawing);
 
     setState(() {
       _drawings.add(drawing);
-      _currentPoints = [];  // ← 关键：清空当前屏幕坐标
+      _currentPoints = [];
     });
 
     print('✏️ 新增划痕: 第 $currentPage 页, ${pdfPoints.length} 个点');
@@ -214,7 +229,8 @@ class _ValidationPageState extends State<ValidationPage> {
     });
   }
 
-  void _clearCanvas() {
+  Future<void> _clearCanvas() async {
+    await _service.deleteByBook('sample');
     setState(() {
       _currentPoints = [];
       _pointCount = 0;
@@ -244,32 +260,39 @@ class _ValidationPageState extends State<ValidationPage> {
       ),
       body: Stack(
         children: [
-          // PDF 渲染
           PdfViewer.asset(
             'assets/sample.pdf',
             controller: _controller,
             params: PdfViewerParams(
               textSelectionParams: PdfTextSelectionParams(enabled: false),
               buildContextMenu: (context, params) => null,
+              onViewerReady: (doc, controller) {
+                debugPrint('✅ PdfViewer 已就绪');
+              },
             ),
           ),
-          // 划线层：AnimatedBuilder 监听控制器矩阵变化
           Positioned.fill(
             child: IgnorePointer(
               child: AnimatedBuilder(
                 animation: _controller,
                 builder: (context, _) {
+                  List<List<Offset>> lines;
+                  try {
+                    lines = _savedScreenLines();
+                  } catch (e, st) {
+                    debugPrint('❌ _savedScreenLines 异常: $e\n$st');
+                    lines = [];
+                  }
                   return CustomPaint(
                     painter: _DrawPainter(
                       currentPoints: _currentPoints,
-                      savedLines: _savedScreenLines(),
+                      savedLines: lines,
                     ),
                   );
                 },
               ),
             ),
           ),
-          // 划线模式下叠加手势捕获
           if (_drawMode)
             Positioned.fill(
               child: GestureDetector(
@@ -279,7 +302,6 @@ class _ValidationPageState extends State<ValidationPage> {
                 onPanEnd: _onPanEnd,
               ),
             ),
-          // 模式提示
           Positioned(
             left: 12,
             top: 12,
@@ -303,15 +325,6 @@ class _ValidationPageState extends State<ValidationPage> {
   }
 }
 
-// ---------- 划痕存储模型 ----------
-class _Drawing {
-  final String id;
-  final int page;
-  final List<Offset> pdfPoints;
-
-  _Drawing({required this.id, required this.page, required this.pdfPoints});
-}
-
 // ---------- 划线绘制器 ----------
 class _DrawPainter extends CustomPainter {
   final List<Offset> currentPoints;
@@ -321,7 +334,6 @@ class _DrawPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 已保存的线（橙色，跟随 PDF）
     final savedPaint = Paint()
       ..color = Colors.orange.withOpacity(0.7)
       ..strokeWidth = 4
@@ -337,7 +349,6 @@ class _DrawPainter extends CustomPainter {
       canvas.drawPath(path, savedPaint);
     }
 
-    // 正在划的线（黄色，屏幕坐标）
     if (currentPoints.length >= 2) {
       final currentPaint = Paint()
         ..color = Colors.yellow.withOpacity(0.6)
