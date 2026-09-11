@@ -1,5 +1,6 @@
 // lib/pages/writing_page.dart
 // 写作模式 — 全屏编辑器 + 素材面板 + 线索墙
+// 本轮：ClueBoard 传 viewId，切到线索墙时重拉 cards
 
 import 'package:flutter/material.dart';
 import '../database_service.dart';
@@ -14,7 +15,7 @@ enum WritingViewMode { editor, clueBoard }
 
 class WritingPage extends StatefulWidget {
   final NotebookEntry? initialNote;
-  final WritingViewMode initialViewMode; // ✅ 新增：初始视图模式
+  final WritingViewMode initialViewMode;
 
   const WritingPage({
     super.key,
@@ -44,7 +45,6 @@ class _WritingPageState extends State<WritingPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // ✅ 使用传入的 initialViewMode
     _viewMode = widget.initialViewMode;
     _loadData();
   }
@@ -75,12 +75,9 @@ class _WritingPageState extends State<WritingPage>
       } else {
         _currentNote = NotebookEntry(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: '无标题',
-          content: '',
-          tags: [],
+          title: '无标题', content: '', tags: [],
           updatedAt: DateTime.now(),
-          status: 'active',
-          editorMode: 'plain',
+          status: 'active', editorMode: 'plain',
         );
       }
     } catch (e) {
@@ -91,20 +88,12 @@ class _WritingPageState extends State<WritingPage>
 
   Future<void> _saveNote(String title, String content, String mode, List<String> tags) async {
     if (_currentNote == null) return;
-
     final updated = _currentNote!.copyWith(
-      title: title,
-      content: content,
-      tags: tags,
-      updatedAt: DateTime.now(),
-      editorMode: mode,
-      status: 'active',
+      title: title, content: content, tags: tags,
+      updatedAt: DateTime.now(), editorMode: mode, status: 'active',
     );
-
     await _db.updateNote(updated.toMap());
-    setState(() {
-      _currentNote = updated;
-    });
+    setState(() { _currentNote = updated; });
     await _loadData();
   }
 
@@ -131,10 +120,7 @@ class _WritingPageState extends State<WritingPage>
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('✍️ 写作模式'),
-          centerTitle: true,
-        ),
+        appBar: AppBar(title: const Text('✍️ 写作模式'), centerTitle: true),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -154,40 +140,34 @@ class _WritingPageState extends State<WritingPage>
       title: Text(_currentNote?.title ?? '✍️ 写作模式'),
       centerTitle: true,
       actions: [
-        // 切换视图
         IconButton(
-          icon: Icon(_viewMode == WritingViewMode.editor
-              ? Icons.bubble_chart
-              : Icons.edit_note),
-          onPressed: () {
+          icon: Icon(_viewMode == WritingViewMode.editor ? Icons.bubble_chart : Icons.edit_note),
+          onPressed: () async {
+            final willBeClueBoard = _viewMode == WritingViewMode.editor;
+            if (willBeClueBoard) {
+              await _loadData();
+            }
+            if (!mounted) return;
             setState(() {
-              _viewMode = _viewMode == WritingViewMode.editor
-                  ? WritingViewMode.clueBoard
-                  : WritingViewMode.editor;
+              _viewMode = willBeClueBoard ? WritingViewMode.clueBoard : WritingViewMode.editor;
             });
           },
           tooltip: _viewMode == WritingViewMode.editor ? '线索墙' : '编辑器',
         ),
-        // 素材面板开关
         IconButton(
           icon: Badge(
             isLabelVisible: _indexCards.isNotEmpty,
             label: Text('${_indexCards.length}'),
-            child: Icon(Icons.library_books),
+            child: const Icon(Icons.library_books),
           ),
           onPressed: () {
-            setState(() {
-              _showMaterialPanel = !_showMaterialPanel;
-            });
+            setState(() { _showMaterialPanel = !_showMaterialPanel; });
           },
           tooltip: '素材库',
         ),
-        // 保存
         IconButton(
           icon: const Icon(Icons.save),
-          onPressed: () {
-            _editorKey.currentState?.save();
-          },
+          onPressed: () { _editorKey.currentState?.save(); },
           tooltip: '保存 (Ctrl+S)',
         ),
       ],
@@ -208,17 +188,13 @@ class _WritingPageState extends State<WritingPage>
           ),
         ),
         if (_showMaterialPanel) ...[
-          VerticalDivider(width: 1, thickness: 1),
+          const VerticalDivider(width: 1, thickness: 1),
           SizedBox(
             width: 280,
             child: MaterialPanel(
               cards: _indexCards,
-              onInsertText: (text) {
-                _insertText(text);
-              },
-              onInsertCard: (card) {
-                _insertCard(card);
-              },
+              onInsertText: (text) { _insertText(text); },
+              onInsertCard: (card) { _insertCard(card); },
             ),
           ),
         ],
@@ -228,14 +204,8 @@ class _WritingPageState extends State<WritingPage>
 
   Widget _buildClueBoardView() {
     return ClueBoard(
-      notes: _recentNotes,
+      viewId: 'global',
       cards: _indexCards,
-      onNoteTap: (note) {
-        setState(() {
-          _currentNote = note;
-          _viewMode = WritingViewMode.editor;
-        });
-      },
       onCardTap: (card) {
         _insertCard(card);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -261,11 +231,9 @@ class _WritingPageState extends State<WritingPage>
     final newNote = NotebookEntry(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: '无标题 ${DateTime.now().hour}:${DateTime.now().minute}',
-      content: '',
-      tags: [],
+      content: '', tags: [],
       updatedAt: DateTime.now(),
-      status: 'active',
-      editorMode: 'plain',
+      status: 'active', editorMode: 'plain',
     );
     setState(() {
       _currentNote = newNote;

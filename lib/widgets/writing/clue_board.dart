@@ -1,29 +1,30 @@
 // lib/widgets/writing/clue_board.dart
-// 线索墙 — 交互式画板（支持拖拽卡片、绘图、连线、文字输入）
+// 线索墙 — 交互式画板（卡片 + 文字 + 连线）
+// 本轮：接数据库、viewId 参数、砍 shape、删 notes/onNoteTap
 
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../../models/note.dart';
+import 'package:flutter/foundation.dart' show setEquals;
+import '../../database_service.dart';
 import '../../models/card.dart';
 
 // ─── 节点模型 ──────────────────────────────────────────────
 class ClueNode {
   final String id;
   String label;
-  final String type; // 'note', 'card', 'shape', 'text'
-  final String? shapeType; // 'rect', 'circle', 'arrow'
+  final String type; // 'card', 'text'
   Offset position;
   final double width;
   final double height;
   final Color color;
   final dynamic data;
-  String? textContent; // 文字节点的内容
+  String? textContent;
 
   ClueNode({
     required this.id,
     required this.label,
-    this.type = 'note',
-    this.shapeType,
+    this.type = 'card',
     required this.position,
     this.width = 120,
     this.height = 60,
@@ -33,28 +34,14 @@ class ClueNode {
   });
 
   ClueNode copyWith({
-    String? id,
-    String? label,
-    String? type,
-    String? shapeType,
-    Offset? position,
-    double? width,
-    double? height,
-    Color? color,
-    dynamic data,
-    String? textContent,
+    String? id, String? label, String? type, Offset? position,
+    double? width, double? height, Color? color, dynamic data, String? textContent,
   }) {
     return ClueNode(
-      id: id ?? this.id,
-      label: label ?? this.label,
-      type: type ?? this.type,
-      shapeType: shapeType ?? this.shapeType,
-      position: position ?? this.position,
-      width: width ?? this.width,
-      height: height ?? this.height,
-      color: color ?? this.color,
-      data: data ?? this.data,
-      textContent: textContent ?? this.textContent,
+      id: id ?? this.id, label: label ?? this.label, type: type ?? this.type,
+      position: position ?? this.position, width: width ?? this.width,
+      height: height ?? this.height, color: color ?? this.color,
+      data: data ?? this.data, textContent: textContent ?? this.textContent,
     );
   }
 }
@@ -64,24 +51,21 @@ class ClueEdge {
   final String id;
   final String sourceId;
   final String targetId;
-
   ClueEdge({required this.id, required this.sourceId, required this.targetId});
 }
 
 // ─── 画板状态 ──────────────────────────────────────────────
-enum DrawMode { select, arrow, circle, rect, line, text }
+enum DrawMode { select, line, text }
 
 class ClueBoard extends StatefulWidget {
-  final List<NotebookEntry> notes;
+  final String viewId;
   final List<CardModel> cards;
-  final Function(NotebookEntry) onNoteTap;
   final Function(CardModel) onCardTap;
 
   const ClueBoard({
     super.key,
-    required this.notes,
+    required this.viewId,
     required this.cards,
-    required this.onNoteTap,
     required this.onCardTap,
   });
 
@@ -90,102 +74,204 @@ class ClueBoard extends StatefulWidget {
 }
 
 class _ClueBoardState extends State<ClueBoard> {
-  // ─── 状态 ──────────────────────────────────────────────────
+  final DatabaseService _db = DatabaseService();
+
   List<ClueNode> _nodes = [];
   final List<ClueEdge> _edges = [];
   DrawMode _drawMode = DrawMode.select;
   String? _selectedNodeId;
   bool _isDragging = false;
-
-  // 连线模式
   String? _lineStartId;
 
-  // 用于拖拽添加素材
   final GlobalKey _boardKey = GlobalKey();
-
-  // ─── 初始化 ────────────────────────────────────────────────
+  Timer? _saveDebounce;
 
   @override
   void initState() {
     super.initState();
-    _initNodes();
+    _bootstrap();
   }
 
-  void _initNodes() {
-    final random = Random(42);
-    final centerX = 300;
-    final centerY = 300;
-    final radius = 200;
-
-    // 笔记节点
-    for (var i = 0; i < widget.notes.length; i++) {
-      final note = widget.notes[i];
-      final angle = (i / widget.notes.length) * 2 * pi;
-      final pos = Offset(
-        centerX + radius * cos(angle) + (random.nextDouble() - 0.5) * 60,
-        centerY + radius * sin(angle) + (random.nextDouble() - 0.5) * 60,
-      );
-      _nodes.add(ClueNode(
-        id: note.id,
-        label: note.title,
-        type: 'note',
-        position: pos,
-        color: Colors.blue,
-        data: note,
-      ));
+  Future<void> _bootstrap() async {
+    final existing = await _db.getBoardView(widget.viewId);
+    if (existing == null) {
+      await _db.upsertBoardView({
+        'id': widget.viewId,
+        'name': '默认画板',
+        'type': 'global',
+        'ownerId': null,
+        'createdAt': DateTime.now().toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
     }
+    await _loadFromDb();
+  }
 
-    // 卡片节点
-    for (var i = 0; i < widget.cards.length; i++) {
-      final card = widget.cards[i];
-      final angle = (i / widget.cards.length) * 2 * pi + 0.3;
-      final pos = Offset(
-        centerX + radius * 0.4 * cos(angle) + (random.nextDouble() - 0.5) * 40,
-        centerY + radius * 0.4 * sin(angle) + (random.nextDouble() - 0.5) * 40,
-      );
-      _nodes.add(ClueNode(
-        id: card.id,
+  Future<void> _loadFromDb() async {
+    final nodeMaps = await _db.getBoardNodes(widget.viewId);
+    final edgeMaps = await _db.getBoardEdges(widget.viewId);
+    final textMaps = await _db.getBoardTexts(widget.viewId);
+
+    final validCardIds = widget.cards.map((c) => c.id).toSet();
+    final loadedNodes = <ClueNode>[];
+
+    for (final m in nodeMaps) {
+      final cardId = m['cardId'] as String?;
+      if (cardId == null) continue;
+      if (!validCardIds.contains(cardId)) continue;
+      final card = widget.cards.firstWhere((c) => c.id == cardId);
+      loadedNodes.add(ClueNode(
+        id: m['id'] as String,
         label: card.indexTitle ?? '未命名',
         type: 'card',
-        position: pos,
+        position: Offset((m['x'] as num).toDouble(), (m['y'] as num).toDouble()),
         color: Colors.purple,
         data: card,
       ));
     }
-  }
 
-  // ─── 添加图形节点 ──────────────────────────────────────────
-
-  void _addShapeNode(String shapeType) {
-    final id = DateTime.now().millisecondsSinceEpoch.toString();
-    final random = Random();
-    final pos = Offset(
-      100 + random.nextDouble() * 400,
-      100 + random.nextDouble() * 300,
-    );
-    setState(() {
-      _nodes.add(ClueNode(
-        id: id,
-        label: shapeType == 'rect' ? '矩形' : (shapeType == 'circle' ? '圆形' : '箭头'),
-        type: 'shape',
-        shapeType: shapeType,
-        position: pos,
-        width: shapeType == 'arrow' ? 80 : 100,
-        height: shapeType == 'arrow' ? 30 : 80,
-        color: Colors.grey.shade400,
+    for (final m in textMaps) {
+      final content = m['content'] as String? ?? '';
+      loadedNodes.add(ClueNode(
+        id: m['id'] as String,
+        label: content.length > 15 ? '${content.substring(0, 15)}...' : content,
+        type: 'text',
+        position: Offset((m['x'] as num).toDouble(), (m['y'] as num).toDouble()),
+        color: Colors.green.shade300,
+        textContent: content,
       ));
+    }
+
+    final loadedEdges = edgeMaps.map((m) => ClueEdge(
+      id: m['id'] as String,
+      sourceId: m['sourceNodeId'] as String,
+      targetId: m['targetNodeId'] as String,
+    )).toList();
+
+    final loadedCardCount = loadedNodes.where((n) => n.type == 'card').length;
+    final hasOrphan = nodeMaps.length != loadedCardCount;
+
+    if (hasOrphan) {
+      final validNodeIds = loadedNodes.map((n) => n.id).toSet();
+      final filteredEdges = loadedEdges
+          .where((e) => validNodeIds.contains(e.sourceId) && validNodeIds.contains(e.targetId))
+          .toList();
+      await _db.replaceBoardNodes(
+        widget.viewId,
+        loadedNodes.where((n) => n.type == 'card').map((n) => _nodeToMap(n, widget.viewId)).toList(),
+      );
+      await _db.replaceBoardEdges(
+        widget.viewId,
+        filteredEdges.map((e) => _edgeToMap(e, widget.viewId)).toList(),
+      );
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _nodes = loadedNodes;
+      _edges.clear();
+      _edges.addAll(loadedEdges);
     });
   }
 
-  // ─── ✅ 添加文字节点 ──────────────────────────────────────────
+  @override
+  void didUpdateWidget(covariant ClueBoard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldIds = oldWidget.cards.map((c) => c.id).toSet();
+    final newIds = widget.cards.map((c) => c.id).toSet();
+    if (!setEquals(oldIds, newIds)) {
+      _cleanOrphanNodes();
+    }
+  }
+
+  void _cleanOrphanNodes() {
+    final validCardIds = widget.cards.map((c) => c.id).toSet();
+    final removed = <String>[];
+    final survivors = <ClueNode>[];
+    for (final n in _nodes) {
+      if (n.type == 'card' && n.data is CardModel) {
+        if (!validCardIds.contains((n.data as CardModel).id)) {
+          removed.add(n.id);
+          continue;
+        }
+      }
+      survivors.add(n);
+    }
+    if (removed.isEmpty) return;
+    setState(() {
+      _nodes = survivors;
+      _edges.removeWhere((e) => removed.contains(e.sourceId) || removed.contains(e.targetId));
+    });
+    _scheduleSave();
+  }
+
+  void _scheduleSave() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 500), () {
+      _flushToDbWith(widget.viewId, widget.cards.map((c) => c.id).toSet());
+    });
+  }
+
+  Future<void> _flushToDbWith(String viewId, Set<String> validCardIds) async {
+    final validNodes = _nodes.where((n) {
+      if (n.type == 'card' && n.data is CardModel) {
+        return validCardIds.contains((n.data as CardModel).id);
+      }
+      return true;
+    }).toList();
+
+    final cardNodes = validNodes.where((n) => n.type == 'card').toList();
+    final textNodes = validNodes.where((n) => n.type == 'text').toList();
+    final validNodeIds = validNodes.map((n) => n.id).toSet();
+    final validEdges = _edges
+        .where((e) => validNodeIds.contains(e.sourceId) && validNodeIds.contains(e.targetId))
+        .toList();
+
+    await _db.replaceBoardNodes(viewId, cardNodes.map((n) => _nodeToMap(n, viewId)).toList());
+    await _db.replaceBoardEdges(viewId, validEdges.map((e) => _edgeToMap(e, viewId)).toList());
+    await _db.replaceBoardTexts(viewId, textNodes.map((n) => _nodeToMap(n, viewId)).toList());
+  }
+
+  Map<String, dynamic> _nodeToMap(ClueNode n, String viewId) {
+    if (n.type == 'text') {
+      return {
+        'id': n.id,
+        'viewId': viewId,
+        'x': n.position.dx,
+        'y': n.position.dy,
+        'content': n.textContent ?? n.label,
+      };
+    }
+    return {
+      'id': n.id,
+      'viewId': viewId,
+      'cardId': n.data is CardModel ? (n.data as CardModel).id : null,
+      'x': n.position.dx,
+      'y': n.position.dy,
+      'zIndex': 0,
+    };
+  }
+
+  Map<String, dynamic> _edgeToMap(ClueEdge e, String viewId) => {
+    'id': e.id,
+    'viewId': viewId,
+    'sourceNodeId': e.sourceId,
+    'targetNodeId': e.targetId,
+  };
+
+  @override
+  void dispose() {
+    _saveDebounce?.cancel();
+    final viewId = widget.viewId;
+    final validCardIds = widget.cards.map((c) => c.id).toSet();
+    _flushToDbWith(viewId, validCardIds);
+    super.dispose();
+  }
 
   void _addTextNode() {
     final id = DateTime.now().millisecondsSinceEpoch.toString();
     final random = Random();
-    final pos = Offset(
-      100 + random.nextDouble() * 400,
-      100 + random.nextDouble() * 300,
-    );
+    final pos = Offset(100 + random.nextDouble() * 400, 100 + random.nextDouble() * 300);
     setState(() {
       _nodes.add(ClueNode(
         id: id,
@@ -198,16 +284,13 @@ class _ClueBoardState extends State<ClueBoard> {
         textContent: '双击编辑文字',
       ));
     });
-    // 选中新添加的文字节点，方便编辑
     _selectedNodeId = id;
+    _scheduleSave();
   }
-
-  // ─── 编辑文字内容 ──────────────────────────────────────────
 
   void _editTextNode(String nodeId) {
     final node = _nodes.firstWhere((n) => n.id == nodeId);
     final controller = TextEditingController(text: node.textContent ?? node.label);
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -215,17 +298,11 @@ class _ClueBoardState extends State<ClueBoard> {
         content: TextField(
           controller: controller,
           maxLines: 3,
-          decoration: const InputDecoration(
-            hintText: '输入文字内容...',
-            border: OutlineInputBorder(),
-          ),
+          decoration: const InputDecoration(hintText: '输入文字内容...', border: OutlineInputBorder()),
           autofocus: true,
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
           ElevatedButton(
             onPressed: () {
               final newText = controller.text.trim();
@@ -239,6 +316,7 @@ class _ClueBoardState extends State<ClueBoard> {
                     );
                   }
                 });
+                _scheduleSave();
               }
               Navigator.pop(context);
             },
@@ -249,73 +327,59 @@ class _ClueBoardState extends State<ClueBoard> {
     );
   }
 
-  // ─── 连线操作 ──────────────────────────────────────────────
-
   void _startLine(String nodeId) {
     setState(() {
       if (_lineStartId == null) {
         _lineStartId = nodeId;
         _selectedNodeId = nodeId;
       } else {
-        // 完成连线
         final sourceId = _lineStartId!;
         final targetId = nodeId;
         if (sourceId != targetId) {
-          final edge = ClueEdge(
+          _edges.add(ClueEdge(
             id: DateTime.now().millisecondsSinceEpoch.toString(),
             sourceId: sourceId,
             targetId: targetId,
-          );
-          _edges.add(edge);
+          ));
         }
         _lineStartId = null;
         _selectedNodeId = null;
       }
     });
+    _scheduleSave();
   }
-
-  // ─── 删除节点/连线 ──────────────────────────────────────────
 
   void _deleteSelected() {
     if (_selectedNodeId == null) return;
+    final deleting = _selectedNodeId!;
     setState(() {
-      _nodes.removeWhere((n) => n.id == _selectedNodeId);
-      _edges.removeWhere((e) => e.sourceId == _selectedNodeId || e.targetId == _selectedNodeId);
+      _nodes.removeWhere((n) => n.id == deleting);
+      _edges.removeWhere((e) => e.sourceId == deleting || e.targetId == deleting);
+      if (_lineStartId == deleting) _lineStartId = null;
       _selectedNodeId = null;
-      if (_lineStartId == _selectedNodeId) _lineStartId = null;
     });
+    _scheduleSave();
   }
-
-  // ─── 拖拽节点 ──────────────────────────────────────────────
 
   void _onPanStart(DragStartDetails details, String id) {
+    setState(() { _selectedNodeId = id; _isDragging = true; });
+  }
+
+  void _onPanUpdate(DragUpdateDetails details, String id) {
     setState(() {
-      _selectedNodeId = id;
-      _isDragging = true;
+      final index = _nodes.indexWhere((n) => n.id == id);
+      if (index != -1) {
+        final oldNode = _nodes[index];
+        _nodes[index] = oldNode.copyWith(position: oldNode.position + details.delta);
+        _nodes = List.from(_nodes);
+      }
     });
   }
 
- void _onPanUpdate(DragUpdateDetails details, String id) {
-  setState(() {
-    final index = _nodes.indexWhere((n) => n.id == id);
-    if (index != -1) {
-      final oldNode = _nodes[index];
-      final newNode = oldNode.copyWith(
-        position: oldNode.position + details.delta,
-      );
-      _nodes[index] = newNode;
-      // ✅ 关键：重新赋值引用，触发重绘
-      _nodes = List.from(_nodes);
-    }
-  });
-}
   void _onPanEnd(DragEndDetails details, String id) {
-    setState(() {
-      _isDragging = false;
-    });
+    setState(() => _isDragging = false);
+    _scheduleSave();
   }
-
-  // ─── UI ──────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -328,9 +392,7 @@ class _ClueBoardState extends State<ClueBoard> {
           Expanded(
             child: Row(
               children: [
-                Expanded(
-                  child: _buildBoard(),
-                ),
+                Expanded(child: _buildBoard()),
                 const VerticalDivider(width: 1),
                 _buildMaterialPanel(),
               ],
@@ -341,92 +403,52 @@ class _ClueBoardState extends State<ClueBoard> {
     );
   }
 
-  // ─── 顶部工具栏 ─────────────────────────────────────────────
-
   Widget _buildToolbar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       color: Colors.white,
       child: Row(
         children: [
-          // 选择
           IconButton(
             icon: Icon(Icons.select_all, color: _drawMode == DrawMode.select ? Colors.blue : null),
             onPressed: () => setState(() => _drawMode = DrawMode.select),
             tooltip: '选择',
           ),
           const SizedBox(width: 2),
-          // 连线
           IconButton(
             icon: Icon(Icons.timeline, color: _drawMode == DrawMode.line ? Colors.blue : null),
-            onPressed: () => setState(() {
-              _drawMode = DrawMode.line;
-              _lineStartId = null;
-            }),
+            onPressed: () => setState(() { _drawMode = DrawMode.line; _lineStartId = null; }),
             tooltip: '连线模式',
           ),
           const SizedBox(width: 2),
-          // 箭头
-          IconButton(
-            icon: Icon(Icons.text_fields, color: _drawMode == DrawMode.arrow ? Colors.blue : null),
-            onPressed: () => setState(() {
-              _drawMode = DrawMode.arrow;
-              _addShapeNode('arrow');
-            }),
-            tooltip: '箭头',
-          ),
-          // 矩形
-          IconButton(
-            icon: Icon(Icons.crop_square, color: _drawMode == DrawMode.rect ? Colors.blue : null),
-            onPressed: () => setState(() {
-              _drawMode = DrawMode.rect;
-              _addShapeNode('rect');
-            }),
-            tooltip: '矩形',
-          ),
-          // 圆形
-          IconButton(
-            icon: Icon(Icons.circle_outlined, color: _drawMode == DrawMode.circle ? Colors.blue : null),
-            onPressed: () => setState(() {
-              _drawMode = DrawMode.circle;
-              _addShapeNode('circle');
-            }),
-            tooltip: '圆形',
-          ),
-          // ✅ 文字
           IconButton(
             icon: Icon(Icons.title, color: _drawMode == DrawMode.text ? Colors.blue : null),
-            onPressed: () => setState(() {
-              _drawMode = DrawMode.text;
-              _addTextNode();
-            }),
+            onPressed: () => setState(() { _drawMode = DrawMode.text; _addTextNode(); }),
             tooltip: '添加文字',
           ),
           const Spacer(),
-          // 删除
           IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.red),
             onPressed: _deleteSelected,
             tooltip: '删除选中',
           ),
-          // 重置
           IconButton(
             icon: const Icon(Icons.clear_all),
-            onPressed: () => setState(() {
-              _nodes.clear();
-              _edges.clear();
-              _lineStartId = null;
-              _selectedNodeId = null;
-              _initNodes();
-            }),
+            onPressed: () {
+              setState(() {
+                _nodes.clear();
+                _edges.clear();
+                _lineStartId = null;
+                _selectedNodeId = null;
+              });
+              _scheduleSave();
+            },
             tooltip: '重置',
           ),
         ],
       ),
     );
   }
-
-  // ─── 画板 ──────────────────────────────────────────────────
 
   Widget _buildBoard() {
     return GestureDetector(
@@ -457,10 +479,7 @@ class _ClueBoardState extends State<ClueBoard> {
                   onPanUpdate: (details) => _onPanUpdate(details, node.id),
                   onPanEnd: (details) => _onPanEnd(details, node.id),
                   onDoubleTap: () {
-                    // ✅ 双击文字节点可编辑
-                    if (node.type == 'text') {
-                      _editTextNode(node.id);
-                    }
+                    if (node.type == 'text') _editTextNode(node.id);
                   },
                   onTap: () {
                     if (_drawMode == DrawMode.line) {
@@ -483,7 +502,6 @@ class _ClueBoardState extends State<ClueBoard> {
     final isSelected = _selectedNodeId == node.id;
     final isLineStart = _lineStartId == node.id;
 
-    // ─── 文字节点 ──────────────────────────────────────────
     if (node.type == 'text') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -495,11 +513,7 @@ class _ClueBoardState extends State<ClueBoard> {
             width: isSelected ? 2 : 1,
           ),
           boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 2)),
           ],
         ),
         child: Text(
@@ -514,14 +528,7 @@ class _ClueBoardState extends State<ClueBoard> {
       );
     }
 
-    // ─── 图形节点 ──────────────────────────────────────────
-    if (node.type == 'shape') {
-      return _buildShapeWidget(node, isSelected);
-    }
-
-    // ─── 笔记或卡片 ──────────────────────────────────────────
-    final isNote = node.type == 'note';
-    final color = isNote ? Colors.blue : Colors.purple;
+    final color = Colors.purple;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -532,11 +539,7 @@ class _ClueBoardState extends State<ClueBoard> {
           width: isSelected ? 2 : 1.5,
         ),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 8, offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
@@ -544,22 +547,14 @@ class _ClueBoardState extends State<ClueBoard> {
         children: [
           Text(
             node.label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: color.shade700,
-            ),
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color.shade700),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          if (node.type == 'card' && node.data is CardModel)
+          if (node.data is CardModel)
             Text(
               (node.data as CardModel).highlight ?? '',
-              style: TextStyle(
-                fontSize: 9,
-                color: Colors.grey.shade600,
-                fontStyle: FontStyle.italic,
-              ),
+              style: TextStyle(fontSize: 9, color: Colors.grey.shade600, fontStyle: FontStyle.italic),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -567,44 +562,6 @@ class _ClueBoardState extends State<ClueBoard> {
       ),
     );
   }
-
-  Widget _buildShapeWidget(ClueNode node, bool isSelected) {
-    final color = isSelected ? Colors.blue : Colors.grey.shade400;
-    final size = node.width;
-
-    Widget child;
-    if (node.shapeType == 'rect') {
-      child = Container(
-        width: size,
-        height: size * 0.6,
-        decoration: BoxDecoration(
-          border: Border.all(color: color, width: 2),
-          borderRadius: BorderRadius.circular(4),
-          color: isSelected ? Colors.blue.shade50 : Colors.transparent,
-        ),
-      );
-    } else if (node.shapeType == 'circle') {
-      child = Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: color, width: 2),
-          color: isSelected ? Colors.blue.shade50 : Colors.transparent,
-        ),
-      );
-    } else {
-      // arrow
-      child = CustomPaint(
-        painter: _ArrowPainter(color: color),
-        size: Size(size, size * 0.4),
-      );
-    }
-
-    return child;
-  }
-
-  // ─── 素材面板 ──────────────────────────────────────────────
 
   Widget _buildMaterialPanel() {
     return Container(
@@ -614,9 +571,7 @@ class _ClueBoardState extends State<ClueBoard> {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-            ),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
             child: Row(
               children: [
                 const Text('📚 素材库', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
@@ -649,6 +604,7 @@ class _ClueBoardState extends State<ClueBoard> {
                         data: card,
                       ));
                     });
+                    _scheduleSave();
                   },
                 );
               },
@@ -656,20 +612,12 @@ class _ClueBoardState extends State<ClueBoard> {
           ),
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              border: Border(top: BorderSide(color: Colors.grey.shade200)),
-            ),
+            decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.shade200))),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '💡 点击卡片添加到画布',
-                  style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                ),
-                Text(
-                  '双击编辑文字',
-                  style: TextStyle(fontSize: 9, color: Colors.green.shade600),
-                ),
+                Text('💡 点击卡片添加到画布', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                Text('双击编辑文字', style: TextStyle(fontSize: 9, color: Colors.green.shade600)),
               ],
             ),
           ),
@@ -679,8 +627,7 @@ class _ClueBoardState extends State<ClueBoard> {
   }
 }
 
-// ─── 自定义绘制器 ──────────────────────────────────────────
-
+// ─── 绘制器 ──────────────────────────────────────────────
 class _ClueBoardPainter extends CustomPainter {
   final List<ClueNode> nodes;
   final List<ClueEdge> edges;
@@ -689,81 +636,41 @@ class _ClueBoardPainter extends CustomPainter {
   final DrawMode mode;
 
   _ClueBoardPainter({
-    required this.nodes,
-    required this.edges,
-    this.selectedId,
-    this.lineStartId,
-    required this.mode,
+    required this.nodes, required this.edges,
+    this.selectedId, this.lineStartId, required this.mode,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 绘制连线
     final paint = Paint()
       ..color = Colors.grey.shade400
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
-
     final selectedPaint = Paint()
       ..color = Colors.blue.shade400
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke;
 
     for (var edge in edges) {
+      if (nodes.isEmpty) break;
       final source = nodes.firstWhere((n) => n.id == edge.sourceId, orElse: () => nodes.first);
       final target = nodes.firstWhere((n) => n.id == edge.targetId, orElse: () => nodes.first);
       final isSelected = selectedId == edge.sourceId || selectedId == edge.targetId;
-      canvas.drawLine(
-        source.position,
-        target.position,
-        isSelected ? selectedPaint : paint,
-      );
+      canvas.drawLine(source.position, target.position, isSelected ? selectedPaint : paint);
     }
 
-    // 如果处于连线模式且有起始节点，绘制临时连线
-    if (mode == DrawMode.line && lineStartId != null) {
+    if (mode == DrawMode.line && lineStartId != null && nodes.isNotEmpty) {
       final startNode = nodes.firstWhere((n) => n.id == lineStartId, orElse: () => nodes.first);
-      final pos = startNode.position;
-      final dotPaint = Paint()
-        ..color = Colors.green
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(pos, 6, dotPaint);
+      canvas.drawCircle(startNode.position, 6, Paint()..color = Colors.green..style = PaintingStyle.fill);
     }
   }
 
- @override
-bool shouldRepaint(_ClueBoardPainter oldDelegate) {
-  if (oldDelegate.nodes != nodes) return true;
-  if (oldDelegate.edges != edges) return true;
-  if (oldDelegate.selectedId != selectedId) return true;
-  if (oldDelegate.lineStartId != lineStartId) return true;
-  return false;
-}
-}
-
-// ─── 箭头绘制器 ─────────────────────────────────────────────
-
-class _ArrowPainter extends CustomPainter {
-  final Color color;
-
-  _ArrowPainter({required this.color});
-
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-
-    final path = Path();
-    path.moveTo(0, size.height / 2);
-    path.lineTo(size.width * 0.7, size.height / 2);
-    path.lineTo(size.width * 0.5, size.height * 0.25);
-    path.moveTo(size.width * 0.7, size.height / 2);
-    path.lineTo(size.width * 0.5, size.height * 0.75);
-    canvas.drawPath(path, paint);
+  bool shouldRepaint(_ClueBoardPainter oldDelegate) {
+    if (oldDelegate.nodes != nodes) return true;
+    if (oldDelegate.edges != edges) return true;
+    if (oldDelegate.selectedId != selectedId) return true;
+    if (oldDelegate.lineStartId != lineStartId) return true;
+    return false;
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

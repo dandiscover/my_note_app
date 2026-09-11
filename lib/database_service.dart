@@ -1,8 +1,7 @@
 // lib/database_service.dart
 // 数据层 — 统一字段标准：代码层驼峰，数据库层下划线
-// ✅ 数据库版本 13 → 14：新增 pdf_drawings 表
-// ✅ 新增：savePdfDrawing / getPdfDrawingsByBook / deletePdfDrawingsByBook
-// ✅ 修正：pdf_drawings 表列名改为下划线（book_id / created_at）
+// ✅ 数据库版本 14 → 15：新增 5 张线索墙表
+// ✅ 新增 8 个 CRUD 方法（只走 Map，不 import 模型）
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -36,12 +35,9 @@ class DatabaseService {
 
   static Future<void> _clearLegacyExploreTasks() async {
     final prefs = await SharedPreferences.getInstance();
-
     final tasksJson = prefs.getStringList('tasks') ?? [];
-
     final exploreTaskIds = <String>[];
     final remainingTasks = <String>[];
-
     for (var json in tasksJson) {
       try {
         final map = jsonDecode(json) as Map<String, dynamic>;
@@ -54,9 +50,7 @@ class DatabaseService {
         remainingTasks.add(json);
       }
     }
-
     await prefs.setStringList('tasks', remainingTasks);
-
     if (exploreTaskIds.isNotEmpty) {
       final subtasksJson = prefs.getStringList('subtasks') ?? [];
       final remainingSubtasks = subtasksJson.where((json) {
@@ -76,54 +70,40 @@ class DatabaseService {
     final prefs = await SharedPreferences.getInstance();
     final migrated = prefs.getBool('explore_notes_migrated') ?? false;
     if (migrated) return;
-
     try {
       final allNotes = await _getAllNotesInternal(includeDeleted: true);
-
       bool anyMigrated = false;
       for (var note in allNotes) {
-        if (note.containsKey('exploreTasks') && note['exploreTasks'] != null && note['exploreTasks'].isNotEmpty) {
-          continue;
-        }
-
+        if (note.containsKey('exploreTasks') && note['exploreTasks'] != null && note['exploreTasks'].isNotEmpty) continue;
         final sessions = note['scaffoldSessions'] ?? note['scaffold_sessions'];
         final subtasks = note['subtasks'] ?? note['subtasks'];
-
         final hasSessions = sessions != null && sessions.isNotEmpty;
         final hasSubtasks = subtasks != null && subtasks.isNotEmpty;
         if (!hasSessions && !hasSubtasks) continue;
-
         List<Map<String, dynamic>> parsedSessions = [];
         if (sessions is String && sessions.isNotEmpty) {
           try {
             final decoded = jsonDecode(sessions);
-            if (decoded is List) {
-              parsedSessions = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-            }
+            if (decoded is List) parsedSessions = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
           } catch (_) {}
         } else if (sessions is List) {
           parsedSessions = sessions.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         }
-
         List<NoteSubtask> parsedSubtasks = [];
         if (subtasks is String && subtasks.isNotEmpty) {
           try {
             final decoded = jsonDecode(subtasks);
-            if (decoded is List) {
-              parsedSubtasks = decoded.map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>)).toList();
-            }
+            if (decoded is List) parsedSubtasks = decoded.map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>)).toList();
           } catch (_) {}
         } else if (subtasks is List) {
           parsedSubtasks = subtasks.map((e) => NoteSubtask.fromMap(e as Map<String, dynamic>)).toList();
         }
-
         if (parsedSubtasks.isEmpty) {
           note.remove('scaffoldSessions');
           note.remove('scaffold_sessions');
           note.remove('subtasks');
           continue;
         }
-
         final task = ExploreTask(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           scaffoldCardType: 'minimal_step',
@@ -133,14 +113,12 @@ class DatabaseService {
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
         );
-
         note['exploreTasks'] = [task.toJson()];
         note.remove('scaffoldSessions');
         note.remove('scaffold_sessions');
         note.remove('subtasks');
         anyMigrated = true;
       }
-
       if (anyMigrated) {
         await _saveNotes(allNotes);
         await prefs.setBool('explore_notes_migrated', true);
@@ -153,10 +131,7 @@ class DatabaseService {
     }
   }
 
-  // ============================================================
-  // 节点 CRUD
-  // ============================================================
-
+  // ─── 节点 CRUD ──────────────────────────────────────────
   Future<void> insertNode(Map<String, dynamic> nodeMap) async {
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
@@ -188,31 +163,23 @@ class DatabaseService {
     }
   }
 
-  Map<String, dynamic> _mapNodeDbRowToCamel(Map<String, dynamic> row) {
-    return {
-      'id': row['id'],
-      'title': row['title'],
-      'parentId': row['parent_id'],
-      'isFolder': row['is_folder'],
-      'nodeType': row['node_type'],
-      'targetId': row['target_id'],
-      'sortOrder': row['sort_order'],
-      'tags': row['tags'],
-      'createdAt': row['created_at'],
-      'updatedAt': row['updated_at'],
-    };
-  }
+  Map<String, dynamic> _mapNodeDbRowToCamel(Map<String, dynamic> row) => {
+    'id': row['id'],
+    'title': row['title'],
+    'parentId': row['parent_id'],
+    'isFolder': row['is_folder'],
+    'nodeType': row['node_type'],
+    'targetId': row['target_id'],
+    'sortOrder': row['sort_order'],
+    'tags': row['tags'],
+    'createdAt': row['created_at'],
+    'updatedAt': row['updated_at'],
+  };
 
   Map<String, dynamic> _cleanNodeMap(Map<String, dynamic> map) {
     final cleaned = Map<String, dynamic>.from(map);
-
-    if (cleaned['parentId'] == '' || cleaned['parentId'] == 'null') {
-      cleaned['parentId'] = null;
-    }
-    if (cleaned['targetId'] == '' || cleaned['targetId'] == 'null') {
-      cleaned['targetId'] = null;
-    }
-
+    if (cleaned['parentId'] == '' || cleaned['parentId'] == 'null') cleaned['parentId'] = null;
+    if (cleaned['targetId'] == '' || cleaned['targetId'] == 'null') cleaned['targetId'] = null;
     final tagsRaw = cleaned['tags'];
     if (tagsRaw is String) {
       cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
@@ -221,20 +188,16 @@ class DatabaseService {
     } else {
       cleaned['tags'] = [];
     }
-
     return cleaned;
   }
 
   Map<String, dynamic> _prepareNodeForDb(Map<String, dynamic> map) {
     final tags = map['tags'];
     final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
-
     final parentId = map['parentId'];
     final cleanedParentId = (parentId == '' || parentId == 'null') ? null : parentId;
-
     final targetId = map['targetId'];
     final cleanedTargetId = (targetId == '' || targetId == 'null') ? null : targetId;
-
     return {
       'id': map['id'],
       'title': map['title'],
@@ -280,23 +243,16 @@ class DatabaseService {
   Future<void> deleteNode(String id) async {
     final maps = await _getAllNodesInternal();
     final idsToDelete = <String>{id};
-
     final allNodes = maps.map((n) => Node.fromMap(n)).toList();
     void collectChildren(String parentId) {
       final children = allNodes.where((n) => n.parentId == parentId).toList();
       for (var child in children) {
         idsToDelete.add(child.id);
-        if (child.isFolder) {
-          collectChildren(child.id);
-        }
+        if (child.isFolder) collectChildren(child.id);
       }
     }
-
     final node = allNodes.firstWhere((n) => n.id == id);
-    if (node.isFolder) {
-      collectChildren(id);
-    }
-
+    if (node.isFolder) collectChildren(id);
     maps.removeWhere((n) => idsToDelete.contains(n['id']));
     await _saveNodes(maps);
   }
@@ -304,10 +260,7 @@ class DatabaseService {
   Future<void> moveNode(String nodeId, String? newParentId) async {
     final node = await getNode(nodeId);
     if (node == null) return;
-    final updated = node.copyWith(
-      parentId: newParentId,
-      updatedAt: DateTime.now(),
-    );
+    final updated = node.copyWith(parentId: newParentId, updatedAt: DateTime.now());
     await updateNode(updated);
   }
 
@@ -327,9 +280,7 @@ class DatabaseService {
     final maps = await _getAllNodesInternal();
     for (int i = 0; i < nodeIds.length; i++) {
       final index = maps.indexWhere((n) => n['id'] == nodeIds[i]);
-      if (index != -1) {
-        maps[index]['sortOrder'] = i;
-      }
+      if (index != -1) maps[index]['sortOrder'] = i;
     }
     await _saveNodes(maps);
   }
@@ -338,101 +289,59 @@ class DatabaseService {
     final all = await getAllNodes();
     final List<Node> ancestors = [];
     String? currentId = nodeId;
-
     while (currentId != null) {
       final node = all.firstWhere((n) => n.id == currentId);
       ancestors.insert(0, node);
       currentId = node.parentId;
     }
-
     return ancestors;
   }
 
-  Future<List<Node>> getPathToNode(String nodeId) async {
-    return getAncestors(nodeId);
-  }
+  Future<List<Node>> getPathToNode(String nodeId) async => getAncestors(nodeId);
 
   Future<List<Map<String, dynamic>>> searchNodes(String keyword) async {
     if (keyword.trim().isEmpty) return [];
-
     final all = await getAllNodes();
     final lowerKeyword = keyword.trim().toLowerCase();
-
     final matchedNodes = all.where((node) {
       if (node.title.toLowerCase().contains(lowerKeyword)) return true;
       if (node.tags.any((t) => t.toLowerCase().contains(lowerKeyword))) return true;
       return false;
     }).toList();
-
     final results = <Map<String, dynamic>>[];
     for (var node in matchedNodes) {
       final path = await getAncestors(node.id);
       final pathNames = path.map((n) => n.title).join(' / ');
-      results.add({
-        'node': node,
-        'path': pathNames,
-      });
+      results.add({'node': node, 'path': pathNames});
     }
-
     return results;
   }
 
-  Future<Node> createFolder({
-    required String title,
-    String? parentId,
-    List<String> tags = const [],
-  }) async {
+  Future<Node> createFolder({required String title, String? parentId, List<String> tags = const []}) async {
     final node = Node(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: title,
-      parentId: parentId,
-      isFolder: true,
-      nodeType: 'folder',
-      tags: tags,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+      title: title, parentId: parentId, isFolder: true, nodeType: 'folder',
+      tags: tags, createdAt: DateTime.now(), updatedAt: DateTime.now(),
     );
     await insertNode(node.toMap());
     return node;
   }
 
-  Future<Node> attachNoteToNode({
-    required String noteId,
-    required String title,
-    String? parentId,
-    List<String> tags = const [],
-  }) async {
+  Future<Node> attachNoteToNode({required String noteId, required String title, String? parentId, List<String> tags = const []}) async {
     final node = Node(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: title,
-      parentId: parentId,
-      isFolder: false,
-      nodeType: 'note',
-      targetId: noteId,
-      tags: tags,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+      title: title, parentId: parentId, isFolder: false, nodeType: 'note',
+      targetId: noteId, tags: tags, createdAt: DateTime.now(), updatedAt: DateTime.now(),
     );
     await insertNode(node.toMap());
     return node;
   }
 
-  Future<Node> attachBookToNode({
-    required String bookId,
-    required String title,
-    String? parentId,
-    List<String> tags = const [],
-  }) async {
+  Future<Node> attachBookToNode({required String bookId, required String title, String? parentId, List<String> tags = const []}) async {
     final node = Node(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: title,
-      parentId: parentId,
-      isFolder: false,
-      nodeType: 'book',
-      targetId: bookId,
-      tags: tags,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+      title: title, parentId: parentId, isFolder: false, nodeType: 'book',
+      targetId: bookId, tags: tags, createdAt: DateTime.now(), updatedAt: DateTime.now(),
     );
     await insertNode(node.toMap());
     return node;
@@ -474,21 +383,15 @@ class DatabaseService {
     } else {
       final db = await _getDatabase();
       await db.delete('nodes');
-      for (var node in nodes) {
-        await db.insert('nodes', _prepareNodeForDb(node));
-      }
+      for (var node in nodes) await db.insert('nodes', _prepareNodeForDb(node));
     }
   }
 
-  // ============================================================
-  // 笔记 CRUD
-  // ============================================================
-
+  // ─── 笔记 CRUD ──────────────────────────────────────────
   Future<void> insertNote(Map<String, dynamic> noteMap) async {
     if (!noteMap.containsKey('status')) noteMap['status'] = 'raw';
     if (!noteMap.containsKey('editorMode')) noteMap['editorMode'] = 'plain';
     if (!noteMap.containsKey('isLocked')) noteMap['isLocked'] = 0;
-
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
       final notes = await _getAllNotesInternal(includeDeleted: false);
@@ -500,9 +403,7 @@ class DatabaseService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAllNotes({bool includeDeleted = false}) async {
-    return _getAllNotesInternal(includeDeleted: includeDeleted);
-  }
+  Future<List<Map<String, dynamic>>> getAllNotes({bool includeDeleted = false}) async => _getAllNotesInternal(includeDeleted: includeDeleted);
 
   Future<List<Map<String, dynamic>>> _getAllNotesInternal({bool includeDeleted = false}) async {
     if (_isWeb) {
@@ -511,19 +412,16 @@ class DatabaseService {
       if (data == null || data.isEmpty) return [];
       final List<dynamic> list = jsonDecode(data);
       final allNotes = list.map((e) => _cleanNoteMap(Map<String, dynamic>.from(e))).toList();
-
       for (var note in allNotes) {
         if (!note.containsKey('inquiryQuestion')) note['inquiryQuestion'] = null;
         if (!note.containsKey('newUnderstanding')) note['newUnderstanding'] = null;
         if (!note.containsKey('exploreTasks')) note['exploreTasks'] = [];
       }
-
       if (includeDeleted) return allNotes;
       return allNotes.where((n) => n['status'] != 'deleted').toList();
     } else {
       final db = await _getDatabase();
       final rows = await db.query('notes', orderBy: 'updatedAt DESC');
-
       final allNotes = rows.map((row) {
         final mapped = Map<String, dynamic>.from(row);
         mapped['inquiryQuestion'] = mapped['inquiry_question'];
@@ -533,7 +431,6 @@ class DatabaseService {
         mapped['subtasks'] = mapped['subtasks'];
         return _cleanNoteMap(mapped);
       }).toList();
-
       if (includeDeleted) return allNotes;
       return allNotes.where((n) => n['status'] != 'deleted').toList();
     }
@@ -541,7 +438,6 @@ class DatabaseService {
 
   Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
     final cleaned = Map<String, dynamic>.from(map);
-
     final tagsRaw = cleaned['tags'];
     if (tagsRaw is String) {
       cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
@@ -550,35 +446,27 @@ class DatabaseService {
     } else {
       cleaned['tags'] = [];
     }
-
     final tasksRaw = cleaned['exploreTasks'];
     if (tasksRaw is String && tasksRaw.isNotEmpty) {
       try {
         final decoded = jsonDecode(tasksRaw);
-        cleaned['exploreTasks'] = (decoded as List)
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        cleaned['exploreTasks'] = (decoded as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
       } catch (_) {
         cleaned['exploreTasks'] = [];
       }
     } else if (tasksRaw is List) {
-      cleaned['exploreTasks'] = (tasksRaw as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+      cleaned['exploreTasks'] = (tasksRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } else {
       cleaned['exploreTasks'] = [];
     }
-
     cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
     cleaned['newUnderstanding'] = cleaned['newUnderstanding'] as String?;
-
     return cleaned;
   }
 
   Map<String, dynamic> _prepareNoteForDb(Map<String, dynamic> map) {
     final tags = map['tags'];
     final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
-
     final tasks = map['exploreTasks'];
     final tasksStr = tasks is List && tasks.isNotEmpty
         ? jsonEncode(tasks.map((e) {
@@ -587,7 +475,6 @@ class DatabaseService {
             return e;
           }).toList())
         : '[]';
-
     return {
       'id': map['id'],
       'title': map['title'] ?? '',
@@ -635,42 +522,31 @@ class DatabaseService {
 
   Future<void> _moveNoteToArchived(String noteId) async {
     final folderId = await ensureArchivedFolder();
-
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final noteIndex = notes.indexWhere((n) => n['id'] == noteId);
     if (noteIndex == -1) return;
-
     final nodes = await _getAllNodesInternal();
     final nodeIndex = nodes.indexWhere((n) => n['targetId'] == noteId);
-
     notes[noteIndex]['status'] = 'archived';
     notes[noteIndex]['updatedAt'] = DateTime.now().toIso8601String();
-
     if (nodeIndex != -1) {
       nodes[nodeIndex]['parentId'] = folderId;
     } else {
       final note = NotebookEntry.fromMap(notes[noteIndex]);
       nodes.add({
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'title': note.title,
-        'parentId': folderId,
-        'isFolder': 0,
-        'nodeType': 'note',
-        'targetId': noteId,
-        'sortOrder': 0,
+        'title': note.title, 'parentId': folderId, 'isFolder': 0,
+        'nodeType': 'note', 'targetId': noteId, 'sortOrder': 0,
         'tags': note.tags,
         'createdAt': DateTime.now().toIso8601String(),
         'updatedAt': DateTime.now().toIso8601String(),
       });
     }
-
     await _saveNotes(notes);
     await _saveNodes(nodes);
   }
 
-  Future<void> archiveNote(String id) async {
-    await _moveNoteToArchived(id);
-  }
+  Future<void> archiveNote(String id) async => _moveNoteToArchived(id);
 
   Future<void> unarchiveNote(String id) async {
     final notes = await _getAllNotesInternal(includeDeleted: false);
@@ -718,10 +594,7 @@ class DatabaseService {
     }
   }
 
-  // ============================================================
-  // 图书 CRUD
-  // ============================================================
-
+  // ─── 图书 CRUD ──────────────────────────────────────────
   Future<void> insertBook(Map<String, dynamic> bookMap) async {
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
@@ -751,17 +624,11 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getBook(String id) async {
     if (_isWeb) {
       final books = await getAllBooks();
-      try {
-        return books.firstWhere((b) => b['id'] == id);
-      } catch (_) {
-        return null;
-      }
+      try { return books.firstWhere((b) => b['id'] == id); } catch (_) { return null; }
     } else {
       final db = await _getDatabase();
       final result = await db.query('books', where: 'id = ?', whereArgs: [id]);
-      if (result.isNotEmpty) {
-        return _cleanBookMap(_mapBookDbRowToCamel(result.first));
-      }
+      if (result.isNotEmpty) return _cleanBookMap(_mapBookDbRowToCamel(result.first));
       return null;
     }
   }
@@ -793,87 +660,49 @@ class DatabaseService {
     }
   }
 
-  Map<String, dynamic> _mapBookDbRowToCamel(Map<String, dynamic> row) {
-    return {
-      'id': row['id'],
-      'title': row['title'],
-      'author': row['author'],
-      'isbn': row['isbn'],
-      'coverUrl': row['cover_url'],
-      'filePath': row['file_path'],
-      'fileType': row['file_type'],
-      'fileName': row['file_name'],
-      'fileSize': row['file_size'],
-      'status': row['status'],
-      'readingProgress': row['reading_progress'],
-      'totalPages': row['total_pages'],
-      'createdAt': row['created_at'],
-      'lastReadAt': row['last_read_at'],
-      'source': row['source'] ?? '',
-    };
-  }
+  Map<String, dynamic> _mapBookDbRowToCamel(Map<String, dynamic> row) => {
+    'id': row['id'], 'title': row['title'], 'author': row['author'], 'isbn': row['isbn'],
+    'coverUrl': row['cover_url'], 'filePath': row['file_path'], 'fileType': row['file_type'],
+    'fileName': row['file_name'], 'fileSize': row['file_size'], 'status': row['status'],
+    'readingProgress': row['reading_progress'], 'totalPages': row['total_pages'],
+    'createdAt': row['created_at'], 'lastReadAt': row['last_read_at'],
+    'source': row['source'] ?? '',
+  };
 
-  Map<String, dynamic> _cleanBookMap(Map<String, dynamic> map) {
-    return Map<String, dynamic>.from(map);
-  }
+  Map<String, dynamic> _cleanBookMap(Map<String, dynamic> map) => Map<String, dynamic>.from(map);
 
-  Map<String, dynamic> _prepareBookForDb(Map<String, dynamic> map) {
-    return {
-      'id': map['id'],
-      'title': map['title'],
-      'author': map['author'],
-      'isbn': map['isbn'],
-      'cover_url': map['coverUrl'],
-      'file_path': map['filePath'],
-      'file_type': map['fileType'],
-      'file_name': map['fileName'],
-      'file_size': map['fileSize'],
-      'status': map['status'],
-      'reading_progress': map['readingProgress'],
-      'total_pages': map['totalPages'],
-      'created_at': map['createdAt'],
-      'last_read_at': map['lastReadAt'],
-      'source': map['source'] ?? '',
-    };
-  }
+  Map<String, dynamic> _prepareBookForDb(Map<String, dynamic> map) => {
+    'id': map['id'], 'title': map['title'], 'author': map['author'], 'isbn': map['isbn'],
+    'cover_url': map['coverUrl'], 'file_path': map['filePath'], 'file_type': map['fileType'],
+    'file_name': map['fileName'], 'file_size': map['fileSize'], 'status': map['status'],
+    'reading_progress': map['readingProgress'], 'total_pages': map['totalPages'],
+    'created_at': map['createdAt'], 'last_read_at': map['lastReadAt'],
+    'source': map['source'] ?? '',
+  };
 
-  // ============================================================
-  // 标注 CRUD（占位）
-  // ============================================================
-
+  // ─── 占位 ──────────────────────────────────────────────
   Future<void> insertAnnotation(Map<String, dynamic> annotationMap) async {}
-  Future<List<Map<String, dynamic>>> getAllAnnotationsForBook(String bookId) async {
-    return [];
-  }
+  Future<List<Map<String, dynamic>>> getAllAnnotationsForBook(String bookId) async => [];
 
-  // ============================================================
-  // 系统文件夹管理
-  // ============================================================
-
+  // ─── 系统文件夹 ────────────────────────────────────────
   Future<String> _ensureSystemFolder(String title, {List<String>? tags}) async {
     final allNodes = await getAllNodes();
     final matches = allNodes.where((n) => n.title == title && n.isFolder && n.parentId == null).toList();
-
     if (matches.isEmpty) {
       final folder = await createFolder(title: title, parentId: null, tags: tags ?? []);
       return folder.id;
     }
-
     if (matches.length > 1) {
       final keep = matches.first;
       final allNodesFull = await getAllNodes();
-
       for (var i = 1; i < matches.length; i++) {
         final dup = matches[i];
         final children = allNodesFull.where((n) => n.parentId == dup.id).toList();
-        for (var child in children) {
-          await moveNode(child.id, keep.id);
-        }
+        for (var child in children) await moveNode(child.id, keep.id);
         await deleteNode(dup.id);
       }
       return keep.id;
     }
-
     return matches.first.id;
   }
 
@@ -882,62 +711,34 @@ class DatabaseService {
   Future<String> ensureReviewFolder() => _ensureSystemFolder('复盘', tags: ['系统', '复盘']);
   Future<String> ensureCardBoxFolder() => _ensureSystemFolder('卡片盒', tags: ['系统', '卡片盒']);
 
-  Future<NotebookEntry> createReviewNote({
-    required String title,
-    required String content,
-    List<String> extraTags = const [],
-  }) async {
+  Future<NotebookEntry> createReviewNote({required String title, required String content, List<String> extraTags = const []}) async {
     final folderId = await ensureReviewFolder();
     final noteId = DateTime.now().millisecondsSinceEpoch.toString();
     final allTags = <String>['复盘', ...extraTags];
-
     final noteMap = {
-      'id': noteId,
-      'title': title,
-      'content': content,
-      'status': 'active',
-      'editorMode': 'plain',
-      'updatedAt': DateTime.now().toIso8601String(),
-      'isLocked': 0,
-      'exploreTasks': [],
+      'id': noteId, 'title': title, 'content': content, 'status': 'active',
+      'editorMode': 'plain', 'updatedAt': DateTime.now().toIso8601String(),
+      'isLocked': 0, 'exploreTasks': [],
     };
-
     await insertNote(noteMap);
-    await attachNoteToNode(
-      noteId: noteId,
-      title: title,
-      parentId: folderId,
-      tags: allTags,
-    );
-
+    await attachNoteToNode(noteId: noteId, title: title, parentId: folderId, tags: allTags);
     return NotebookEntry.fromMap(noteMap);
   }
 
   Future<void> migrateExpiredToArchived() async {
     final nodes = await _getAllNodesInternal();
-
     final expiredFolders = nodes.where((n) => n['title'] == '灵感过期' && n['isFolder'] == 1 && n['parentId'] == null).toList();
-
-    if (expiredFolders.isEmpty) {
-      print('没有需要迁移的旧文件夹');
-      return;
-    }
-
+    if (expiredFolders.isEmpty) { print('没有需要迁移的旧文件夹'); return; }
     final archivedId = await ensureArchivedFolder();
     for (var folder in expiredFolders) {
       final children = nodes.where((n) => n['parentId'] == folder['id']).toList();
-      for (var child in children) {
-        child['parentId'] = archivedId;
-      }
+      for (var child in children) child['parentId'] = archivedId;
       nodes.remove(folder);
     }
     await _saveNodes(nodes);
   }
 
-  // ============================================================
-  // 解析 Markdown 任务列表
-  // ============================================================
-
+  // ─── 解析 Markdown ────────────────────────────────────
   List<Map<String, dynamic>> parseSubtasksFromMarkdown(String content) {
     final results = <Map<String, dynamic>>[];
     final lines = content.split('\n');
@@ -946,56 +747,28 @@ class DatabaseService {
       final uncheckedMatch = RegExp(r'^-\s*\[\s*\]\s*(.+)$').firstMatch(line);
       final checkedMatch = RegExp(r'^-\s*\[x\]\s*(.+)$').firstMatch(line);
       if (uncheckedMatch != null) {
-        results.add({
-          'id': '${DateTime.now().millisecondsSinceEpoch}_${index++}',
-          'title': uncheckedMatch.group(1)?.trim() ?? '未命名子任务',
-          'isDone': false,
-        });
+        results.add({'id': '${DateTime.now().millisecondsSinceEpoch}_${index++}', 'title': uncheckedMatch.group(1)?.trim() ?? '未命名子任务', 'isDone': false});
       } else if (checkedMatch != null) {
-        results.add({
-          'id': '${DateTime.now().millisecondsSinceEpoch}_${index++}',
-          'title': checkedMatch.group(1)?.trim() ?? '未命名子任务',
-          'isDone': true,
-        });
+        results.add({'id': '${DateTime.now().millisecondsSinceEpoch}_${index++}', 'title': checkedMatch.group(1)?.trim() ?? '未命名子任务', 'isDone': true});
       }
     }
     return results;
   }
 
-  // ============================================================
-  // 导出/导入
-  // ============================================================
-
-  Future<String> exportAllData() async {
-    final data = {
-      'version': '1.0',
-      'exportDate': DateTime.now().toIso8601String(),
-      'notes': await getAllNotes(includeDeleted: true),
-      'nodes': await _getAllNodesInternal(),
-      'books': await getAllBooks(),
-    };
-    return jsonEncode(data);
-  }
+  // ─── 导出/导入 ────────────────────────────────────────
+  Future<String> exportAllData() async => jsonEncode({
+    'version': '1.0', 'exportDate': DateTime.now().toIso8601String(),
+    'notes': await getAllNotes(includeDeleted: true),
+    'nodes': await _getAllNodesInternal(),
+    'books': await getAllBooks(),
+  });
 
   Future<void> importAllData(String jsonString) async {
     final data = jsonDecode(jsonString);
     await _clearAllData();
-
-    if (data['notes'] != null) {
-      for (var note in data['notes']) {
-        await insertNote(note);
-      }
-    }
-    if (data['nodes'] != null) {
-      for (var node in data['nodes']) {
-        await insertNode(node);
-      }
-    }
-    if (data['books'] != null) {
-      for (var book in data['books']) {
-        await insertBook(book);
-      }
-    }
+    if (data['notes'] != null) for (var note in data['notes']) await insertNote(note);
+    if (data['nodes'] != null) for (var node in data['nodes']) await insertNode(node);
+    if (data['books'] != null) for (var book in data['books']) await insertBook(book);
   }
 
   Future<void> _clearAllData() async {
@@ -1028,31 +801,18 @@ class DatabaseService {
     return buffer.toString();
   }
 
-  // ============================================================
-  // 灵感笔记自动归档
-  // ============================================================
-
+  // ─── 灵感自动归档 ────────────────────────────────────
   Future<int> archiveExpiredRawNotes(int retentionDays) async {
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final now = DateTime.now();
     final cutoff = now.subtract(Duration(days: retentionDays));
-
     final expiredNoteIds = <String>[];
     for (var note in notes) {
       final updatedAt = DateTime.parse(note['updatedAt']);
-      if (note['status'] == 'raw' &&
-          note['isLocked'] != 1 &&
-          updatedAt.isBefore(cutoff)) {
-        expiredNoteIds.add(note['id']);
-      }
+      if (note['status'] == 'raw' && note['isLocked'] != 1 && updatedAt.isBefore(cutoff)) expiredNoteIds.add(note['id']);
     }
-
     if (expiredNoteIds.isEmpty) return 0;
-
-    for (var id in expiredNoteIds) {
-      await _moveNoteToArchived(id);
-    }
-
+    for (var id in expiredNoteIds) await _moveNoteToArchived(id);
     return expiredNoteIds.length;
   }
 
@@ -1060,16 +820,13 @@ class DatabaseService {
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final now = DateTime.now();
     final cutoff = now.subtract(Duration(days: retentionDays - 7));
-
     final result = <NotebookEntry>[];
     for (var map in notes) {
       if (map['status'] != 'raw') continue;
       if (map['isLocked'] == 1) continue;
       final updatedAt = DateTime.parse(map['updatedAt']);
       final daysAgo = now.difference(updatedAt).inDays;
-      if (daysAgo >= retentionDays - 7 && daysAgo < retentionDays) {
-        result.add(NotebookEntry.fromMap(map));
-      }
+      if (daysAgo >= retentionDays - 7 && daysAgo < retentionDays) result.add(NotebookEntry.fromMap(map));
     }
     return result;
   }
@@ -1078,7 +835,6 @@ class DatabaseService {
     final notes = await _getAllNotesInternal(includeDeleted: false);
     final now = DateTime.now();
     final cutoff = now.subtract(Duration(days: retentionDays));
-
     int count = 0;
     for (var map in notes) {
       if (map['status'] != 'raw') continue;
@@ -1105,10 +861,7 @@ class DatabaseService {
 
   Future<int> getArchivedFolderNoteCount() async {
     final nodes = await getAllNodes();
-    final archivedFolder = nodes.firstWhere(
-      (n) => n.title == '已归档' && n.isFolder && n.parentId == null,
-      orElse: () => Node.empty,
-    );
+    final archivedFolder = nodes.firstWhere((n) => n.title == '已归档' && n.isFolder && n.parentId == null, orElse: () => Node.empty);
     if (archivedFolder.id.isEmpty) return 0;
     final children = await getChildren(archivedFolder.id);
     return children.where((n) => !n.isFolder).length;
@@ -1116,63 +869,39 @@ class DatabaseService {
 
   Future<List<NotebookEntry>> getArchivedFolderNotes() async {
     final nodes = await getAllNodes();
-    final archivedFolder = nodes.firstWhere(
-      (n) => n.title == '已归档' && n.isFolder && n.parentId == null,
-      orElse: () => Node.empty,
-    );
+    final archivedFolder = nodes.firstWhere((n) => n.title == '已归档' && n.isFolder && n.parentId == null, orElse: () => Node.empty);
     if (archivedFolder.id.isEmpty) return [];
-
     final children = await getChildren(archivedFolder.id);
-    final noteIds = children
-        .where((n) => n.nodeType == 'note' && n.targetId != null)
-        .map((n) => n.targetId!)
-        .toList();
+    final noteIds = children.where((n) => n.nodeType == 'note' && n.targetId != null).map((n) => n.targetId!).toList();
     if (noteIds.isEmpty) return [];
-
     final allNotes = await _getAllNotesInternal(includeDeleted: false);
     final result = <NotebookEntry>[];
     for (var map in allNotes) {
-      if (noteIds.contains(map['id'])) {
-        result.add(NotebookEntry.fromMap(map));
-      }
+      if (noteIds.contains(map['id'])) result.add(NotebookEntry.fromMap(map));
     }
     return result;
   }
 
-  // ============================================================
-  // 原生 SQLite 支持
-  // ============================================================
-
+  // ─── SQLite 核心 ──────────────────────────────────────
   static Database? _database;
 
   Future<Database> _getDatabase() async {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
-    _database = await openDatabase(
-      path,
-      version: 14, // ✅ 版本升级到 14
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-    );
+    _database = await openDatabase(path, version: 15, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
-  Future<void> _onCreate(Database db, int version) async {
-    await _createTables(db);
-  }
+  Future<void> _onCreate(Database db, int version) async => _createTables(db);
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      try { await db.execute('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT "raw"'); } catch (_) {}
-    }
+    if (oldVersion < 2) { try { await db.execute('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT "raw"'); } catch (_) {} }
     if (oldVersion < 3) {
       try { await db.execute('ALTER TABLE books ADD COLUMN cover_image TEXT'); } catch (_) {}
       try { await db.execute('ALTER TABLE books ADD COLUMN pdf_path TEXT'); } catch (_) {}
       try { await db.execute('ALTER TABLE books ADD COLUMN file_type TEXT DEFAULT "none"'); } catch (_) {}
     }
-    if (oldVersion < 4) {
-      try { await db.execute('ALTER TABLE notes ADD COLUMN editorMode TEXT DEFAULT "plain"'); } catch (_) {}
-    }
+    if (oldVersion < 4) { try { await db.execute('ALTER TABLE notes ADD COLUMN editorMode TEXT DEFAULT "plain"'); } catch (_) {} }
     if (oldVersion < 5) {
       try { await db.execute('ALTER TABLE notes ADD COLUMN tags TEXT DEFAULT ""'); } catch (_) {}
       try { await db.execute('ALTER TABLE notes ADD COLUMN isLocked INTEGER DEFAULT 0'); } catch (_) {}
@@ -1181,16 +910,10 @@ class DatabaseService {
       try {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS nodes(
-            id TEXT PRIMARY KEY,
-            title TEXT,
-            parent_id TEXT,
-            is_folder INTEGER DEFAULT 0,
-            node_type TEXT DEFAULT 'folder',
-            target_id TEXT,
-            sort_order INTEGER DEFAULT 0,
-            tags TEXT DEFAULT '',
-            created_at TEXT,
-            updated_at TEXT
+            id TEXT PRIMARY KEY, title TEXT, parent_id TEXT,
+            is_folder INTEGER DEFAULT 0, node_type TEXT DEFAULT 'folder',
+            target_id TEXT, sort_order INTEGER DEFAULT 0, tags TEXT DEFAULT '',
+            created_at TEXT, updated_at TEXT
           )
         ''');
       } catch (_) {}
@@ -1206,13 +929,8 @@ class DatabaseService {
       try {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS book_annotations(
-            id TEXT PRIMARY KEY,
-            book_id TEXT,
-            page_number INTEGER,
-            quote TEXT,
-            note TEXT,
-            color TEXT,
-            created_at TEXT,
+            id TEXT PRIMARY KEY, book_id TEXT, page_number INTEGER,
+            quote TEXT, note TEXT, color TEXT, created_at TEXT,
             FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
           )
         ''');
@@ -1225,58 +943,68 @@ class DatabaseService {
         await db.execute('ALTER TABLE notes ADD COLUMN subtasks TEXT DEFAULT "[]"');
       } catch (_) {}
     }
-    if (oldVersion < 10) {
-      try {
-        await db.execute('ALTER TABLE notes ADD COLUMN new_understanding TEXT');
-      } catch (_) {}
-    }
-    if (oldVersion < 11) {
-      try {
-        await db.execute('ALTER TABLE notes ADD COLUMN explore_tasks TEXT DEFAULT "[]"');
-      } catch (_) {}
-    }
+    if (oldVersion < 10) { try { await db.execute('ALTER TABLE notes ADD COLUMN new_understanding TEXT'); } catch (_) {} }
+    if (oldVersion < 11) { try { await db.execute('ALTER TABLE notes ADD COLUMN explore_tasks TEXT DEFAULT "[]"'); } catch (_) {} }
     if (oldVersion < 12) {
       try {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS isbn_cache(
-            isbn TEXT PRIMARY KEY,
-            title TEXT,
-            author TEXT,
-            cover_url TEXT,
-            source TEXT,
-            updated_at TEXT
+            isbn TEXT PRIMARY KEY, title TEXT, author TEXT,
+            cover_url TEXT, source TEXT, updated_at TEXT
           )
         ''');
       } catch (_) {}
     }
     if (oldVersion < 13) {
-      try {
-        await db.execute("ALTER TABLE books ADD COLUMN source TEXT DEFAULT ''");
-      } catch (_) {}
-      try {
-        await db.execute(
-          "UPDATE books SET source = 'import' WHERE file_path IS NOT NULL AND file_path != ''",
-        );
-      } catch (_) {}
-      try {
-        await db.execute(
-          "UPDATE books SET source = 'scan' WHERE file_path IS NULL OR file_path = ''",
-        );
-      } catch (_) {}
+      try { await db.execute("ALTER TABLE books ADD COLUMN source TEXT DEFAULT ''"); } catch (_) {}
+      try { await db.execute("UPDATE books SET source = 'import' WHERE file_path IS NOT NULL AND file_path != ''"); } catch (_) {}
+      try { await db.execute("UPDATE books SET source = 'scan' WHERE file_path IS NULL OR file_path = ''"); } catch (_) {}
     }
-    // ✅ 版本 13 → 14：新增 pdf_drawings 表（列名下划线）
     if (oldVersion < 14) {
       try {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS pdf_drawings(
-            id TEXT PRIMARY KEY,
-            book_id TEXT,
-            page INTEGER,
-            points TEXT,
-            color TEXT,
-            created_at TEXT
+            id TEXT PRIMARY KEY, book_id TEXT, page INTEGER,
+            points TEXT, color TEXT, created_at TEXT
           )
         ''');
+      } catch (_) {}
+    }
+    // ✅ 版本 14 → 15：新增 5 张线索墙表
+    if (oldVersion < 15) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS board_views(
+            id TEXT PRIMARY KEY, name TEXT, type TEXT,
+            owner_id TEXT, created_at TEXT, updated_at TEXT
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS board_nodes(
+            id TEXT PRIMARY KEY, view_id TEXT, card_id TEXT,
+            x REAL, y REAL, z_index INTEGER
+          )
+        ''');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_nodes_view ON board_nodes(view_id)');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS board_edges(
+            id TEXT PRIMARY KEY, view_id TEXT,
+            source_node_id TEXT, target_node_id TEXT
+          )
+        ''');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_edges_view ON board_edges(view_id)');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS board_groups(
+            id TEXT PRIMARY KEY, view_id TEXT, node_ids TEXT, color TEXT
+          )
+        ''');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_groups_view ON board_groups(view_id)');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS board_texts(
+            id TEXT PRIMARY KEY, view_id TEXT, x REAL, y REAL, content TEXT
+          )
+        ''');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
       } catch (_) {}
     }
   }
@@ -1284,178 +1012,221 @@ class DatabaseService {
   Future<void> _createTables(Database db) async {
     await db.execute('''
       CREATE TABLE notes(
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        content TEXT,
-        updatedAt TEXT,
-        status TEXT DEFAULT 'raw',
-        editorMode TEXT DEFAULT 'plain',
-        isLocked INTEGER DEFAULT 0,
-        tags TEXT DEFAULT '',
-        inquiry_question TEXT,
-        new_understanding TEXT,
+        id TEXT PRIMARY KEY, title TEXT, content TEXT, updatedAt TEXT,
+        status TEXT DEFAULT 'raw', editorMode TEXT DEFAULT 'plain',
+        isLocked INTEGER DEFAULT 0, tags TEXT DEFAULT '',
+        inquiry_question TEXT, new_understanding TEXT,
         explore_tasks TEXT DEFAULT '[]'
       )
     ''');
-
     await db.execute('''
       CREATE TABLE books(
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        author TEXT,
-        isbn TEXT,
-        cover_url TEXT,
-        file_path TEXT,
-        file_type TEXT DEFAULT 'none',
-        file_name TEXT,
-        file_size INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'want',
-        reading_progress INTEGER DEFAULT 0,
-        total_pages INTEGER DEFAULT 0,
-        created_at TEXT,
-        last_read_at TEXT,
-        source TEXT DEFAULT ''
+        id TEXT PRIMARY KEY, title TEXT, author TEXT, isbn TEXT,
+        cover_url TEXT, file_path TEXT, file_type TEXT DEFAULT 'none',
+        file_name TEXT, file_size INTEGER DEFAULT 0, status TEXT DEFAULT 'want',
+        reading_progress INTEGER DEFAULT 0, total_pages INTEGER DEFAULT 0,
+        created_at TEXT, last_read_at TEXT, source TEXT DEFAULT ''
       )
     ''');
-
     await db.execute('''
       CREATE TABLE book_annotations(
-        id TEXT PRIMARY KEY,
-        book_id TEXT,
-        page_number INTEGER,
-        quote TEXT,
-        note TEXT,
-        color TEXT,
-        created_at TEXT,
+        id TEXT PRIMARY KEY, book_id TEXT, page_number INTEGER,
+        quote TEXT, note TEXT, color TEXT, created_at TEXT,
         FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
       )
     ''');
-
     await db.execute('''
       CREATE TABLE nodes(
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        parent_id TEXT,
-        is_folder INTEGER DEFAULT 0,
-        node_type TEXT DEFAULT 'folder',
-        target_id TEXT,
-        sort_order INTEGER DEFAULT 0,
-        tags TEXT DEFAULT '',
-        created_at TEXT,
-        updated_at TEXT
+        id TEXT PRIMARY KEY, title TEXT, parent_id TEXT,
+        is_folder INTEGER DEFAULT 0, node_type TEXT DEFAULT 'folder',
+        target_id TEXT, sort_order INTEGER DEFAULT 0, tags TEXT DEFAULT '',
+        created_at TEXT, updated_at TEXT
       )
     ''');
-
     await db.execute('''
       CREATE TABLE IF NOT EXISTS isbn_cache(
-        isbn TEXT PRIMARY KEY,
-        title TEXT,
-        author TEXT,
-        cover_url TEXT,
-        source TEXT,
-        updated_at TEXT
+        isbn TEXT PRIMARY KEY, title TEXT, author TEXT,
+        cover_url TEXT, source TEXT, updated_at TEXT
       )
     ''');
-
-    // ✅ 新增 pdf_drawings 表（列名下划线）
     await db.execute('''
       CREATE TABLE IF NOT EXISTS pdf_drawings(
-        id TEXT PRIMARY KEY,
-        book_id TEXT,
-        page INTEGER,
-        points TEXT,
-        color TEXT,
-        created_at TEXT
+        id TEXT PRIMARY KEY, book_id TEXT, page INTEGER,
+        points TEXT, color TEXT, created_at TEXT
       )
     ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS board_views(
+        id TEXT PRIMARY KEY, name TEXT, type TEXT,
+        owner_id TEXT, created_at TEXT, updated_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS board_nodes(
+        id TEXT PRIMARY KEY, view_id TEXT, card_id TEXT,
+        x REAL, y REAL, z_index INTEGER
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_nodes_view ON board_nodes(view_id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS board_edges(
+        id TEXT PRIMARY KEY, view_id TEXT,
+        source_node_id TEXT, target_node_id TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_edges_view ON board_edges(view_id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS board_groups(
+        id TEXT PRIMARY KEY, view_id TEXT, node_ids TEXT, color TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_groups_view ON board_groups(view_id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS board_texts(
+        id TEXT PRIMARY KEY, view_id TEXT, x REAL, y REAL, content TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
   }
 
   Future<Map<String, dynamic>?> getIsbnCache(String isbn) async {
     if (_isWeb) return null;
     final db = await _getDatabase();
-    final rows = await db.query(
-      'isbn_cache',
-      where: 'isbn = ?',
-      whereArgs: [isbn],
-    );
+    final rows = await db.query('isbn_cache', where: 'isbn = ?', whereArgs: [isbn]);
     if (rows.isEmpty) return null;
     return Map<String, dynamic>.from(rows.first);
   }
 
-  Future<void> saveIsbnCache({
-    required String isbn,
-    required String title,
-    required String author,
-    required String coverUrl,
-    required String source,
-  }) async {
+  Future<void> saveIsbnCache({required String isbn, required String title, required String author, required String coverUrl, required String source}) async {
     if (_isWeb) return;
     final db = await _getDatabase();
-    await db.insert(
-      'isbn_cache',
-      {
-        'isbn': isbn,
-        'title': title,
-        'author': author,
-        'cover_url': coverUrl,
-        'source': source,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('isbn_cache', {
+      'isbn': isbn, 'title': title, 'author': author, 'cover_url': coverUrl,
+      'source': source, 'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  // ============================================================
-  // PDF 划痕 CRUD
-  // ============================================================
-
-  /// 存或更新一条划痕
+  // ─── PDF 划痕 ────────────────────────────────────────
   Future<void> savePdfDrawing(PdfDrawing drawing) async {
     if (_isWeb) return;
     final db = await _getDatabase();
     final map = drawing.toMap();
-    await db.insert(
-      'pdf_drawings',
-      {
-        'id': map['id'],
-        'book_id': map['bookId'],
-        'page': map['page'],
-        'points': map['points'],
-        'color': map['color'],
-        'created_at': map['createdAt'],
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('pdf_drawings', {
+      'id': map['id'], 'book_id': map['bookId'], 'page': map['page'],
+      'points': map['points'], 'color': map['color'], 'created_at': map['createdAt'],
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// 按 bookId 读取全部划痕
   Future<List<PdfDrawing>> getPdfDrawingsByBook(String bookId) async {
     if (_isWeb) return [];
     final db = await _getDatabase();
-    final rows = await db.query(
-      'pdf_drawings',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
-      orderBy: 'page ASC, created_at ASC',
-    );
+    final rows = await db.query('pdf_drawings', where: 'book_id = ?', whereArgs: [bookId], orderBy: 'page ASC, created_at ASC');
     return rows.map((row) => PdfDrawing.fromMap({
-      'id': row['id'],
-      'bookId': row['book_id'],
-      'page': row['page'],
-      'points': row['points'],
-      'color': row['color'],
-      'createdAt': row['created_at'],
+      'id': row['id'], 'bookId': row['book_id'], 'page': row['page'],
+      'points': row['points'], 'color': row['color'], 'createdAt': row['created_at'],
     })).toList();
   }
 
-  /// 按 bookId 清空全部划痕
   Future<void> deletePdfDrawingsByBook(String bookId) async {
     if (_isWeb) return;
     final db = await _getDatabase();
-    await db.delete(
-      'pdf_drawings',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
-    );
+    await db.delete('pdf_drawings', where: 'book_id = ?', whereArgs: [bookId]);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // 线索墙 CRUD（8 个，只走 Map，不 import 模型）
+  // ═══════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>?> getBoardView(String id) async {
+    if (_isWeb) return null;
+    final db = await _getDatabase();
+    final rows = await db.query('board_views', where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return {
+      'id': row['id'], 'name': row['name'], 'type': row['type'],
+      'ownerId': row['owner_id'], 'createdAt': row['created_at'], 'updatedAt': row['updated_at'],
+    };
+  }
+
+  Future<void> upsertBoardView(Map<String, dynamic> view) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.insert('board_views', {
+      'id': view['id'], 'name': view['name'], 'type': view['type'],
+      'owner_id': view['ownerId'], 'created_at': view['createdAt'], 'updated_at': view['updatedAt'],
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getBoardNodes(String viewId) async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('board_nodes', where: 'view_id = ?', whereArgs: [viewId], orderBy: 'z_index ASC');
+    return rows.map((row) => {
+      'id': row['id'], 'viewId': row['view_id'], 'cardId': row['card_id'],
+      'x': row['x'], 'y': row['y'], 'zIndex': row['z_index'],
+    }).toList();
+  }
+
+  Future<void> replaceBoardNodes(String viewId, List<Map<String, dynamic>> nodes) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.transaction((txn) async {
+      await txn.delete('board_nodes', where: 'view_id = ?', whereArgs: [viewId]);
+      for (final node in nodes) {
+        await txn.insert('board_nodes', {
+          'id': node['id'], 'view_id': node['viewId'], 'card_id': node['cardId'],
+          'x': node['x'], 'y': node['y'], 'z_index': node['zIndex'],
+        });
+      }
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getBoardEdges(String viewId) async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('board_edges', where: 'view_id = ?', whereArgs: [viewId]);
+    return rows.map((row) => {
+      'id': row['id'], 'viewId': row['view_id'],
+      'sourceNodeId': row['source_node_id'], 'targetNodeId': row['target_node_id'],
+    }).toList();
+  }
+
+  Future<void> replaceBoardEdges(String viewId, List<Map<String, dynamic>> edges) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.transaction((txn) async {
+      await txn.delete('board_edges', where: 'view_id = ?', whereArgs: [viewId]);
+      for (final edge in edges) {
+        await txn.insert('board_edges', {
+          'id': edge['id'], 'view_id': edge['viewId'],
+          'source_node_id': edge['sourceNodeId'], 'target_node_id': edge['targetNodeId'],
+        });
+      }
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getBoardTexts(String viewId) async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('board_texts', where: 'view_id = ?', whereArgs: [viewId]);
+    return rows.map((row) => {
+      'id': row['id'], 'viewId': row['view_id'],
+      'x': row['x'], 'y': row['y'], 'content': row['content'],
+    }).toList();
+  }
+
+  Future<void> replaceBoardTexts(String viewId, List<Map<String, dynamic>> texts) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.transaction((txn) async {
+      await txn.delete('board_texts', where: 'view_id = ?', whereArgs: [viewId]);
+      for (final t in texts) {
+        await txn.insert('board_texts', {
+          'id': t['id'], 'view_id': t['viewId'],
+          'x': t['x'], 'y': t['y'], 'content': t['content'],
+        });
+      }
+    });
   }
 }
