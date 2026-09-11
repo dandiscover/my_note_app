@@ -1,5 +1,6 @@
 // lib/widgets/insight/knowledge_graph.dart
 // 知识图谱 — 节点/边渲染（优化版，公开 KnowledgeGraphPainter）
+// ✅ 任务二：GraphEdge 加 isWeak；GraphBuilder 加同标签弱边；三处布局跳过弱边；Painter 加弱边虚线分支
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -33,11 +34,13 @@ class GraphEdge {
   final String sourceId;
   final String targetId;
   final double weight;
+  final bool isWeak; // ✅ 任务二新增：弱连接（同标签）
 
   GraphEdge({
     required this.sourceId,
     required this.targetId,
     this.weight = 1.0,
+    this.isWeak = false,
   });
 }
 
@@ -129,6 +132,7 @@ class ForceDirectedLayout {
       }
 
       for (var edge in edges) {
+        if (edge.isWeak) continue; // ✅ 弱连接不参与力导向
         final source = nodes.firstWhere((n) => n.id == edge.sourceId);
         final target = nodes.firstWhere((n) => n.id == edge.targetId);
         final dx = target.x - source.x;
@@ -209,6 +213,7 @@ class ForceDirectedLayout {
       for (var hop = 0; hop < hopCount; hop++) {
         final nextIds = <String>{};
         for (var edge in edges) {
+          if (edge.isWeak) continue; // ✅ 弱连接不参与聚焦连通性
           if (currentIds.contains(edge.sourceId)) {
             nextIds.add(edge.targetId);
           }
@@ -254,6 +259,8 @@ class GraphBuilder {
   static GraphData build(
     List<Node> nodes, {
     Map<String, String>? noteContents,
+    Map<String, Set<String>>? noteTagsByNodeId, // ✅ 任务二新增
+    bool includeTagEdges = false,               // ✅ 任务二新增
   }) {
     final graphNodes = <GraphNode>[];
     final graphEdges = <GraphEdge>[];
@@ -291,6 +298,39 @@ class GraphBuilder {
               weight: node.isFolder ? 0.8 : 1.0,
             ),
           );
+        }
+      }
+    }
+
+    // ✅ 任务二：同标签弱边（加在 folder edge 之后）
+    if (includeTagEdges && noteTagsByNodeId != null && noteTagsByNodeId.isNotEmpty) {
+      final noteNodeIds = noteTagsByNodeId.keys.toList();
+
+      // 已存在 folder edge 的对，跳过
+      final existingPairs = <String>{};
+      for (var e in graphEdges) {
+        final a = e.sourceId;
+        final b = e.targetId;
+        existingPairs.add(a.compareTo(b) < 0 ? '$a|$b' : '$b|$a');
+      }
+
+      for (var i = 0; i < noteNodeIds.length; i++) {
+        for (var j = i + 1; j < noteNodeIds.length; j++) {
+          final a = noteNodeIds[i];
+          final b = noteNodeIds[j];
+          final pairKey = a.compareTo(b) < 0 ? '$a|$b' : '$b|$a';
+          if (existingPairs.contains(pairKey)) continue;
+
+          final tagsA = noteTagsByNodeId[a]!;
+          final tagsB = noteTagsByNodeId[b]!;
+          if (tagsA.intersection(tagsB).isEmpty) continue;
+
+          graphEdges.add(GraphEdge(
+            sourceId: a,
+            targetId: b,
+            weight: 1.0,
+            isWeak: true,
+          ));
         }
       }
     }
@@ -391,16 +431,32 @@ class KnowledgeGraphPainter extends CustomPainter {
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
 
+    // ✅ 任务二：弱边画笔（比文件夹关系更弱）
+    final weakEdgePaint = Paint()
+      ..color = Colors.teal.withValues(alpha: 0.35)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
     for (var edge in graph.edges) {
       final source = graph.nodes.firstWhere((n) => n.id == edge.sourceId);
       final target = graph.nodes.firstWhere((n) => n.id == edge.targetId);
-      final isHovered = hoveredNodeId == source.id || hoveredNodeId == target.id;
 
-      canvas.drawLine(
-        Offset(source.x, source.y),
-        Offset(target.x, target.y),
-        isHovered ? hoverEdgePaint : edgePaint,
-      );
+      if (edge.isWeak) {
+        // 弱连接：虚线，不参与 hover
+        _drawDashedLine(
+          canvas,
+          Offset(source.x, source.y),
+          Offset(target.x, target.y),
+          weakEdgePaint,
+        );
+      } else {
+        final isHovered = hoveredNodeId == source.id || hoveredNodeId == target.id;
+        canvas.drawLine(
+          Offset(source.x, source.y),
+          Offset(target.x, target.y),
+          isHovered ? hoverEdgePaint : edgePaint,
+        );
+      }
     }
 
     for (var node in graph.nodes) {
@@ -474,6 +530,21 @@ class KnowledgeGraphPainter extends CustomPainter {
         );
 
         labelPainter.paint(canvas, Offset(labelX, labelY));
+      }
+    }
+  }
+
+  // ✅ 任务二：虚线辅助方法
+  void _drawDashedLine(Canvas canvas, Offset p1, Offset p2, Paint paint) {
+    final path = Path()..moveTo(p1.dx, p1.dy)..lineTo(p2.dx, p2.dy);
+    const dashWidth = 6.0;
+    const dashSpace = 4.0;
+    for (final metric in path.computeMetrics()) {
+      double distance = 0.0;
+      while (distance < metric.length) {
+        final end = (distance + dashWidth).clamp(0.0, metric.length).toDouble();
+        canvas.drawPath(metric.extractPath(distance, end), paint);
+        distance = end + dashSpace;
       }
     }
   }

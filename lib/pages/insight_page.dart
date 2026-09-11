@@ -1,5 +1,6 @@
 // lib/pages/insight_page.dart
 // 📊 洞察页 — 完整版（3个Tab：概览/图谱/复习 + 宠物 + 云端同步）
+// ✅ 任务二：图谱页右上角加"同标签关联"开关，_prepareGraph 传 noteTagsByNodeId + includeTagEdges
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -65,6 +66,7 @@ class InsightPageState extends State<InsightPage>
   bool _isGraphReady = false;
   String? _focusNodeId;
   GraphLayoutMode _layoutMode = GraphLayoutMode.forceDirected;
+  bool _showTagEdges = false; // ✅ 任务二：同标签关联开关，默认关闭
 
   List<CardModel> _reviewCards = [];
   int _reviewIndex = 0;
@@ -180,7 +182,22 @@ class InsightPageState extends State<InsightPage>
       noteContentMap[note.id] = note.content;
     }
 
-    final rawGraph = GraphBuilder.build(validNodes, noteContents: noteContentMap);
+    // ✅ 任务二：构造 noteTagsByNodeId（key 用 node.id，不是 note.id）
+    final noteTagsByNodeId = <String, Set<String>>{};
+    for (var node in validNodes) {
+      if (node.nodeType != 'note') continue;
+      if (node.targetId == null) continue;
+      final note = _allNotes.firstWhereOrNull((n) => n.id == node.targetId);
+      if (note == null) continue;
+      noteTagsByNodeId[node.id] = note.tags.toSet();
+    }
+
+    final rawGraph = GraphBuilder.build(
+      validNodes,
+      noteContents: noteContentMap,
+      noteTagsByNodeId: noteTagsByNodeId,
+      includeTagEdges: _showTagEdges,
+    );
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     final graphWidth = max(screenWidth, 600.0);
@@ -1121,6 +1138,19 @@ class InsightPageState extends State<InsightPage>
           _buildModeChip('📂 分组', GraphLayoutMode.groupByType),
           const SizedBox(width: 6),
           _buildModeChip('🎯 聚焦', GraphLayoutMode.localFocus),
+          const SizedBox(width: 6),
+          // ✅ 任务二：同标签关联开关（外层 setState 保留，图标颜色依赖 _showTagEdges）
+          IconButton(
+            icon: const Icon(Icons.local_offer, size: 18),
+            color: _showTagEdges ? Colors.blue : Colors.grey.shade600,
+            tooltip: '显示同标签关联',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () {
+              setState(() => _showTagEdges = !_showTagEdges);
+              _prepareGraph();
+            },
+          ),
         ],
       ),
     );
