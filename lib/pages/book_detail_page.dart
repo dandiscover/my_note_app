@@ -372,19 +372,22 @@ class _BookDetailPageState extends State<BookDetailPage>
         finalPath.startsWith('data:');
 
     if (fileType == 'pdf') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PdfReaderPage(
-            bookId: widget.bookId,
-            filePath: isWeb ? '' : finalPath,
-            fileUrl: isUrl ? finalPath : '',
-            fileName: _book!.title,
-            isWeb: isWeb,
-          ),
-        ),
-      ).then((_) => _loadData());
-    } else if (fileType == 'epub') {
+  if (isWeb) {
+    _showSnackBar('Web 端暂不支持 PDF 阅读');
+    return;
+  }
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => PdfReaderPage(
+        filePath: finalPath,
+        fileName: _book!.title,
+        bookId: widget.bookId,   // ← 新增这行
+
+      ),
+    ),
+  ).then((_) => _loadData());
+}else if (fileType == 'epub') {
       Navigator.push(
         context,
         MaterialPageRoute(
