@@ -3,6 +3,7 @@
 // ✅ 任务二：图谱页右上角加"同标签关联"开关，_prepareGraph 传 noteTagsByNodeId + includeTagEdges
 // ✅ 任务三：图谱点笔记节点 → 底部面板显示卡片 → 长按多选 → 送去素材区
 // ✅ 问题 8 修复：TabBarView 加 NeverScrollableScrollPhysics，避免抢走 InteractiveViewer 手势
+// ✅ 2.4px 溢出修复：_openNoteCardsPanel 卡片 leading SizedBox 宽度 40 → 44
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -355,8 +356,9 @@ class InsightPageState extends State<InsightPage>
                                       vertical: 4,
                                     ),
                                     child: ListTile(
+                                      // ✅ 2.4px 溢出修复：40 → 44（emoji 在某些设备渲染宽度 > 18px）
                                       leading: SizedBox(
-                                        width: 40,
+                                        width: 44,
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [

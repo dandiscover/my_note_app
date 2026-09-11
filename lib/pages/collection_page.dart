@@ -4,6 +4,7 @@
 // ✅ 新增：拍照记录（移动端可用，桌面端/Web 占位提示）
 // ✅ 修复：file_picker 12.x API 兼容（pickFiles 返回 List<PlatformFile>?）
 // ✅ 扫ISBN 菜单跳转 ScanIsbnPage
+// ✅ T-022 修复：异步后 setState 前加 mounted 检查（_loadSettings / _checkExpiry / _loadData / _archiveExpired）
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
@@ -93,6 +94,7 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
 
   Future<void> _loadSettings() async {
     final settings = await _settingsService.load();
+    if (!mounted) return; // ✅ T-022
     setState(() {
       _retentionDays = settings.rawNoteRetentionDays;
     });
@@ -100,7 +102,9 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
 
   Future<void> _checkExpiry() async {
     await _loadSettings();
+    if (!mounted) return; // ✅ T-022
     final expiringNotes = await _db.getExpiringRawNotes(_retentionDays);
+    if (!mounted) return; // ✅ T-022
     setState(() {
       _expiringCount = expiringNotes.length;
       _expiringNoteIds = expiringNotes.map((n) => n.id).toList();
@@ -108,13 +112,16 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     });
 
     _lockedCount = await _db.getLockedNotesCount();
+    if (!mounted) return; // ✅ T-022
     setState(() {});
   }
 
   Future<void> _loadData() async {
+    if (!mounted) return; // ✅ T-022：防止从 _toggleLock 等调用时已在 dispose 后进入
     isLoading = true;
     try {
       await _loadSettings();
+      if (!mounted) return; // ✅ T-022
 
       final rawNotes = await _cache.get<List<NotebookEntry>>(
         _cacheKeyRawNotes,
@@ -134,6 +141,7 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
         ttl: const Duration(seconds: 15),
       );
 
+      if (!mounted) return; // ✅ T-022
       setState(() {
         _rawNotes = rawNotes;
         _recentBooks = recentBooks;
@@ -180,6 +188,7 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     } catch (e) {
       print('加载采集数据失败: $e');
     }
+    if (!mounted) return; // ✅ T-022：StateMixin 的 isLoading setter 内部会 setState
     isLoading = false;
   }
 
@@ -188,6 +197,7 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
     if (archivedCount > 0) {
       _cache.invalidate(_cacheKeyRawNotes);
       final maps = await _db.getRawNotes();
+      if (!mounted) return; // ✅ T-022：追加修复（小白未列举，但同属 T-022 问题）
       setState(() {
         _rawNotes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
       });
