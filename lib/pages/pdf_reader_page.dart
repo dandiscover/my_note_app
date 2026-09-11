@@ -3,6 +3,7 @@
 // 存储：SQLite（通过 PdfDrawingService）
 // 坐标：全部转成 PDF 页面坐标存储，渲染时转回屏幕坐标
 // 不做：文字选择、高亮、笔记、卡片、批注、书签、搜索、导出
+// ✅ 首次打开加载提示：_isViewerReady 控制遮罩，onViewerReady 置位后消失
 
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -33,6 +34,9 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   bool _drawMode = false;
   List<Offset> _currentPoints = [];
   List<PdfDrawing> _drawings = [];
+
+  // ✅ 首次打开加载提示：PdfViewer ready 前置 false，遮罩显示；ready 后置 true，遮罩消失
+  bool _isViewerReady = false;
 
   @override
   void initState() {
@@ -194,7 +198,9 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
               buildContextMenu: (context, params) => null,
               onViewerReady: (doc, controller) {
                 debugPrint('✅ PdfViewer 已就绪');
-                if (mounted) setState(() {});
+                // ✅ 加载提示：ready 后置位，遮罩消失。必须替换原 setState(() {})，
+                // 否则 _isViewerReady 永远为 false，遮罩不会消失。
+                if (mounted) setState(() => _isViewerReady = true);
               },
             ),
           ),
@@ -246,6 +252,27 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
               ),
             ),
           ),
+          // ✅ 首次打开加载提示：放 Stack 最后一位（最上层），盖住 PDF + 绘制层 + 手势层 + 状态标签。
+          // ready 后条件为 false，自动移除。
+          if (!_isViewerReady)
+            Positioned.fill(
+              child: Container(
+                color: Colors.grey.shade50,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 12),
+                      Text(
+                        '正在加载 PDF...',
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
