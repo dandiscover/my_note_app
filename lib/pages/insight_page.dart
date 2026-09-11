@@ -1,6 +1,8 @@
 // lib/pages/insight_page.dart
 // 📊 洞察页 — 完整版（3个Tab：概览/图谱/复习 + 宠物 + 云端同步）
 // ✅ 任务二：图谱页右上角加"同标签关联"开关，_prepareGraph 传 noteTagsByNodeId + includeTagEdges
+// ✅ 任务三：图谱点笔记节点 → 底部面板显示卡片 → 长按多选 → 送去素材区
+// ✅ 问题 8 修复：TabBarView 加 NeverScrollableScrollPhysics，避免抢走 InteractiveViewer 手势
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -80,6 +82,8 @@ class InsightPageState extends State<InsightPage>
   static const String _cacheKeyBooks = 'insight_books';
   static const String _cacheKeySettings = 'insight_settings';
   static const String _cacheKeyPet = 'insight_pet';
+
+  static const String _boardViewId = 'global';
 
   // ✅ 公开方法：刷新数据
   Future<void> refreshData() async {
@@ -227,6 +231,7 @@ class InsightPageState extends State<InsightPage>
     _prepareGraph();
   }
 
+  // ✅ 任务三：笔记节点 → 卡片面板；其他 → 原有跳转
   void _onGraphNodeTap(String nodeId) {
     if (_layoutMode == GraphLayoutMode.localFocus) {
       setState(() {
@@ -236,7 +241,276 @@ class InsightPageState extends State<InsightPage>
       return;
     }
     final node = _allNodes.firstWhereOrNull((n) => n.id == nodeId);
-    if (node != null) _openNode(node);
+    if (node == null) return;
+    if (node.nodeType == 'note') {
+      _openNoteCardsPanel(node);
+    } else {
+      _openNode(node);
+    }
+  }
+
+  // ─── 任务三：笔记卡片面板 ─────────────────────────────────
+
+  Future<void> _openNoteCardsPanel(Node node) async {
+    final note = await _db.getNoteByNodeId(node.id);
+    if (note == null) return;
+    final cards = await _cardService.getCardsBySource(
+      sourceType: 'note',
+      sourceId: note.id,
+    );
+    if (!mounted) return;
+
+    final selectedIds = <String>{};
+    bool isSelectMode = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (innerContext, setSheetState) {
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(innerContext).size.height * 0.7,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 头部
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: Colors.grey.shade200),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text('📝 ', style: TextStyle(fontSize: 16)),
+                          Expanded(
+                            child: Text(
+                              note.title,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              // ✅ 老白修正 2+3：先清多选，再关面板，再跳转
+                              selectedIds.clear();
+                              isSelectMode = false;
+                              Navigator.pop(sheetContext);
+                              _openNode(node);
+                            },
+                            child: const Text('打开笔记'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // 卡片列表
+                    Flexible(
+                      child: cards.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Text(
+                                '这篇笔记还没有卡片',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: cards.length,
+                              itemBuilder: (_, index) {
+                                final card = cards[index];
+                                final isSelected = selectedIds.contains(card.id);
+                                return GestureDetector(
+                                  onLongPress: () {
+                                    setSheetState(() {
+                                      isSelectMode = true;
+                                      selectedIds.add(card.id);
+                                    });
+                                  },
+                                  onTap: () {
+                                    if (!isSelectMode) return;
+                                    setSheetState(() {
+                                      if (isSelected) {
+                                        selectedIds.remove(card.id);
+                                      } else {
+                                        selectedIds.add(card.id);
+                                      }
+                                    });
+                                  },
+                                  child: Card(
+                                    color: isSelected ? Colors.blue.shade50 : null,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    child: ListTile(
+                                      leading: SizedBox(
+                                        width: 40,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (isSelected)
+                                              Icon(
+                                                Icons.check_circle,
+                                                color: Colors.blue.shade600,
+                                                size: 18,
+                                              )
+                                            else
+                                              const SizedBox(width: 18),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              card.typeIcon,
+                                              style: const TextStyle(fontSize: 16),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      title: Text(
+                                        card.displayFront,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                      subtitle: card.tags.isEmpty
+                                          ? null
+                                          : Text(
+                                              card.tags.join(' · '),
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                    // 多选动作栏
+                    if (isSelectMode)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          border: Border(
+                            top: BorderSide(color: Colors.grey.shade200),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              '已选 ${selectedIds.length} 张',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const Spacer(),
+                            ElevatedButton.icon(
+                              onPressed: selectedIds.isEmpty
+                                  ? null
+                                  : () => _sendCardsToBoard(
+                                        sheetContext,
+                                        Set<String>.from(selectedIds),
+                                      ),
+                              icon: const Icon(Icons.send, size: 16),
+                              label: const Text('送去素材区'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue.shade600,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ✅ 任务三：送去素材区（去重 + 网格坐标 + 事务全量替换）
+  Future<void> _sendCardsToBoard(
+    BuildContext sheetContext,
+    Set<String> cardIds,
+  ) async {
+    final existingNodes = await _db.getBoardNodes(_boardViewId);
+    final existingCardIds = existingNodes
+        .map((n) => n['cardId'] as String?)
+        .whereType<String>()
+        .toSet();
+
+    final newNodes = <Map<String, dynamic>>[];
+    int skipped = 0;
+    int placedIdx = 0;
+
+    for (final cardId in cardIds) {
+      if (existingCardIds.contains(cardId)) {
+        skipped++;
+        continue;
+      }
+      // ✅ 左上角 + 3 列规则网格
+      final x = 60.0 + 140.0 * (placedIdx % 3);
+      final y = 80.0 + 100.0 * (placedIdx ~/ 3);
+      newNodes.add({
+        'id': '${DateTime.now().microsecondsSinceEpoch}_$placedIdx',
+        'viewId': _boardViewId,
+        'cardId': cardId,
+        'x': x,
+        'y': y,
+        'zIndex': 0,
+      });
+      placedIdx++;
+    }
+
+    final added = newNodes.length;
+
+    // ✅ 老白修正 1：新增数为 0 时，不调 replaceBoardNodes
+    if (added > 0) {
+      await _db.replaceBoardNodes(
+        _boardViewId,
+        [...existingNodes, ...newNodes],
+      );
+    }
+
+    if (!mounted) return;
+
+    String message;
+    if (added > 0 && skipped > 0) {
+      message = '已送去素材区 $added 张（$skipped 张已在素材区，已跳过）';
+    } else if (added > 0) {
+      message = '已送去素材区 $added 张';
+    } else {
+      message = '$skipped 张已在素材区，已跳过';
+    }
+
+    if (sheetContext.mounted) {
+      Navigator.pop(sheetContext);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   // ─── 统计数据 ────────────────────────────────────────────────
@@ -455,6 +729,7 @@ class InsightPageState extends State<InsightPage>
       ),
       body: TabBarView(
         controller: _tabController,
+        physics: const NeverScrollableScrollPhysics(), // ✅ 问题 8 修复：避免抢走 InteractiveViewer 手势
         children: [
           _buildOverviewTab(),
           _buildGraphTab(),

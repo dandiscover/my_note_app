@@ -1,6 +1,9 @@
 // lib/widgets/insight/knowledge_graph.dart
 // 知识图谱 — 节点/边渲染（优化版，公开 KnowledgeGraphPainter）
 // ✅ 任务二：GraphEdge 加 isWeak；GraphBuilder 加同标签弱边；三处布局跳过弱边；Painter 加弱边虚线分支
+// ✅ T-019：KnowledgeGraphWidget 加 GestureDetector，onTapUp 命中节点触发 onNodeTap
+// ✅ T-020：笔记节点常显标签，文件夹节点保持图标
+// ✅ 问题 7 修复：GestureDetector.behavior 从 opaque 改为 deferToChild，避免抢 InteractiveViewer 多指手势
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -392,14 +395,40 @@ class _KnowledgeGraphWidgetState extends State<KnowledgeGraphWidget> {
       );
     }
 
-    return CustomPaint(
-      painter: KnowledgeGraphPainter(
-        graph: widget.graph,
-        onNodeTap: widget.onNodeTap,
-        hoveredNodeId: _hoveredNodeId,
-        mode: widget.mode,
+    return GestureDetector(
+      // ✅ 问题 7 修复：opaque → deferToChild
+      // 理由：opaque 会在手势竞技场里提前占位，InteractiveViewer 的多指 scale
+      // 识别器可能失去竞争机会。deferToChild 让事件按正常命中树传递。
+      behavior: HitTestBehavior.deferToChild,
+      onTapUp: (details) {
+        // ✅ T-019：命中判定
+        // 说明：KnowledgeGraphWidget 在 InteractiveViewer 内，
+        // Flutter 手势系统已对 details.localPosition 做逆变换，
+        // 此处坐标与 node.x / node.y 处于同一坐标系，无需手动乘/除 scale。
+        final localPos = details.localPosition;
+        GraphNode? hit;
+        // 反向遍历：后画的在上层，视觉与命中一致
+        for (var node in widget.graph.nodes.reversed) {
+          final dx = localPos.dx - node.x;
+          final dy = localPos.dy - node.y;
+          if (dx * dx + dy * dy <= node.radius * node.radius) {
+            hit = node;
+            break;
+          }
+        }
+        if (hit != null) {
+          widget.onNodeTap(hit.id);
+        }
+      },
+      child: CustomPaint(
+        painter: KnowledgeGraphPainter(
+          graph: widget.graph,
+          onNodeTap: widget.onNodeTap,
+          hoveredNodeId: _hoveredNodeId,
+          mode: widget.mode,
+        ),
+        size: Size.infinite,
       ),
-      size: Size.infinite,
     );
   }
 }
@@ -529,6 +558,24 @@ class KnowledgeGraphPainter extends CustomPainter {
           bgPaint,
         );
 
+        labelPainter.paint(canvas, Offset(labelX, labelY));
+      } else if (!node.isFolder && node.type == 'note') {
+        // ✅ T-020：笔记节点常显标签（小字灰色，与悬停互斥）
+        final labelPainter = TextPainter(
+          text: TextSpan(
+            text: node.label,
+            style: TextStyle(
+              fontSize: 9,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        );
+        labelPainter.layout(maxWidth: 80);
+        final labelX = node.x - labelPainter.width / 2;
+        final labelY = node.y + radius + 4;
         labelPainter.paint(canvas, Offset(labelX, labelY));
       }
     }
