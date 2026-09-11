@@ -2,6 +2,7 @@
 // 卡片服务 — 集成云端同步
 // ✅ 复习相关方法过滤拐杖卡（kind == CardKind.scaffold）
 // ✅ 统计口径与按类型查询统一过滤拐杖卡
+// ✅ 任务三：getCardsBySource 签名改为 named + required（sourceType + sourceId）
 
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -95,9 +96,14 @@ class CardService {
     return cards.where((c) => c.cardType == type && c.kind == CardKind.atomic).toList();
   }
 
-  Future<List<CardModel>> getCardsBySource(String sourceId) async {
+  // ✅ 任务三：签名改为 named + required，双条件（sourceType + sourceId）
+  Future<List<CardModel>> getCardsBySource({
+    required String sourceType,
+    required String sourceId,
+  }) async {
     final cards = await getAllCards();
-    return cards.where((c) => c.sourceId == sourceId).toList();
+    return cards.where((c) =>
+      c.sourceType == sourceType && c.sourceId == sourceId).toList();
   }
 
   Future<List<CardModel>> getDueCards() async {
