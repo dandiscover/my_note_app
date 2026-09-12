@@ -7,14 +7,18 @@
 // ✅ 500ms 延迟逻辑：划线后启动 500ms 计时器；内点菜单动作 → 取消计时器，卡片盒不滑出
 // ✅ 卡片盒滑出后 3 秒自动滑回
 // ✅ 指导卡回答追加到"与这本书关联的读书笔记"（老白方案 B + T-050）
-// ✅ `_convertToNote` 改为追加模式（T-050：同书多篇同名笔记的现有 bug）
+// ✅ `_convertToNote` 改为追加模式（T-050）
 // ✅ 首次机制：保存成功后触发 `isFirstUse('guide')` + `markCardUsed('guide')` + usageCount 递增
+// ✅ v2 修复（问题1）：专注模式 Listener 从 Stack 内部移到 Stack 外层。
+//     原因：Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断 PageView / SelectableText 的 hitTest。
+//     现在 Listener 是 Stack 的 parent，Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:epubx/epubx.dart';
 import 'package:http/http.dart' as http;
@@ -87,11 +91,15 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   Timer? _reminderTimer;
   bool _reminderShown = false;
 
-  // ✅ 指导卡：卡片盒停靠面板状态
   bool _cardBoxVisible = false;
-  Timer? _cardBoxDelayTimer; // 划线后 500ms 延迟
-  Timer? _cardBoxHideTimer;  // 滑出后 3 秒自动滑回
-  String? _peekSelectedText; // 触发卡片盒的划线文本（用于 7.1 判定）
+  Timer? _cardBoxDelayTimer;
+  Timer? _cardBoxHideTimer;
+  String? _peekSelectedText;
+
+  // ✅ 问题1：专注模式"单击退出"指针判定状态
+  static const int _focusTapMaxDurationMs = 300;
+  Offset? _focusPointerDownPos;
+  DateTime? _focusPointerDownAt;
 
   String _bookTitle = '';
   String _bookAuthor = '';
@@ -117,7 +125,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     _pageController.dispose();
     _scrollController.dispose();
     _reminderTimer?.cancel();
-    // ✅ 指导卡：取消两个计时器
     _cardBoxDelayTimer?.cancel();
     _cardBoxHideTimer?.cancel();
     _saveReadingTime();
@@ -188,7 +195,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // 书签
   Future<void> _loadBookmarks() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -221,7 +227,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   bool _isBookmarked(int page) => _bookmarks.contains(page);
 
-  // 章节总结
   Future<void> _loadSummaries() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -273,7 +278,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // 评分书评
   Future<void> _loadRatingReview() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -328,7 +332,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // UI 设置
   Future<void> _loadUISettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -369,7 +372,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     } catch (_) {}
   }
 
-  // 连续阅读提醒
   Future<void> _loadReminderSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -656,7 +658,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // 阅读时长
   Future<void> _saveReadingTime() async {
     if (_readingStartTime == null) return;
     final duration = DateTime.now().difference(_readingStartTime!);
@@ -676,7 +677,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     } catch (_) {}
   }
 
-  // 搜索
   void _showSearch() {
     showDialog(
       context: context,
@@ -744,7 +744,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // 目录
   void _showToc() {
     showModalBottomSheet(
       context: context,
@@ -787,7 +786,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     setState(() => _isFocusMode = !_isFocusMode);
   }
 
-  // 导出笔记
   void _exportNotes() {
     final buffer = StringBuffer();
     buffer.writeln('《${_bookTitle.isEmpty ? _book?.title ?? widget.fileName : _bookTitle}》阅读笔记');
@@ -809,7 +807,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 已复制到剪贴板')));
   }
 
-  // 导出思维导图
   void _exportMindMap() {
     final buffer = StringBuffer();
     buffer.writeln('# ${_bookTitle.isEmpty ? _book?.title ?? widget.fileName : _bookTitle}');
@@ -833,8 +830,42 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 思维导图已复制为 Markdown')));
   }
 
+  // ---------------------- 专注模式手势判定 ----------------------
+  // ✅ v2 问题1：Listener 是 Stack 的 parent，不是 child。
+  //   - Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断 PageView / SelectableText。
+  //   - 现在 Listener 在 Stack 外层，Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
+  //   - Listener 依然收到全部 onPointerDown / onPointerUp，位置判定逻辑不变。
+  //   - 已知边界：多指场景下 _focusPointerDownPos 只记第一根手指，第二指覆盖。概率极低，本轮接受。
+  void _onFocusPointerDown(PointerDownEvent event) {
+    _focusPointerDownPos = event.position;
+    _focusPointerDownAt = DateTime.now();
+  }
+
+  void _onFocusPointerUp(PointerUpEvent event) {
+    final start = _focusPointerDownPos;
+    final startAt = _focusPointerDownAt;
+    _focusPointerDownPos = null;
+    _focusPointerDownAt = null;
+    if (start == null || startAt == null) return;
+
+    // 卡片盒区域判定：以 down 位置为准。
+    // 卡片盒宽度 140（CardBoxPeek._buildPanel 内 hardcoded），贴右边缘。
+    // 若未来卡片盒宽度改变，此处需同步（T-071）。
+    const cardBoxWidth = 140.0;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final cardBoxLeft = screenWidth - cardBoxWidth;
+    if (_cardBoxVisible && start.dx >= cardBoxLeft) {
+      return;
+    }
+
+    final elapsed = DateTime.now().difference(startAt).inMilliseconds;
+    final moved = (event.position - start).distance;
+    if (elapsed < _focusTapMaxDurationMs && moved < kTouchSlop) {
+      setState(() => _isFocusMode = false);
+    }
+  }
+
   // ---------------------- 指导卡集成 ----------------------
-  // ✅ 500ms 延迟计时器：划线后启动
   void _startCardBoxDelayTimer(String selectedText) {
     _cardBoxDelayTimer?.cancel();
     _peekSelectedText = selectedText;
@@ -843,7 +874,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     });
   }
 
-  // ✅ 卡片盒滑出 + 3 秒自动滑回
   void _showCardBoxPeek() {
     _cardBoxHideTimer?.cancel();
     setState(() => _cardBoxVisible = true);
@@ -852,7 +882,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     });
   }
 
-  // ✅ 菜单动作点击：取消延迟计时器（卡片盒不滑出）；若已滑出，直接收起
   void _onMenuActionTapped() {
     _cardBoxDelayTimer?.cancel();
     if (_cardBoxVisible) {
@@ -861,7 +890,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // ✅ 打开指导卡三层提问
   Future<void> _openReadingGuide(String selectedText) async {
     if (selectedText.isEmpty) return;
     _onMenuActionTapped();
@@ -877,7 +905,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           await _appendToBookNote(markdown);
         },
         onCompleted: () async {
-          // 首次机制：第一次完整使用指导卡
           final isFirst = await _cardService.isFirstUse('guide');
           if (isFirst) {
             if (mounted) {
@@ -887,7 +914,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
             }
             await _cardService.markCardUsed('guide');
           }
-          // usageCount 递增
           final guideCard = await _cardService.getCard('system_guide_card');
           if (guideCard != null) {
             await _cardService.updateCard(
@@ -899,8 +925,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // ✅ 指导卡回答追加到"与这本书关联的读书笔记"（老白方案 B + T-050）
-  // 防错：笔记查不到 → 清 key → 走新建
   Future<void> _appendToBookNote(String markdown) async {
     if (markdown.trim().isEmpty) return;
     final bookId = widget.bookId;
@@ -915,7 +939,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           break;
         }
       }
-      // 笔记查不到 或 已被删除 → 清 key，走新建
       if (existing == null || existing['status'] == 'deleted') {
         await _cardService.clearBookReadingNoteId(bookId);
       } else {
@@ -931,7 +954,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     await _createNewBookReadingNote(bookId, markdown);
   }
 
-  // ✅ 新建读书笔记（标题 / tags 按小白兔裁定）
   Future<void> _createNewBookReadingNote(String bookId, String markdown) async {
     final title = '阅读笔记：《${_bookTitle.isEmpty ? _book?.title ?? widget.fileName : _bookTitle}》';
     final now = DateTime.now();
@@ -955,7 +977,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     await _cardService.setBookReadingNoteId(bookId, noteEntry.id);
   }
 
-  // ✅ 构建 CardBoxPeek
   Widget _buildCardBoxPeek() {
     return CardBoxPeek(
       visible: _cardBoxVisible,
@@ -965,7 +986,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       },
       onCardSelected: (card) {
         if (card.cardType == CardType.guide) {
-          // ✅ 老白 7.1：指导卡 → 直接进三层提问
           final text = _peekSelectedText ?? '';
           if (text.isNotEmpty) {
             _openReadingGuide(text);
@@ -977,7 +997,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
             }
           }
         } else {
-          // 其他拐杖卡：后续任务
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('${card.typeLabel} 尚未接入阅读器')),
@@ -1216,7 +1235,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       final bool hasCard = _highlightedWithCard.contains(range.note.selectedText);
 
       if (!isLong) {
-        // ---------- 短文本：黄底 ----------
         spans.add(TextSpan(
           text: highlightedText,
           style: TextStyle(
@@ -1228,7 +1246,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           ),
         ));
       } else {
-        // ---------- 长文本：「」+ 竖线 + 轻微暖色背景 ----------
         spans.add(WidgetSpan(
           alignment: PlaceholderAlignment.middle,
           child: Container(
@@ -1328,7 +1345,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         final selectedText = selection.textInside(editableTextState.textEditingValue.text);
         if (selectedText.isEmpty) return const SizedBox.shrink();
 
-        // ✅ 指导卡：启动 500ms 延迟计时器，到点滑出卡片盒
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _startCardBoxDelayTimer(selectedText);
         });
@@ -1375,7 +1391,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // ---------------------- 页边书摘 ----------------------
   void _showQuickNoteInput() {
     showDialog(
       context: context,
@@ -1428,7 +1443,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 书摘已保存')));
   }
 
-  // ---------------------- 其他功能 ----------------------
   void _showBatchCardDialog() {
     showDialog(
       context: context,
@@ -1524,7 +1538,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // ---------------------- EPUB 加载 ----------------------
   Future<void> _loadEpub() async {
     setState(() => _isLoading = true);
     try {
@@ -1590,7 +1603,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // ---- 标注列表（右侧滑出面板） ----
   void _showNotesPanel() {
     showGeneralDialog(
       context: context,
@@ -1631,7 +1643,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // ---- 标注选项（长按菜单） ----
   void _showNoteOptions(BookNote note) {
     showModalBottomSheet(
       context: context,
@@ -1667,7 +1678,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // ---- 思维导图 ----
   void _showMindMap() {
     showModalBottomSheet(
       context: context,
@@ -1727,7 +1737,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // ---- 关联聚合 ----
   void _showAggregatedNotes() {
     showModalBottomSheet(
       context: context,
@@ -1778,7 +1787,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     );
   }
 
-  // ---- 转为智库笔记（✅ T-050：改为追加模式） ----
   Future<void> _convertToNote(BookNote note) async {
     final content = '书籍：${_bookTitle.isEmpty ? _book?.title ?? widget.fileName : _bookTitle}\n章节：第${note.pageNumber}章\n原文：${note.selectedText}\n批注：${note.comment}';
     await _appendToBookNote(content);
@@ -1787,7 +1795,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
 
-  // ---- 构建章节内容 ----
   Widget _buildChapterContent(int index) {
     if (_chapters == null || index >= _chapters!.length) return const Center(child: Text('章节不存在'));
     final chapter = _chapters![index];
@@ -1927,28 +1934,27 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     final current = _currentChapterIndex;
 
     if (_isFocusMode) {
+      // ✅ v2：Listener 是 Stack 的 parent，不是 child。
+      //   Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断下层 PageView / SelectableText。
+      //   现在 Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
       return Scaffold(
         backgroundColor: _backgroundColor,
-        body: Stack(
-          children: [
-            PageView(
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() => _currentChapterIndex = index);
-                if (index > 0 && index < total) _loadChapterContent(index);
-              },
-              children: List.generate(total, (index) => _buildChapterContent(index)),
-            ),
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () => setState(() => _isFocusMode = false),
-                child: Container(color: Colors.transparent),
+        body: Listener(
+          onPointerDown: _onFocusPointerDown,
+          onPointerUp: _onFocusPointerUp,
+          child: Stack(
+            children: [
+              PageView(
+                controller: _pageController,
+                onPageChanged: (index) {
+                  setState(() => _currentChapterIndex = index);
+                  if (index > 0 && index < total) _loadChapterContent(index);
+                },
+                children: List.generate(total, (index) => _buildChapterContent(index)),
               ),
-            ),
-            // ✅ 指导卡：卡片盒停靠面板
-            _buildCardBoxPeek(),
-          ],
+              _buildCardBoxPeek(),
+            ],
+          ),
         ),
       );
     }
@@ -2047,7 +2053,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
               ),
             ],
           ),
-          // ✅ 指导卡：卡片盒停靠面板
           _buildCardBoxPeek(),
         ],
       ),
@@ -2076,7 +2081,7 @@ class _NotesPanelContent extends StatefulWidget {
 }
 
 class _NotesPanelContentState extends State<_NotesPanelContent> {
-  String _filter = 'all'; // 'all', 'highlight', 'comment'
+  String _filter = 'all';
   List<BookNote> _notes = [];
 
   @override
@@ -2088,7 +2093,6 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
   @override
   void didUpdateWidget(_NotesPanelContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 当父级数据变化时，重新获取最新列表
     _notes = widget.getNotes();
   }
 
@@ -2104,7 +2108,6 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
   int get _highlightCount => _notes.where((n) => n.isHighlight).length;
   int get _commentCount => _notes.where((n) => n.comment.isNotEmpty).length;
 
-  // 刷新列表（操作后调用）
   void _refresh() {
     setState(() {
       _notes = widget.getNotes();
@@ -2115,7 +2118,6 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // 标题栏
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -2132,7 +2134,6 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
             ],
           ),
         ),
-        // 筛选标签
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
@@ -2145,7 +2146,6 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
             ],
           ),
         ),
-        // 列表
         Expanded(
           child: _filteredNotes.isEmpty
               ? const Center(child: Text('暂无标注', style: TextStyle(color: Colors.grey)))
@@ -2181,7 +2181,6 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                         }
                       },
                       onLongPress: () {
-                        // 直接在面板内弹菜单，不关闭面板
                         showModalBottomSheet(
                           context: context,
                           builder: (ctx) => SafeArea(
@@ -2194,7 +2193,6 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                                   onTap: () async {
                                     Navigator.pop(ctx);
                                     await widget.onGenerateCard(note);
-                                    // 刷新列表
                                     _refresh();
                                   },
                                 ),
