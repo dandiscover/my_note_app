@@ -12,14 +12,14 @@
 // ✅ 阅读模式增加探究缩略图区块，点击弹出只读概览弹窗
 // ✅ 编辑模式也增加探究缩略图区块
 // ✅ _saveNote 增加 exploreTasks 参数，保存时使用传入参数而非 _entry.exploreTasks
-// ✅ 笔记加工台最小版：阅读模式加加工区 + 卡片区
-// ✅ 独立 _saveCraftingFields（构造函数传 11 字段，支持清空）
+// ✅ 笔记加工台最小版：阅读模式加加工区（只读主问题 + 可编辑新理解）+ 卡片区
+// ✅ 独立 _saveCraftingFields（构造函数传 11 字段，不走 copyWith，支持清空）
 // ✅ 加工台修复：弹窗溢出、输入不生效、保存按钮随 dirty 变
 // ✅ 字段映射定稿：右键菜单改名"生成卡片"，_generateCard 加 selectedText 参数
-// ✅ 各类型目标字段按选中文字预填：索引卡高光句 / 复习卡背面 / 问答卡答案 /
-//    填空卡答案 / 判断题陈述句 / 选择题第一个选项
+// ✅ 各类型目标字段按选中文字预填
 // ✅ 修索引卡分支 author/highlight 共用 backText 的 bug
 // ✅ 修选择题分支 4 选项共用 backText + 硬编码选项的 bug
+// ✅ 修复：_generateCard chip 列表过滤 CardType.guide（指导卡不提供手动创建入口）
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -104,8 +104,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   // ─── 加工台：保存加工区字段（独立方法，不复用 _saveNote） ─────
-  // 用 NotebookEntry 构造函数直接构造，传全 11 字段。
-  // 理由：copyWith 对 null 的处理是 `x ?? this.x`，传 null 不会清空。
   Future<void> _saveCraftingFields() async {
     if (_isSavingCrafting) return;
     setState(() => _isSavingCrafting = true);
@@ -244,17 +242,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   // ─── 生成卡片（统一入口） ─────────────────────────────
-  // ✅ 字段映射定稿：
-  //   - selectedText 非空（右键进来）→ 默认索引卡，各类型目标字段预填选中文字
-  //   - selectedText 为空（AppBar 进来）→ 默认复习卡，各字段用原默认值
-  //   - 索引卡三字段（标题/作者/高光句）拆独立变量
-  //   - 选择题五字段（题目/A/B/C/D）拆独立变量
   Future<void> _generateCard({String? selectedText}) async {
     final hasSelection = selectedText != null && selectedText.isNotEmpty;
 
     // ─── 各类型字段独立变量（避免互相污染） ───
-
-    // 复习卡
     String reviewFront = _entry.title;
     String reviewBack = hasSelection
         ? selectedText
@@ -262,12 +253,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ? '${_entry.content.substring(0, 200)}...'
             : _entry.content);
 
-    // 索引卡
     String indexTitle = _entry.title;
     String indexAuthor = '';
     String indexHighlight = hasSelection ? selectedText : '';
 
-    // 问答卡
     String qaQuestion = _entry.title;
     String qaAnswer = hasSelection
         ? selectedText
@@ -275,22 +264,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ? '${_entry.content.substring(0, 200)}...'
             : _entry.content);
 
-    // 填空卡
     String fillQuestion = '';
     String fillAnswer = hasSelection ? selectedText : '';
 
-    // 选择题
     String choiceQuestion = '';
     String choiceA = hasSelection ? selectedText : '';
     String choiceB = '';
     String choiceC = '';
     String choiceD = '';
 
-    // 判断题
     String tfStatement = hasSelection ? selectedText : _entry.title;
     bool tfIsTrue = true;
 
-    // 默认类型：有选中 → 索引卡；无选中 → 复习卡
     CardType selectedType = hasSelection ? CardType.indexCard : CardType.review;
     Importance selectedImportance = Importance.medium;
 
@@ -309,10 +294,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   children: [
                     const Text('卡片类型', style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
+                    // ✅ 修复：chip 列表过滤 CardType.guide（指导卡不提供手动创建入口）
                     Wrap(
                       spacing: 4,
                       runSpacing: 4,
-                      children: CardType.values.map((type) {
+                      children: CardType.values
+                          .where((type) => type != CardType.guide)
+                          .map((type) {
                         return FilterChip(
                           label: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -334,7 +322,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                     ),
                     const SizedBox(height: 12),
 
-                    // ─── 复习卡 ───
                     if (selectedType == CardType.review) ...[
                       TextField(
                         controller: TextEditingController(text: reviewFront),
@@ -351,7 +338,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       ),
                     ],
 
-                    // ─── 索引卡（三字段独立） ───
                     if (selectedType == CardType.indexCard) ...[
                       TextField(
                         controller: TextEditingController(text: indexTitle),
@@ -377,7 +363,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       ),
                     ],
 
-                    // ─── 问答卡 ───
                     if (selectedType == CardType.qa) ...[
                       TextField(
                         controller: TextEditingController(text: qaQuestion),
@@ -394,7 +379,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       ),
                     ],
 
-                    // ─── 填空卡 ───
                     if (selectedType == CardType.fill) ...[
                       TextField(
                         controller: TextEditingController(text: fillQuestion),
@@ -414,7 +398,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       ),
                     ],
 
-                    // ─── 选择题（五字段独立） ───
                     if (selectedType == CardType.choice) ...[
                       TextField(
                         controller: TextEditingController(text: choiceQuestion),
@@ -457,7 +440,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       ),
                     ],
 
-                    // ─── 判断题 ───
                     if (selectedType == CardType.truefalse) ...[
                       TextField(
                         controller: TextEditingController(text: tfStatement),
@@ -762,7 +744,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             tooltip: _isReadMode ? '切换到修改模式' : '切换到阅读模式',
             onPressed: _toggleMode,
           ),
-          // ✅ 字段映射定稿：AppBar 调用点改为闭包，因为 _generateCard 已加参数
           IconButton(
             icon: const Icon(Icons.credit_card),
             tooltip: '生成卡片',
@@ -811,7 +792,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                 return AdaptiveTextSelectionToolbar.buttonItems(
                   anchors: editableTextState.contextMenuAnchors,
                   buttonItems: [
-                    // ✅ 字段映射定稿：右键菜单改名"生成卡片"，调 _generateCard
                     ContextMenuButtonItem(
                       label: '📇 生成卡片',
                       onPressed: () {
@@ -842,7 +822,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
   }
 
-  // ✅ 加工台：加工区（只读主问题 + 编辑入口 + 可编辑新理解 + 底部保存按钮）
   Widget _buildCraftingSection() {
     final hasQuestion = _entry.inquiryQuestion != null && _entry.inquiryQuestion!.isNotEmpty;
 
@@ -950,7 +929,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
   }
 
-  // ✅ 加工台：卡片区（本笔记所有卡片）
   Widget _buildNoteCardsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,10 +1,19 @@
 // test/services/card_service_test.dart
 // CardService 完整单元测试
+// ✅ 修复 1：getCardsBySource 改用命名参数（任务三后签名变更）
+// ✅ 修复 2-6：过滤系统预置卡 system_guide_card（懒加载副作用）
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_note_app/services/card_service.dart';
 import 'package:my_note_app/models/card.dart';
+
+/// 过滤掉系统预置卡（system_guide_card），只返回用户创建的卡片。
+/// 理由：CardService.getAllCards() 首次调用会懒加载 system_guide_card，
+/// 测试断言需排除它，才能聚焦于用户卡片的行为。
+List<CardModel> _userCards(List<CardModel> all) {
+  return all.where((c) => c.id != 'system_guide_card').toList();
+}
 
 void main() {
   late CardService cardService;
@@ -19,7 +28,7 @@ void main() {
 
   group('基础 CRUD', () {
     test('空数据应返回空列表', () async {
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
       expect(cards, isEmpty);
     });
 
@@ -35,7 +44,7 @@ void main() {
       );
 
       await cardService.addCard(card);
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
 
       expect(cards.length, 1);
       expect(cards.first.id, 'card_1');
@@ -61,7 +70,7 @@ void main() {
       );
       await cardService.updateCard(updated);
 
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
       expect(cards.first.indexTitle, '更新标题');
       expect(cards.first.highlight, '更新高光');
     });
@@ -77,7 +86,7 @@ void main() {
       await cardService.addCard(card);
       await cardService.deleteCard('card_3');
 
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
       expect(cards, isEmpty);
     });
 
@@ -104,7 +113,7 @@ void main() {
       ];
 
       await cardService.addCards(cards);
-      final all = await cardService.getAllCards();
+      final all = _userCards(await cardService.getAllCards());
       expect(all.length, 3);
     });
   });
@@ -131,7 +140,7 @@ void main() {
         ));
       }
 
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
       final typeNames = cards.map((c) => c.cardType).toSet();
       expect(typeNames.length, 6);
     });
@@ -169,7 +178,11 @@ void main() {
         sourceId: 'note_2',
       ));
 
-      final cards = await cardService.getCardsBySource('note_1');
+      // ✅ 修复：命名参数
+      final cards = await cardService.getCardsBySource(
+        sourceType: 'note',
+        sourceId: 'note_1',
+      );
       expect(cards.length, 1);
       expect(cards.first.sourceId, 'note_1');
     });
@@ -189,7 +202,7 @@ void main() {
       );
 
       await cardService.addCard(card);
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
       expect(cards.first.stage, 0);
       expect(cards.first.mastered, false);
     });
@@ -207,7 +220,7 @@ void main() {
       await cardService.addCard(card);
       await cardService.rateRemembered(card);
 
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
       expect(cards.first.stage, 1);
       expect(cards.first.totalReviews, 1);
     });
@@ -228,11 +241,11 @@ void main() {
       var currentCard = card;
       for (var i = 0; i < 7; i++) {
         await cardService.rateRemembered(currentCard);
-        final cards = await cardService.getAllCards();
+        final cards = _userCards(await cardService.getAllCards());
         currentCard = cards.first;
       }
 
-      final finalCards = await cardService.getAllCards();
+      final finalCards = _userCards(await cardService.getAllCards());
       expect(finalCards.first.mastered, true);
       expect(finalCards.first.stage, 7);
     });
@@ -253,15 +266,15 @@ void main() {
       var currentCard = card;
       for (var i = 0; i < 3; i++) {
         await cardService.rateRemembered(currentCard);
-        final cards = await cardService.getAllCards();
+        final cards = _userCards(await cardService.getAllCards());
         currentCard = cards.first;
       }
 
       // 忘记
-      final cardsBefore = await cardService.getAllCards();
+      final cardsBefore = _userCards(await cardService.getAllCards());
       await cardService.rateForgotten(cardsBefore.first);
 
-      final cardsAfter = await cardService.getAllCards();
+      final cardsAfter = _userCards(await cardService.getAllCards());
       expect(cardsAfter.first.stage, 0);
       expect(cardsAfter.first.failedCount, 1);
     });
@@ -345,7 +358,7 @@ void main() {
       await cardService.addCard(card);
       await cardService.resetCard('reset_1');
 
-      final cards = await cardService.getAllCards();
+      final cards = _userCards(await cardService.getAllCards());
       expect(cards.first.stage, 0);
       expect(cards.first.mastered, false);
       expect(cards.first.totalReviews, 0);

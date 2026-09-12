@@ -1,12 +1,13 @@
 // lib/widgets/wisdom/wisdom_card_box.dart
 // 卡片盒视图 — 显示所有卡片（含索引卡）
 // ✅ 新增：拐杖卡（kind == CardKind.scaffold）左上角显示 🧭 标记
-// ✅ 新增：“＋ 拐杖卡”按钮
-// ✅ 新增：空状态时也显示“＋ 拐杖卡”按钮
+// ✅ 新增："＋ 拐杖卡"按钮
+// ✅ 新增：空状态时也显示"＋ 拐杖卡"按钮
 // ✅ 修复：统计栏 reviewCount 和 indexCount 过滤拐杖卡
 // ✅ 重构：去掉标签分组，改为平铺 + 标签下拉筛选
 // ✅ 新增：分类筛选独立一行（ChoiceChip）
 // ✅ 新增：_selectedFilter 状态变量，_filteredCards 增加类型筛选层
+// ✅ 指导卡：拐杖卡按 usageCount 分档展示（0 次视觉稍淡 / ≥1 次显示使用次数）
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -305,6 +306,12 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
 
   Widget _buildCardItem(CardModel card) {
     bool isHovered = false;
+    // ✅ 拐杖卡分档展示：
+    //   usageCount == 0 → 视觉稍淡（Opacity 0.6）
+    //   usageCount >= 1 → 正常卡面 + 显示使用次数
+    final isScaffold = card.kind == CardKind.scaffold;
+    final isNeverUsed = isScaffold && card.usageCount == 0;
+
     return StatefulBuilder(
       builder: (context, setState) {
         return MouseRegion(
@@ -312,44 +319,62 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
           onExit: (_) => setState(() => isHovered = false),
           child: GestureDetector(
             onTap: () => widget.onCardTap(card),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              transform: isHovered ? Matrix4.diagonal3Values(1.04, 1.04, 1.0) : Matrix4.identity(),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(isHovered ? 12 : 4),
-                border: Border.all(color: isHovered ? card.typeColor : Colors.grey.shade200, width: isHovered ? 2 : 0.5),
-                boxShadow: isHovered ? [BoxShadow(color: card.typeColor.withValues(alpha: 0.2), blurRadius: 16, offset: const Offset(0, 6))] : null,
-              ),
-              padding: const EdgeInsets.all(4),
-              child: Stack(
-                children: [
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        decoration: BoxDecoration(color: card.typeColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
-                        child: Text(card.typeIcon, style: const TextStyle(fontSize: 10)),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _getCardThumbnail(card),
-                        style: TextStyle(fontSize: isHovered ? 10 : 7, color: isHovered ? Colors.black87 : Colors.grey.shade700),
-                        maxLines: isHovered ? 6 : 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                      ),
-                      if (card.mastered) const Text('✅', style: TextStyle(fontSize: 6)),
-                    ],
-                  ),
-                  if (card.kind == CardKind.scaffold)
-                    Positioned(
-                      top: 2,
-                      left: 4,
-                      child: Text('🧭', style: const TextStyle(fontSize: 12)),
+            child: Opacity(
+              // ✅ 新增：未用过的拐杖卡视觉稍淡
+              opacity: isNeverUsed ? 0.6 : 1.0,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                transform: isHovered ? Matrix4.diagonal3Values(1.04, 1.04, 1.0) : Matrix4.identity(),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(isHovered ? 12 : 4),
+                  border: Border.all(color: isHovered ? card.typeColor : Colors.grey.shade200, width: isHovered ? 2 : 0.5),
+                  boxShadow: isHovered ? [BoxShadow(color: card.typeColor.withValues(alpha: 0.2), blurRadius: 16, offset: const Offset(0, 6))] : null,
+                ),
+                padding: const EdgeInsets.all(4),
+                child: Stack(
+                  children: [
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          decoration: BoxDecoration(color: card.typeColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                          child: Text(card.typeIcon, style: const TextStyle(fontSize: 10)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _getCardThumbnail(card),
+                          style: TextStyle(fontSize: isHovered ? 10 : 7, color: isHovered ? Colors.black87 : Colors.grey.shade700),
+                          maxLines: isHovered ? 6 : 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                        ),
+                        if (card.mastered) const Text('✅', style: TextStyle(fontSize: 6)),
+                      ],
                     ),
-                ],
+                    if (card.kind == CardKind.scaffold)
+                      Positioned(
+                        top: 2,
+                        left: 4,
+                        child: Text('🧭', style: const TextStyle(fontSize: 12)),
+                      ),
+                    // ✅ 新增：拐杖卡显示使用次数（>0 时）
+                    if (isScaffold && card.usageCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 4,
+                        child: Text(
+                          '${card.usageCount}次',
+                          style: TextStyle(
+                            fontSize: 8,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -372,6 +397,8 @@ class _WisdomCardBoxState extends State<WisdomCardBox> {
         return card.choiceQuestion ?? '选择题';
       case CardType.truefalse:
         return card.tfStatement ?? '判断题';
+      case CardType.guide:
+        return '指导卡';  // ✅ 新增：指导卡缩略
     }
   }
 }

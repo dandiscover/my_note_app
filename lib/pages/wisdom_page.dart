@@ -13,6 +13,7 @@
 // ✅ 修改：_buildCard 的 note 分支增加 hasExplore 判断，并传给 WisdomNoteCard
 // ✅ 新增：图书馆书籍状态筛选（全部/想读/在读/读完）
 // ✅ 修改：WisdomBookCard 传入 Book 对象以显示来源标识
+// ✅ 指导卡：_showCardDetailDialog 里，系统预置卡（system_guide_card）不显示“删除”按钮
 
 import 'package:flutter/material.dart';
 
@@ -1173,34 +1174,36 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () async {
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('删除卡片'),
-                  content: const Text('确定要删除这张卡片吗？'),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('删除', style: TextStyle(color: Colors.red)),
-                    ),
-                  ],
-                ),
-              );
-              if (confirm == true && mounted) {
-                Navigator.pop(context);
-                await _cardService.deleteCard(card.id);
-                _cache.invalidate(_cacheKeyCards);
-                await _loadData();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('🗑️ 卡片已删除')),
+          // ✅ 指导卡：系统预置卡（system_guide_card）不显示“删除”按钮
+          if (card.id != 'system_guide_card')
+            TextButton(
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('删除卡片'),
+                    content: const Text('确定要删除这张卡片吗？'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('删除', style: TextStyle(color: Colors.red)),
+                      ),
+                    ],
+                  ),
                 );
-              }
-            },
-            child: const Text('删除', style: TextStyle(color: Colors.red)),
-          ),
+                if (confirm == true && mounted) {
+                  Navigator.pop(context);
+                  await _cardService.deleteCard(card.id);
+                  _cache.invalidate(_cacheKeyCards);
+                  await _loadData();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('🗑️ 卡片已删除')),
+                  );
+                }
+              },
+              child: const Text('删除', style: TextStyle(color: Colors.red)),
+            ),
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
           if (card.kind == CardKind.atomic && !card.mastered)
             ElevatedButton(

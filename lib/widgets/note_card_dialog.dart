@@ -1,5 +1,6 @@
 // lib/widgets/note_card_dialog.dart
 // 从笔记生成卡片的对话框 — 支持6种卡片类型
+// ✅ 修复：两处 switch 补 CardType.guide 分支（non_exhaustive_switch_statement）
 
 import 'package:flutter/material.dart';
 import '../models/card.dart';
@@ -217,6 +218,9 @@ class _NoteCardDialogState extends State<NoteCardDialog> {
         return _buildChoiceForm();  // ✅ 选择题表单
       case CardType.truefalse:
         return _buildTrueFalseForm();
+      case CardType.guide:
+        // ✅ 指导卡不走笔记详情页的"生成卡片"入口，无专属表单
+        return [];
     }
   }
 
@@ -557,6 +561,9 @@ class _NoteCardDialogState extends State<NoteCardDialog> {
         }
         result['tfStatement'] = _tfStatementController.text.trim();
         result['tfIsTrue'] = _tfIsTrue;
+        break;
+      case CardType.guide:
+        // ✅ 指导卡不走笔记详情页的"生成卡片"入口，无专属字段
         break;
     }
 

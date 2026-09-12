@@ -1,5 +1,7 @@
 // lib/services/supabase_service.dart
 // Supabase 云存储服务（简化版，一次上传）
+// ✅ 测试环境修复：isLoggedIn / currentUserId / currentUserEmail 加未初始化兜底
+//    未初始化时返回 false / null，不崩
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:typed_data';
@@ -72,9 +74,35 @@ class SupabaseService {
     } catch (_) {}
   }
 
-  bool get isLoggedIn => client.auth.currentUser != null;
-  String? get currentUserId => client.auth.currentUser?.id;
-  String? get currentUserEmail => client.auth.currentUser?.email;
+  // ✅ 测试环境修复：未初始化时返回 false，不崩
+  bool get isLoggedIn {
+    if (!_initialized) return false;
+    try {
+      return client.auth.currentUser != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ✅ 测试环境修复：未初始化时返回 null，不崩
+  String? get currentUserId {
+    if (!_initialized) return null;
+    try {
+      return client.auth.currentUser?.id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ✅ 测试环境修复：未初始化时返回 null，不崩
+  String? get currentUserEmail {
+    if (!_initialized) return null;
+    try {
+      return client.auth.currentUser?.email;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> signIn({required String email, required String password}) async {
     await client.auth.signInWithPassword(email: email, password: password);

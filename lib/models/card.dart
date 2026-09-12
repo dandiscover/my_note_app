@@ -1,6 +1,8 @@
 // lib/models/card.dart
 // 卡片数据模型 — 支持多种类型
 // ✅ 新增 CardKind 枚举（atomic / scaffold），用于区分原子卡片和脚手架卡片
+// ✅ 指导卡：CardType 加 guide 枚举值 + 7 处 switch 补分支
+// ✅ usageCount：CardModel 加 usageCount 字段，用于卡片盒分档展示
 
 import 'package:flutter/material.dart';
 
@@ -11,6 +13,7 @@ enum CardType {
   fill,        // 填空卡
   choice,      // 选择题
   truefalse,   // 判断题
+  guide,       // 指导卡（✅ 新增）
 }
 
 enum Importance {
@@ -40,6 +43,8 @@ extension CardTypeExt on CardType {
         return '选择题';
       case CardType.truefalse:
         return '判断题';
+      case CardType.guide:              // ✅ 新增
+        return '指导卡';
     }
   }
 
@@ -57,6 +62,8 @@ extension CardTypeExt on CardType {
         return '🔘';
       case CardType.truefalse:
         return '⚖️';
+      case CardType.guide:              // ✅ 新增
+        return '📖';
     }
   }
 
@@ -74,6 +81,8 @@ extension CardTypeExt on CardType {
         return Colors.green;
       case CardType.truefalse:
         return Colors.red;
+      case CardType.guide:              // ✅ 新增
+        return Colors.indigo;
     }
   }
 }
@@ -114,6 +123,7 @@ class CardModel {
   DateTime? nextReviewDate;
   int totalReviews;
   int failedCount;
+  int usageCount;                       // ✅ 新增：使用次数（拐杖卡分档展示用）
 
   CardModel({
     required this.id,
@@ -148,6 +158,7 @@ class CardModel {
     this.nextReviewDate,
     this.totalReviews = 0,
     this.failedCount = 0,
+    this.usageCount = 0,                // ✅ 新增
   })  : createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
@@ -165,6 +176,8 @@ class CardModel {
         return choiceQuestion ?? '无题目';
       case CardType.truefalse:
         return tfStatement ?? '无陈述';
+      case CardType.guide:              // ✅ 新增
+        return '📖 指导卡';
     }
   }
 
@@ -184,6 +197,8 @@ class CardModel {
         return '选项：\n${options.asMap().map((i, o) => MapEntry(i, '  ${i + 1}. $o${i == correct ? ' ✅' : ''}'))}\n正确答案：${correct >= 0 ? options[correct] : '未设置'}';
       case CardType.truefalse:
         return tfIsTrue == true ? '✅ 正确' : '❌ 错误';
+      case CardType.guide:              // ✅ 新增
+        return '帮你想清楚一句话：它在说什么、它什么意思、你同意吗。';
     }
   }
 
@@ -316,6 +331,7 @@ class CardModel {
     'nextReviewDate': nextReviewDate?.toIso8601String(),
     'totalReviews': totalReviews,
     'failedCount': failedCount,
+    'usageCount': usageCount,             // ✅ 新增
   };
 
   factory CardModel.fromJson(Map<String, dynamic> json) => CardModel(
@@ -351,6 +367,7 @@ class CardModel {
     nextReviewDate: json['nextReviewDate'] != null ? DateTime.parse(json['nextReviewDate'] as String) : null,
     totalReviews: json['totalReviews'] as int? ?? 0,
     failedCount: json['failedCount'] as int? ?? 0,
+    usageCount: json['usageCount'] as int? ?? 0,     // ✅ 新增
   );
 
   static CardType _parseCardType(String? value) {
@@ -367,6 +384,8 @@ class CardModel {
         return CardType.choice;
       case 'truefalse':
         return CardType.truefalse;
+      case 'guide':                     // ✅ 新增：必须补，否则会被 default 读成复习卡
+        return CardType.guide;
       default:
         return CardType.review;
     }
@@ -431,6 +450,7 @@ class CardModel {
     DateTime? nextReviewDate,
     int? totalReviews,
     int? failedCount,
+    int? usageCount,                    // ✅ 新增
   }) => CardModel(
     id: id ?? this.id,
     cardType: cardType ?? this.cardType,
@@ -464,5 +484,6 @@ class CardModel {
     nextReviewDate: nextReviewDate ?? this.nextReviewDate,
     totalReviews: totalReviews ?? this.totalReviews,
     failedCount: failedCount ?? this.failedCount,
+    usageCount: usageCount ?? this.usageCount,   // ✅ 新增
   );
 }
