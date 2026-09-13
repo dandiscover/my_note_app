@@ -4,12 +4,14 @@
 // 坐标：全部转成 PDF 页面坐标存储，渲染时转回屏幕坐标
 // 不做：文字选择、高亮、笔记、卡片、批注、书签、搜索、导出
 // ✅ 首次打开加载提示：_isViewerReady 控制遮罩，onViewerReady 置位后消失
+// ✅ Spike：进入/退出阅读器时通知 PetVisibilityController，隐藏全局悬浮宠物。
 
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/pdf_drawing.dart';
 import '../services/pdf_drawing_service.dart';
+import '../widgets/floating_pet.dart';   // ✅ Spike：PetVisibilityController
 
 class PdfReaderPage extends StatefulWidget {
   final String filePath;
@@ -41,9 +43,17 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   @override
   void initState() {
     super.initState();
+    PetVisibilityController.enterFullscreen();   // ✅ Spike：隐藏全局悬浮宠物
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadDrawings();
     });
+  }
+
+  // ✅ Spike：新增 dispose（原文无），退出阅读器时恢复全局悬浮宠物
+  @override
+  void dispose() {
+    PetVisibilityController.exitFullscreen();    // ✅ Spike：恢复全局悬浮宠物
+    super.dispose();
   }
 
   // ---------- 加载划痕 ----------

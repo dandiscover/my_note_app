@@ -1,6 +1,7 @@
 // lib/main.dart
 // ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步 + 系统人格
 // ✅ 新增：迁移旧探究数据到多任务模型
+// ✅ Spike：全局悬浮宠物加 3 个隐藏边界（弹窗/键盘/全屏阅读）+ 暂隐（双击 30 秒）
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
@@ -21,13 +22,27 @@ import 'services/sync/sync_manager.dart';
 import 'database_service.dart';
 import 'widgets/fullscreen_editor.dart';
 import 'widgets/adaptive_navigation.dart';
-import 'widgets/floating_pet.dart';  // ✅ 导出 floatingPetKey
+import 'widgets/floating_pet.dart';  // ✅ 导出 floatingPetKey + PetVisibilityController
 import 'widgets/sync_indicator.dart';
 
 import 'pages/collection_page.dart';
 import 'pages/wisdom_page.dart';
 import 'pages/insight_page.dart';
 import 'pages/creation_page.dart' as creation;
+
+// ✅ Spike：弹窗/底部面板可见时隐藏宠物
+final ValueNotifier<bool> _popupVisible = ValueNotifier(false);
+
+// ✅ Spike：监听 Navigator 栈顶是否 PopupRoute（showDialog / showModalBottomSheet）
+class _PetNavigatorObserver extends NavigatorObserver {
+  @override
+  void didChangeTop(Route<dynamic>? topRoute, Route<dynamic>? previousTopRoute) {
+    _popupVisible.value = topRoute is PopupRoute;
+  }
+}
+
+// ✅ Spike：单例，生命周期与 app 一致，避免 StatelessWidget rebuild 漂移
+final _PetNavigatorObserver _petObserver = _PetNavigatorObserver();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -71,6 +86,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: '云脑计划',
       debugShowCheckedModeBanner: false,
+      navigatorObservers: [_petObserver],   // ✅ Spike：弹窗/底部面板隐藏宠物
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color.fromARGB(255, 238, 241, 242),
@@ -117,10 +133,21 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   Offset _position = const Offset(16, 80);
   bool _isDragging = false;
 
+  // ✅ Spike：暂隐（双击触发，30 秒后自动恢复）
+  bool _isTemporarilyHidden = false;
+  Timer? _hideTimer;
+  static const Duration _temporaryHideDuration = Duration(seconds: 30);
+
   @override
   void initState() {
     super.initState();
     _loadPet();
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPet() async {
@@ -141,6 +168,15 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
     final updated = await _petService.getOrCreatePet();
     setState(() {
       _pet = updated;
+    });
+  }
+
+  // ✅ Spike：双击暂隐 30 秒
+  void _hideTemporarily() {
+    setState(() => _isTemporarilyHidden = true);
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_temporaryHideDuration, () {
+      if (mounted) setState(() => _isTemporarilyHidden = false);
     });
   }
 
@@ -165,25 +201,51 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading || _pet == null) {
-      return const SizedBox.shrink();
-    }
+    // ✅ Spike：监听 全屏阅读计数 + 弹窗可见，二者合并（一层包裹）
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        PetVisibilityController.fullscreenCount,
+        _popupVisible,
+      ]),
+      builder: (context, child) {
+        if (_isLoading || _pet == null) {
+          return const SizedBox.shrink();
+        }
+        // ✅ Spike：暂隐期间隐藏
+        if (_isTemporarilyHidden) {
+          return const SizedBox.shrink();
+        }
+        // ✅ Spike：键盘弹出时隐藏
+        if (MediaQuery.of(context).viewInsets.bottom > 0) {
+          return const SizedBox.shrink();
+        }
+        // ✅ Spike：弹窗/底部面板可见时隐藏
+        if (_popupVisible.value) {
+          return const SizedBox.shrink();
+        }
+        // ✅ Spike：全屏阅读（EPUB / PDF）时隐藏
+        if (PetVisibilityController.fullscreenCount.value > 0) {
+          return const SizedBox.shrink();
+        }
 
-    return Positioned(
-      left: _position.dx,
-      top: _position.dy,
-      child: IgnorePointer(
-        ignoring: false,
-        child: FloatingPet(
-          key: floatingPetKey,  // ✅ 新增：挂载 GlobalKey
-          pet: _pet!,
-          size: 70,
-          onTap: _interact,
-          onPanStart: _onPanStart,
-          onPanUpdate: _onPanUpdate,
-          onPanEnd: _onPanEnd,
-        ),
-      ),
+        return Positioned(
+          left: _position.dx,
+          top: _position.dy,
+          child: IgnorePointer(
+            ignoring: false,
+            child: FloatingPet(
+              key: floatingPetKey,
+              pet: _pet!,
+              size: 70,
+              onTap: _interact,
+              onDoubleTap: _hideTemporarily,   // ✅ Spike
+              onPanStart: _onPanStart,
+              onPanUpdate: _onPanUpdate,
+              onPanEnd: _onPanEnd,
+            ),
+          ),
+        );
+      },
     );
   }
 }

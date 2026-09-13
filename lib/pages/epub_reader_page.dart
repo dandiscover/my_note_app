@@ -12,6 +12,7 @@
 // ✅ v2 修复（问题1）：专注模式 Listener 从 Stack 内部移到 Stack 外层。
 //     原因：Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断 PageView / SelectableText 的 hitTest。
 //     现在 Listener 是 Stack 的 parent，Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
+// ✅ Spike：进入/退出阅读器时通知 PetVisibilityController，隐藏全局悬浮宠物。
 
 import 'dart:async';
 import 'dart:convert';
@@ -33,6 +34,7 @@ import '../services/book_service.dart';
 import '../services/card_service.dart';
 import '../widgets/reader/card_box_peek.dart';
 import '../widgets/reader/reading_guide_card.dart';
+import '../widgets/floating_pet.dart';   // ✅ Spike：PetVisibilityController
 
 class EpubReaderPage extends StatefulWidget {
   final String bookId;
@@ -117,6 +119,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   void initState() {
     super.initState();
     _readingStartTime = DateTime.now();
+    PetVisibilityController.enterFullscreen();   // ✅ Spike：隐藏全局悬浮宠物
     _loadBook();
   }
 
@@ -127,6 +130,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     _reminderTimer?.cancel();
     _cardBoxDelayTimer?.cancel();
     _cardBoxHideTimer?.cancel();
+    PetVisibilityController.exitFullscreen();    // ✅ Spike：恢复全局悬浮宠物
     _saveReadingTime();
     super.dispose();
   }
