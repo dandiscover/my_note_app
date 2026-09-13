@@ -2,6 +2,7 @@
 // ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步 + 系统人格
 // ✅ 新增：迁移旧探究数据到多任务模型
 // ✅ Spike：全局悬浮宠物加 3 个隐藏边界（弹窗/键盘/全屏阅读）+ 暂隐（双击 30 秒）
+// ✅ 小云尺寸调整：手机 100 / Pad 280（断点 600 dp）
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
@@ -138,6 +139,15 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   Timer? _hideTimer;
   static const Duration _temporaryHideDuration = Duration(seconds: 30);
 
+  // ✅ 小云尺寸调整：底部安全间隙（原 clamp 纵向 -150 里的 80 抽出来）
+  static const double _petBottomMargin = 80.0;
+
+  // ✅ 小云尺寸调整：断点 600 dp，手机 100 / Pad 280
+  double get _petSize {
+    final width = MediaQuery.of(context).size.width;
+    return width >= 600 ? 280.0 : 100.0;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -188,9 +198,16 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
     setState(() {
       _position += delta;
       final size = MediaQuery.of(context).size;
+      // ✅ 小云尺寸调整：双重 clamp 保护，避免 Pad 窄屏时上限为负
       _position = Offset(
-        _position.dx.clamp(0, size.width - 70),
-        _position.dy.clamp(0, size.height - 150),
+        _position.dx.clamp(
+          0,
+          (size.width - _petSize).clamp(0.0, double.infinity),
+        ),
+        _position.dy.clamp(
+          0,
+          (size.height - _petSize - _petBottomMargin).clamp(0.0, double.infinity),
+        ),
       );
     });
   }
@@ -236,7 +253,7 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
             child: FloatingPet(
               key: floatingPetKey,
               pet: _pet!,
-              size: 70,
+              size: _petSize,                  // ✅ 小云尺寸调整：手机 100 / Pad 280
               onTap: _interact,
               onDoubleTap: _hideTemporarily,   // ✅ Spike
               onPanStart: _onPanStart,
