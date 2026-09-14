@@ -2,6 +2,7 @@
 // 数据层 — 统一字段标准：代码层驼峰，数据库层下划线
 // ✅ 数据库版本 14 → 15：新增 5 张线索墙表
 // ✅ 新增 8 个 CRUD 方法（只走 Map，不 import 模型）
+// ✅ 子笔记嵌套：getAncestors 加防御（防环 + 防孤儿）；deleteNode 分支互斥（folder 级联删 / 笔记上移）
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -240,20 +241,39 @@ class DatabaseService {
     }
   }
 
+  // ✅ 子笔记嵌套：deleteNode 分支互斥
+  //   - folder 节点：级联删整棵子树（用户删文件夹 = 明确删整棵）
+  //   - 笔记节点：子节点上移到祖父，只删本节点（B 方案，不丢数据）
   Future<void> deleteNode(String id) async {
     final maps = await _getAllNodesInternal();
-    final idsToDelete = <String>{id};
     final allNodes = maps.map((n) => Node.fromMap(n)).toList();
-    void collectChildren(String parentId) {
-      final children = allNodes.where((n) => n.parentId == parentId).toList();
-      for (var child in children) {
-        idsToDelete.add(child.id);
-        if (child.isFolder) collectChildren(child.id);
+    final node = allNodes.firstWhere((n) => n.id == id, orElse: () => Node.empty);
+    if (node.id.isEmpty) return;
+
+    if (node.isFolder) {
+      // ─── folder 分支：级联删整棵子树 ───
+      final idsToDelete = <String>{id};
+      void collectChildren(String parentId) {
+        final children = allNodes.where((n) => n.parentId == parentId).toList();
+        for (var child in children) {
+          if (child.id == id) continue;
+          idsToDelete.add(child.id);
+          if (child.isFolder) collectChildren(child.id);
+        }
       }
+      collectChildren(id);
+      maps.removeWhere((n) => idsToDelete.contains(n['id']));
+    } else {
+      // ─── 笔记分支：子节点上移到祖父，只删本节点 ───
+      final grandParentId = node.parentId;
+      for (var i = 0; i < maps.length; i++) {
+        if (maps[i]['parentId'] == id) {
+          maps[i]['parentId'] = grandParentId;
+          maps[i]['updatedAt'] = DateTime.now().toIso8601String();
+        }
+      }
+      maps.removeWhere((n) => n['id'] == id);
     }
-    final node = allNodes.firstWhere((n) => n.id == id);
-    if (node.isFolder) collectChildren(id);
-    maps.removeWhere((n) => idsToDelete.contains(n['id']));
     await _saveNodes(maps);
   }
 
@@ -285,12 +305,20 @@ class DatabaseService {
     await _saveNodes(maps);
   }
 
+  // ✅ 子笔记嵌套：getAncestors 加防御
+  //   - 防环：visited 集合，重复访问即 break
+  //   - 防孤儿：父节点找不到即 break（不抛异常）
   Future<List<Node>> getAncestors(String nodeId) async {
     final all = await getAllNodes();
+    final nodeMap = {for (var n in all) n.id: n};
     final List<Node> ancestors = [];
+    final visited = <String>{};
     String? currentId = nodeId;
     while (currentId != null) {
-      final node = all.firstWhere((n) => n.id == currentId);
+      if (visited.contains(currentId)) break;
+      visited.add(currentId);
+      final node = nodeMap[currentId];
+      if (node == null) break;
       ancestors.insert(0, node);
       currentId = node.parentId;
     }
@@ -414,7 +442,7 @@ class DatabaseService {
       final allNotes = list.map((e) => _cleanNoteMap(Map<String, dynamic>.from(e))).toList();
       for (var note in allNotes) {
         if (!note.containsKey('inquiryQuestion')) note['inquiryQuestion'] = null;
-        if (!note.containsKey('newUnderstanding')) note['newUnderstanding'] = null;
+        if (!note.containsKey('inquiryConclusion')) note['inquiryConclusion'] = null;
         if (!note.containsKey('exploreTasks')) note['exploreTasks'] = [];
       }
       if (includeDeleted) return allNotes;
@@ -425,7 +453,7 @@ class DatabaseService {
       final allNotes = rows.map((row) {
         final mapped = Map<String, dynamic>.from(row);
         mapped['inquiryQuestion'] = mapped['inquiry_question'];
-        mapped['newUnderstanding'] = mapped['new_understanding'];
+        mapped['inquiryConclusion'] = mapped['inquiry_conclusion'];
         mapped['exploreTasks'] = mapped['explore_tasks'];
         mapped['scaffoldSessions'] = mapped['scaffold_sessions'];
         mapped['subtasks'] = mapped['subtasks'];
@@ -460,7 +488,7 @@ class DatabaseService {
       cleaned['exploreTasks'] = [];
     }
     cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
-    cleaned['newUnderstanding'] = cleaned['newUnderstanding'] as String?;
+    cleaned['inquiryConclusion'] = cleaned['inquiryConclusion'] as String?;
     return cleaned;
   }
 
@@ -485,7 +513,7 @@ class DatabaseService {
       'isLocked': map['isLocked'] is bool ? (map['isLocked'] == true ? 1 : 0) : (map['isLocked'] ?? 0),
       'tags': tagsStr,
       'inquiry_question': map['inquiryQuestion'] as String?,
-      'new_understanding': map['newUnderstanding'] as String?,
+      'inquiry_conclusion': map['inquiryConclusion'] as String?,
       'explore_tasks': tasksStr,
     };
   }
@@ -1015,7 +1043,7 @@ class DatabaseService {
         id TEXT PRIMARY KEY, title TEXT, content TEXT, updatedAt TEXT,
         status TEXT DEFAULT 'raw', editorMode TEXT DEFAULT 'plain',
         isLocked INTEGER DEFAULT 0, tags TEXT DEFAULT '',
-        inquiry_question TEXT, new_understanding TEXT,
+        inquiry_question TEXT, inquiry_conclusion TEXT,
         explore_tasks TEXT DEFAULT '[]'
       )
     ''');

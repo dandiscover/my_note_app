@@ -1,5 +1,9 @@
 // lib/widgets/pet_avatar.dart
-// 宠物头像组件 — 适配8阶段进化（💧→♨️→🌫️→☁️→🌤️→🌦️→⛅✨→🌌）
+// 宠物头像组件 — PNG 图版（Spike 形象替换轮）
+// ✅ 8 阶段 → 3 图（pet_happy / pet_sad / pet_blink）+ 阶段尺寸/光效
+// ✅ 眨眼复用 _blinkController，切 pet_blink；呼吸 _breatheController 不动
+// ⚠️ T-073：当前 PNG 可能 2048×2048，用于 70–80px 显示，容量浪费约 30 倍。
+//    远期做图片压缩（多档尺寸），不阻塞本轮。
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -28,7 +32,6 @@ class _PetAvatarState extends State<PetAvatar>
   late AnimationController _breatheController;
   late Animation<double> _breatheAnimation;
   late AnimationController _blinkController;
-  final bool _isBlinking = false;
 
   @override
   void initState() {
@@ -89,427 +92,156 @@ class _PetAvatarState extends State<PetAvatar>
     );
   }
 
-  // ─── 8阶段路由 ──────────────────────────────────────────
+  // ─── 3 图 + 阶段尺寸/光效 ─────────────────────────────
 
   Widget _buildPetByStage(Pet pet, double size) {
-    switch (pet.stage) {
-      // 💧 水滴阶段
-      case PetStage.droplet:
-        return _buildDroplet(size, pet.emoji, 1, Colors.blue.shade300);
-      // ♨️ 蒸汽阶段
-      case PetStage.steam:
-        return _buildDroplet(size, pet.emoji, 2, Colors.blue.shade200);
-      // 🌫️ 雾阶段
-      case PetStage.mist:
-        return _buildDroplet(size, pet.emoji, 3, Colors.grey.shade300);
-      // ☁️ 云阶段
-      case PetStage.cloud:
-        return _buildCloud(size, pet.emoji, false, Colors.grey.shade300);
-      // 🌤️ 晴阶段
-      case PetStage.sunny:
-        return _buildCloud(size, pet.emoji, false, Colors.yellow.shade100);
-      // 🌦️ 雨阶段
-      case PetStage.rainy:
-        return _buildCloud(size, pet.emoji, true, Colors.blue.shade200);
-      // ⛅✨ 辉光云阶段
-      case PetStage.glowing:
-        return _buildCloudBrain(size, pet.emoji, glow: true);
-      // 🌌 星云脑阶段
-      case PetStage.brain:
-        return _buildCloudBrain(size, pet.emoji, glow: true, isBrain: true);
-    }
-  }
-
-  // ─── 水滴绘制 ──────────────────────────────────────────
-
-  Widget _buildDroplet(double size, String emotion, int count, Color color) {
-    final droplets = <Widget>[];
-    final colors = [
-      color,
-      color.withValues(alpha: 0.7),
-      color.withValues(alpha: 0.5),
-    ];
-
-    for (var i = 0; i < count && i < colors.length; i++) {
-      final offsetX = (i - (count - 1) / 2) * size * 0.25;
-      final offsetY = (i % 2 == 0 ? -1 : 1) * size * 0.1;
-      final s = size * (0.5 - i * 0.05);
-      droplets.add(
-        Positioned(
-          left: size / 2 - s / 2 + offsetX,
-          top: size / 2 - s * 0.6 + offsetY,
-          child: _dropShape(s, colors[i % colors.length], i == 0 ? emotion : null),
-        ),
-      );
-    }
-
-    return Stack(
-      alignment: Alignment.center,
-      children: droplets,
-    );
-  }
-
-  Widget _dropShape(double size, Color color, String? emotion) {
-    return Container(
-      width: size,
-      height: size * 1.2,
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          colors: [color, color.withValues(alpha: 0.3)],
-          center: const Alignment(0.3, 0.3),
-        ),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.3),
-            blurRadius: size * 0.2,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: emotion != null
-          ? Center(
-              child: Text(
-                emotion,
-                style: TextStyle(fontSize: size * 0.5),
-              ),
-            )
-          : null,
-    );
-  }
-
-  // ─── 云朵绘制 ──────────────────────────────────────────
-
-  Widget _buildCloud(double size, String emotion, bool isBig, Color color) {
-    final scale = isBig ? 1.3 : 1.0;
-    final s = size * 0.8 * scale;
-    final mainColor = color;
-
-    return SizedBox(
-      width: s,
-      height: s * 0.7,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // 主体
-          Container(
-            width: s * 0.6,
-            height: s * 0.35,
-            decoration: BoxDecoration(
-              color: mainColor,
-              borderRadius: BorderRadius.circular(s * 0.2),
-            ),
-          ),
-          // 顶部凸起
-          Positioned(
-            top: -s * 0.2,
-            left: s * 0.1,
-            child: Container(
-              width: s * 0.3,
-              height: s * 0.3,
-              decoration: BoxDecoration(
-                color: mainColor,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          Positioned(
-            top: -s * 0.15,
-            left: s * 0.45,
-            child: Container(
-              width: s * 0.35,
-              height: s * 0.35,
-              decoration: BoxDecoration(
-                color: mainColor,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          Positioned(
-            top: -s * 0.1,
-            left: s * 0.75,
-            child: Container(
-              width: s * 0.25,
-              height: s * 0.25,
-              decoration: BoxDecoration(
-                color: mainColor,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          // 表情
-          Positioned(
-            top: s * 0.05,
-            left: s * 0.3,
-            child: Text(
-              emotion,
-              style: TextStyle(fontSize: s * 0.25),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── 云脑绘制（辉光云 + 星云脑） ──────────────────────
-
-  Widget _buildCloudBrain(double size, String emotion, {bool glow = false, bool isBrain = false}) {
-    final s = size * 0.9;
-    final glowColor = isBrain ? Colors.indigo : Colors.purple;
+    final baseImageName = _selectImage(pet);
+    final stageScale = _sizeForStage(pet.stage);
+    final glow = _glowForStage(pet.stage);
+    final isBrain = pet.stage == PetStage.brain;
 
     return AnimatedBuilder(
       animation: _blinkController,
       builder: (context, child) {
         final isBlinking = _blinkController.value > 0.5;
-        final eyeScale = isBlinking ? 0.1 : 1.0;
+        final actualImageName = isBlinking ? 'pet_blink' : baseImageName;
 
+        return Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            // 光晕层（glowing / brain）
+            if (glow) _buildGlowLayer(size, isBrain),
+
+            // 主图（stage 决定尺寸）
+            Transform.scale(
+              scale: stageScale,
+              child: Image.asset(
+                'assets/images/pet/$actualImageName.png',
+                width: size,
+                height: size,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  // 图片缺失时降级为占位图标，避免真机白屏
+                  return Icon(
+                    Icons.cloud,
+                    size: size * 0.7,
+                    color: Colors.blue.shade200,
+                  );
+                },
+              ),
+            ),
+
+            // 星点装饰（glowing / brain）
+            if (glow) _buildStarDecoration(size, isBrain),
+
+            // 星云脑额外光点（brain）
+            if (isBrain) _buildBrainExtraGlow(size),
+          ],
+        );
+      },
+    );
+  }
+
+  String _selectImage(Pet pet) {
+    if (pet.happiness <= 30) return 'pet_sad';
+    return 'pet_happy';
+  }
+
+  double _sizeForStage(PetStage stage) {
+    switch (stage) {
+      case PetStage.droplet:
+        return 0.4;
+      case PetStage.steam:
+        return 0.45;
+      case PetStage.mist:
+        return 0.5;
+      case PetStage.cloud:
+        return 0.7;
+      case PetStage.sunny:
+        return 0.7;
+      case PetStage.rainy:
+        return 0.7;
+      case PetStage.glowing:
+        return 0.8;
+      case PetStage.brain:
+        return 0.9;
+    }
+  }
+
+  bool _glowForStage(PetStage stage) {
+    return stage == PetStage.glowing || stage == PetStage.brain;
+  }
+
+  Widget _buildGlowLayer(double size, bool isBrain) {
+    final glowColor = isBrain ? Colors.indigo : Colors.purple;
+    return AnimatedBuilder(
+      animation: _breatheController,
+      builder: (context, child) {
+        final opacity = 0.3 + _breatheAnimation.value * 0.1;
         return Container(
-          width: s,
-          height: s * 1.1,
+          width: size * 0.8,
+          height: size * 0.8,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            boxShadow: glow
-                ? [
-                    BoxShadow(
-                      color: glowColor.withValues(alpha: 0.4),
-                      blurRadius: s * 0.4,
-                      spreadRadius: s * 0.05,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // ─── 云朵身体 ──────────────────────────
-              Container(
-                width: s * 0.65,
-                height: s * 0.5,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isBrain
-                        ? [const Color(0xFFD1C4E9), const Color(0xFFB39DDB)]
-                        : [const Color(0xFFF5F5F5), const Color(0xFFE8E8E8)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                  borderRadius: BorderRadius.circular(s * 0.2),
-                ),
+            boxShadow: [
+              BoxShadow(
+                color: glowColor.withValues(alpha: opacity),
+                blurRadius: size * 0.4,
+                spreadRadius: size * 0.05,
               ),
-              // 顶部蓬松
-              Positioned(
-                top: -s * 0.25,
-                left: s * 0.05,
-                child: Container(
-                  width: s * 0.35,
-                  height: s * 0.35,
-                  decoration: BoxDecoration(
-                    color: isBrain ? const Color(0xFFD1C4E9) : const Color(0xFFF0F0F0),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.1),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Positioned(
-                top: -s * 0.2,
-                left: s * 0.45,
-                child: Container(
-                  width: s * 0.4,
-                  height: s * 0.4,
-                  decoration: BoxDecoration(
-                    color: isBrain ? const Color(0xFFC5B4E3) : const Color(0xFFEEEEEE),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.1),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Positioned(
-                top: -s * 0.15,
-                left: s * 0.75,
-                child: Container(
-                  width: s * 0.3,
-                  height: s * 0.3,
-                  decoration: BoxDecoration(
-                    color: isBrain ? const Color(0xFFBA9FD8) : const Color(0xFFECECEC),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-
-              // ─── 眼睛 ──────────────────────────
-              Positioned(
-                top: s * 0.02,
-                left: s * 0.25,
-                child: Transform.scale(
-                  scale: eyeScale,
-                  child: Container(
-                    width: s * 0.13,
-                    height: s * 0.15,
-                    decoration: BoxDecoration(
-                      color: isBrain ? Colors.indigo.shade900 : Colors.black87,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.2),
-                          blurRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Container(
-                        width: s * 0.04,
-                        height: s * 0.04,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: s * 0.02,
-                left: s * 0.55,
-                child: Transform.scale(
-                  scale: eyeScale,
-                  child: Container(
-                    width: s * 0.13,
-                    height: s * 0.15,
-                    decoration: BoxDecoration(
-                      color: isBrain ? Colors.indigo.shade900 : Colors.black87,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.2),
-                          blurRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Container(
-                        width: s * 0.04,
-                        height: s * 0.04,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // ─── 腮红 ──────────────────────────
-              Positioned(
-                top: s * 0.15,
-                left: s * 0.1,
-                child: Container(
-                  width: s * 0.12,
-                  height: s * 0.07,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFB6C1).withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(s * 0.06),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: s * 0.15,
-                right: s * 0.1,
-                child: Container(
-                  width: s * 0.12,
-                  height: s * 0.07,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFB6C1).withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(s * 0.06),
-                  ),
-                ),
-              ),
-
-              // ─── 嘴巴 ──────────────────────────
-              Positioned(
-                top: s * 0.18,
-                left: s * 0.43,
-                child: AnimatedBuilder(
-                  animation: _breatheController,
-                  builder: (context, child) {
-                    final mouthScale = 1.0 + _breatheAnimation.value * 0.05;
-                    return Transform.scale(
-                      scaleY: mouthScale,
-                      child: Container(
-                        width: s * 0.08,
-                        height: s * 0.06,
-                        decoration: BoxDecoration(
-                          color: isBrain ? Colors.indigo.shade300 : Colors.red.shade300,
-                          borderRadius: BorderRadius.circular(s * 0.04),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-
-              // ─── 辉光/星星装饰 ──────────────────────────
-              if (glow)
-                Positioned(
-                  top: -s * 0.15,
-                  right: -s * 0.05,
-                  child: AnimatedBuilder(
-                    animation: _breatheController,
-                    builder: (context, child) {
-                      final angle = _breatheController.value * 2 * 3.14159;
-                      return Transform.rotate(
-                        angle: angle,
-                        child: Text(
-                          isBrain ? '🌌' : '✨',
-                          style: TextStyle(fontSize: s * 0.2),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-              // ─── 星云脑额外光晕 ──────────────────────────
-              if (isBrain)
-                Positioned(
-                  bottom: -s * 0.1,
-                  left: -s * 0.1,
-                  child: AnimatedBuilder(
-                    animation: _breatheController,
-                    builder: (context, child) {
-                      final opacity = 0.3 + _breatheAnimation.value * 0.1;
-                      return Container(
-                        width: s * 0.3,
-                        height: s * 0.3,
-                        decoration: BoxDecoration(
-                          color: Colors.indigo.withValues(alpha: opacity),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.indigo.withValues(alpha: 0.3),
-                              blurRadius: s * 0.3,
-                              spreadRadius: s * 0.1,
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildStarDecoration(double size, bool isBrain) {
+    return Positioned(
+      top: -size * 0.15,
+      right: -size * 0.05,
+      child: AnimatedBuilder(
+        animation: _breatheController,
+        builder: (context, child) {
+          final angle = _breatheController.value * 2 * 3.14159;
+          return Transform.rotate(
+            angle: angle,
+            child: Text(
+              isBrain ? '🌌' : '✨',
+              style: TextStyle(fontSize: size * 0.2),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBrainExtraGlow(double size) {
+    return Positioned(
+      bottom: -size * 0.1,
+      left: -size * 0.1,
+      child: AnimatedBuilder(
+        animation: _breatheController,
+        builder: (context, child) {
+          final opacity = 0.3 + _breatheAnimation.value * 0.1;
+          return Container(
+            width: size * 0.3,
+            height: size * 0.3,
+            decoration: BoxDecoration(
+              color: Colors.indigo.withValues(alpha: opacity),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.indigo.withValues(alpha: 0.3),
+                  blurRadius: size * 0.3,
+                  spreadRadius: size * 0.1,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

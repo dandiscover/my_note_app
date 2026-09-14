@@ -5,14 +5,14 @@
 // ✅ 深入入口按钮（始终显示，不限于非采集笔记）
 // ✅ 用 _entry 可变状态替代 widget.entry
 // ✅ _saveNote 增加 inquiryQuestion 参数
-// ✅ 保存时使用 newUnderstanding 和 exploreTasks
+// ✅ 保存时使用 inquiryConclusion 和 exploreTasks
 // ✅ _openInquiry 改为弹窗模式
 // ✅ _handleInquiryConfirmed 先弹窗后保存，避免新建笔记未保存导致弹窗不出现
 // ✅ _openInquiryDialog 增加 question 参数，弹窗关闭后统一保存
 // ✅ 阅读模式增加探究缩略图区块，点击弹出只读概览弹窗
 // ✅ 编辑模式也增加探究缩略图区块
 // ✅ _saveNote 增加 exploreTasks 参数，保存时使用传入参数而非 _entry.exploreTasks
-// ✅ 笔记加工台最小版：阅读模式加加工区（只读主问题 + 可编辑新理解）+ 卡片区
+// ✅ 笔记加工台最小版：阅读模式加加工区（只读主问题 + 可编辑探究结论）+ 卡片区
 // ✅ 独立 _saveCraftingFields（构造函数传 11 字段，不走 copyWith，支持清空）
 // ✅ 加工台修复：弹窗溢出、输入不生效、保存按钮随 dirty 变
 // ✅ 字段映射定稿：右键菜单改名"生成卡片"，_generateCard 加 selectedText 参数
@@ -20,6 +20,9 @@
 // ✅ 修索引卡分支 author/highlight 共用 backText 的 bug
 // ✅ 修选择题分支 4 选项共用 backText + 硬编码选项的 bug
 // ✅ 修复：_generateCard chip 列表过滤 CardType.guide（指导卡不提供手动创建入口）
+// ✅ 子笔记嵌套：加工区下加"📎 子笔记（N）"入口
+//    A 方案：子笔记数用 State 字段缓存，不用 FutureBuilder（避免每次 build 打库）
+// ✅ v2 修复：选择题正确答案选择功能，choiceCorrectIndex 不再硬编码为 0
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -62,31 +65,35 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   late NotebookEntry _entry;
 
   // ✅ 笔记加工台最小版：状态字段
-  final TextEditingController _newUnderstandingCtrl = TextEditingController();
+  final TextEditingController _inquiryConclusionCtrl = TextEditingController();
   List<CardModel> _noteCards = [];
   bool _isSavingCrafting = false;
   bool _craftingDirty = false;
+
+  // ✅ 子笔记嵌套：子笔记数缓存（A 方案，避免每次 build 打库）
+  int _subNotesCount = 0;
 
   @override
   void initState() {
     super.initState();
     _isReadMode = !widget.isFromCollection;
     _entry = widget.entry;
-    _newUnderstandingCtrl.text = _entry.newUnderstanding ?? '';
-    _newUnderstandingCtrl.addListener(_onNewUnderstandingChanged);
+    _inquiryConclusionCtrl.text = _entry.inquiryConclusion ?? '';
+    _inquiryConclusionCtrl.addListener(_onInquiryConclusionChanged);
     _loadNoteCards();
+    _loadSubNotesCount();
   }
 
   @override
   void dispose() {
-    _newUnderstandingCtrl.removeListener(_onNewUnderstandingChanged);
-    _newUnderstandingCtrl.dispose();
+    _inquiryConclusionCtrl.removeListener(_onInquiryConclusionChanged);
+    _inquiryConclusionCtrl.dispose();
     super.dispose();
   }
 
-  void _onNewUnderstandingChanged() {
-    final current = _newUnderstandingCtrl.text.trim();
-    final saved = _entry.newUnderstanding ?? '';
+  void _onInquiryConclusionChanged() {
+    final current = _inquiryConclusionCtrl.text.trim();
+    final saved = _entry.inquiryConclusion ?? '';
     final isDirty = current != saved;
     if (_craftingDirty != isDirty) {
       setState(() => _craftingDirty = isDirty);
@@ -103,12 +110,21 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     setState(() => _noteCards = cards);
   }
 
+  // ✅ 子笔记嵌套：加载直接子笔记数（缓存到 _subNotesCount）
+  //   A 方案：initState 调一次，不用 FutureBuilder 每次 build 打库
+  Future<void> _loadSubNotesCount() async {
+    if (widget.nodeId == null) return;
+    final children = await _db.getChildren(widget.nodeId!);
+    if (!mounted) return;
+    setState(() => _subNotesCount = children.length);
+  }
+
   // ─── 加工台：保存加工区字段（独立方法，不复用 _saveNote） ─────
   Future<void> _saveCraftingFields() async {
     if (_isSavingCrafting) return;
     setState(() => _isSavingCrafting = true);
     try {
-      final newUnder = _newUnderstandingCtrl.text.trim();
+      final conclusion = _inquiryConclusionCtrl.text.trim();
       final updated = NotebookEntry(
         id: _entry.id,
         title: _entry.title,
@@ -119,7 +135,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         tags: _entry.tags,
         isLocked: _entry.isLocked,
         inquiryQuestion: _entry.inquiryQuestion,
-        newUnderstanding: newUnder.isEmpty ? null : newUnder,
+        inquiryConclusion: conclusion.isEmpty ? null : conclusion,
         exploreTasks: _entry.exploreTasks,
       );
       await _db.updateNote(updated.toMap());
@@ -127,8 +143,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         setState(() {
           _entry = updated;
           _isSavingCrafting = false;
-          final current = _newUnderstandingCtrl.text.trim();
-          final saved = updated.newUnderstanding ?? '';
+          final current = _inquiryConclusionCtrl.text.trim();
+          final saved = updated.inquiryConclusion ?? '';
           _craftingDirty = current != saved;
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -175,7 +191,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         tags: tags,
         isLocked: _entry.isLocked,
         inquiryQuestion: inquiryQuestion ?? _entry.inquiryQuestion,
-        newUnderstanding: _entry.newUnderstanding,
+        inquiryConclusion: _entry.inquiryConclusion,
         exploreTasks: exploreTasks,
       );
 
@@ -272,6 +288,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     String choiceB = '';
     String choiceC = '';
     String choiceD = '';
+
+    // ✅ v2 修复：选择题正确答案索引
+    int choiceCorrectIndex = 0;
 
     String tfStatement = hasSelection ? selectedText : _entry.title;
     bool tfIsTrue = true;
@@ -432,10 +451,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       const Text('正确答案'),
                       Row(
                         children: [
-                          _buildOptionChip('A', 0),
-                          _buildOptionChip('B', 1),
-                          _buildOptionChip('C', 2),
-                          _buildOptionChip('D', 3),
+                          _buildOptionChip('A', 0, choiceCorrectIndex, (v) {
+                            setDialogState(() => choiceCorrectIndex = v);
+                          }),
+                          _buildOptionChip('B', 1, choiceCorrectIndex, (v) {
+                            setDialogState(() => choiceCorrectIndex = v);
+                          }),
+                          _buildOptionChip('C', 2, choiceCorrectIndex, (v) {
+                            setDialogState(() => choiceCorrectIndex = v);
+                          }),
+                          _buildOptionChip('D', 3, choiceCorrectIndex, (v) {
+                            setDialogState(() => choiceCorrectIndex = v);
+                          }),
                         ],
                       ),
                     ],
@@ -530,7 +557,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         choiceOptions: selectedType == CardType.choice
             ? [choiceA, choiceB, choiceC, choiceD]
             : null,
-        choiceCorrectIndex: selectedType == CardType.choice ? 0 : null,
+        choiceCorrectIndex: selectedType == CardType.choice ? choiceCorrectIndex : null,
         tfStatement: selectedType == CardType.truefalse ? tfStatement : null,
         tfIsTrue: selectedType == CardType.truefalse ? tfIsTrue : null,
       );
@@ -546,13 +573,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  Widget _buildOptionChip(String label, int index) {
+  Widget _buildOptionChip(
+    String label,
+    int index,
+    int selectedIndex,
+    ValueChanged<int> onSelected,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: FilterChip(
         label: Text(label),
-        selected: false,
-        onSelected: (_) {},
+        selected: selectedIndex == index,
+        onSelected: (_) => onSelected(index),
         visualDensity: VisualDensity.compact,
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
@@ -810,6 +842,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             const SizedBox(height: 12),
             _buildCraftingSection(),
             const SizedBox(height: 12),
+            // ✅ 子笔记嵌套：子笔记入口（有子笔记时显示）
+            _buildSubNotesSection(),
+            const SizedBox(height: 12),
             _buildNoteCardsSection(),
             const SizedBox(height: 12),
             Text(
@@ -882,7 +917,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
             const SizedBox(height: 6),
             TextField(
-              controller: _newUnderstandingCtrl,
+              controller: _inquiryConclusionCtrl,
               maxLines: null,
               style: const TextStyle(fontSize: 14, height: 1.4),
               decoration: InputDecoration(
@@ -923,6 +958,33 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ 子笔记嵌套：子笔记入口
+  //   A 方案：读 _subNotesCount（State 缓存），不用 FutureBuilder
+  //   无子笔记时（count == 0）不渲染
+  //   点击 → 打开文件树（复用 _toggleFileTree）
+  Widget _buildSubNotesSection() {
+    if (_subNotesCount == 0) return const SizedBox.shrink();
+
+    return InkWell(
+      onTap: _toggleFileTree,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          children: [
+            const Text('📎 ', style: TextStyle(fontSize: 14)),
+            Text(
+              '子笔记（$_subNotesCount）',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+            const Spacer(),
+            const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
           ],
         ),
       ),

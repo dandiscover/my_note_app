@@ -1,5 +1,9 @@
 // lib/models/node.dart
 // 树形节点模型 — 标准格式（不处理脏数据）
+// ✅ 子笔记嵌套：加 kMaxSubNoteDepth 常量（集中定义，不散落）
+
+/// 子笔记嵌套最大深度（含自身）。第 1 层是笔记本身。
+const int kMaxSubNoteDepth = 3;
 
 class Node {
   final String id;
