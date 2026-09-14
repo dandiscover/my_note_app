@@ -24,6 +24,8 @@
 //    A 方案：子笔记数用 State 字段缓存，不用 FutureBuilder（避免每次 build 打库）
 // ✅ v2 修复：选择题正确答案选择功能，choiceCorrectIndex 不再硬编码为 0
 // ✅ 骨架：编辑模式加素材面板（默认收起，280 宽侧栏，右侧撑满）
+// ✅ B 提交：AppBar 加素材库按钮（生成卡片与文件树之间，仅编辑模式显示），FullscreenEditor 撤两参数
+// ✅ T-091：_saveNote 的 inquiryQuestion 去掉 ?? 兜底，传 null 就清空
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -214,7 +216,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         editorMode: editorMode,
         tags: tags,
         isLocked: _entry.isLocked,
-        inquiryQuestion: inquiryQuestion ?? _entry.inquiryQuestion,
+        inquiryQuestion: inquiryQuestion,
         inquiryConclusion: _entry.inquiryConclusion,
         exploreTasks: exploreTasks,
       );
@@ -805,6 +807,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             tooltip: '生成卡片',
             onPressed: () => _generateCard(),
           ),
+          // ✅ B 提交：素材库按钮（仅编辑模式显示，位置：生成卡片和文件树之间）
+          if (!_isReadMode)
+            IconButton(
+              icon: const Icon(Icons.library_books, color: Colors.purple),
+              tooltip: '素材库',
+              onPressed: _toggleMaterialPanel,
+            ),
           if (!widget.isFromCollection)
             IconButton(
               icon: const Icon(Icons.folder_open),
@@ -1154,8 +1163,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                     onSave: _saveNote,
                     isSaving: _isSaving,
                     onInquiryConfirmed: _handleInquiryConfirmed,
-                    isMaterialPanelOpen: _showMaterialPanel,
-                    onToggleMaterialPanel: _toggleMaterialPanel,
                   ),
                 ),
               ],
