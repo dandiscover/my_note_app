@@ -27,23 +27,23 @@ class _ExploreTaskExecuteDialogState
   final Set<String> _expandedAnswerIds = {}; // ✅ 新增：问答记录折叠状态
   String? _completingTaskId;
   final TextEditingController _findingController = TextEditingController();
-  final TextEditingController _newUnderstandingController =
+  final TextEditingController _inquiryConclusionController =
       TextEditingController();
   bool _isSaving = false;
-  bool _newUnderstandingSaved = false;
+  bool _inquiryConclusionSaved = false;
 
   @override
   void initState() {
     super.initState();
     _entry = _deepCopyEntry(widget.entry);
-    _newUnderstandingController.text = _entry.newUnderstanding ?? '';
-    _newUnderstandingSaved = _entry.newUnderstanding != null;
+    _inquiryConclusionController.text = _entry.inquiryConclusion ?? '';
+    _inquiryConclusionSaved = _entry.inquiryConclusion != null;
   }
 
   @override
   void dispose() {
     _findingController.dispose();
-    _newUnderstandingController.dispose();
+    _inquiryConclusionController.dispose();
     super.dispose();
   }
 
@@ -58,7 +58,7 @@ class _ExploreTaskExecuteDialogState
       tags: List.from(source.tags),
       isLocked: source.isLocked,
       inquiryQuestion: source.inquiryQuestion,
-      newUnderstanding: source.newUnderstanding,
+      inquiryConclusion: source.inquiryConclusion,
       exploreTasks: source.exploreTasks.map((task) => ExploreTask(
         id: task.id,
         scaffoldCardType: task.scaffoldCardType,
@@ -344,23 +344,23 @@ class _ExploreTaskExecuteDialogState
     await _saveEntry();
   }
 
-  Future<void> _saveNewUnderstanding() async {
-    final text = _newUnderstandingController.text.trim();
+  Future<void> _saveInquiryConclusion() async {
+    final text = _inquiryConclusionController.text.trim();
     if (text.isEmpty) return;
 
     setState(() {
       _entry = _entry.copyWith(
-        newUnderstanding: text,
+        inquiryConclusion: text,
         updatedAt: DateTime.now(),
       );
-      _newUnderstandingSaved = true;
+      _inquiryConclusionSaved = true;
     });
     await _saveEntry();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('✅ 新理解已保存，探究完成'),
+          content: Text('✅ 探究结论已保存，探究完成'),
           duration: Duration(seconds: 2),
         ),
       );
@@ -444,10 +444,10 @@ class _ExploreTaskExecuteDialogState
                     ),
             ),
 
-            // ─── 新理解区域（所有任务完成后显示） ────
+            // ─── 探究结论区域（所有任务完成后显示） ────
             if (_allTasksCompleted()) ...[
               const Divider(height: 16),
-              _buildNewUnderstandingArea(),
+              _buildInquiryConclusionArea(),
             ],
           ],
         ),
@@ -827,24 +827,24 @@ class _ExploreTaskExecuteDialogState
     );
   }
 
-  Widget _buildNewUnderstandingArea() {
-    final hasText = _newUnderstandingController.text.trim().isNotEmpty;
-    final isReadOnly = _newUnderstandingSaved;
+  Widget _buildInquiryConclusionArea() {
+    final hasText = _inquiryConclusionController.text.trim().isNotEmpty;
+    final isReadOnly = _inquiryConclusionSaved;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '💡 新理解',
+          '💡 探究结论',
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 4),
         TextField(
-          controller: _newUnderstandingController,
+          controller: _inquiryConclusionController,
           maxLines: 3,
           readOnly: isReadOnly,
           decoration: InputDecoration(
-            hintText: isReadOnly ? '' : '写下你对这个探究的新理解...',
+            hintText: isReadOnly ? '' : '写下你的探究结论...',
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
             ),
@@ -860,12 +860,12 @@ class _ExploreTaskExecuteDialogState
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               ElevatedButton(
-                onPressed: hasText ? _saveNewUnderstanding : null,
+                onPressed: hasText ? _saveInquiryConclusion : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: hasText ? Colors.purple : Colors.grey.shade300,
                   foregroundColor: hasText ? Colors.white : Colors.grey.shade600,
                 ),
-                child: const Text('保存新理解'),
+                child: const Text('保存探究结论'),
               ),
             ],
           ),

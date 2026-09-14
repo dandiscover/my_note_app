@@ -111,7 +111,7 @@ class CreationPageState extends State<CreationPage>
       final exploreNotes = notes.where((note) {
         final hasQuestion = note.inquiryQuestion != null && note.inquiryQuestion!.isNotEmpty;
         final hasExploreTasks = note.exploreTasks.isNotEmpty;
-        final notCompleted = note.newUnderstanding == null;
+        final notCompleted = note.inquiryConclusion == null;
         return hasQuestion && hasExploreTasks && notCompleted;
       }).toList();
       setState(() {
@@ -433,7 +433,7 @@ class CreationPageState extends State<CreationPage>
         'status': 'active',
         'editorMode': 'plain',
         'updatedAt': DateTime.now().toIso8601String(),
-        'newUnderstanding': null,
+        'inquiryConclusion': null,
       };
       await _db.insertNote(noteMap);
       final folderId = await _db.ensureReviewFolder();

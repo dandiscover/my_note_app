@@ -7,7 +7,7 @@
 // ✅ 新增：_entry 状态统一管理笔记数据
 // ✅ 保存前重构 _entry，保证探究任务和问题完整写入
 // ✅ onSave 签名增加 exploreTasks 参数
-// ✅ 删除探究问题时同时清除 exploreTasks 和 newUnderstanding
+// ✅ 删除探究问题时同时清除 exploreTasks 和 inquiryConclusion
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -229,14 +229,14 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
     });
   }
 
-  // ✅ 删除探究问题：同时清除探究任务和新理解，保证数据一致
+  // ✅ 删除探究问题：同时清除探究任务和探究结论，保证数据一致
   void _deleteInquiry() {
     setState(() {
       _inquiryQuestion = null;
       _entry = _entry.copyWith(
         inquiryQuestion: null,
         exploreTasks: [],
-        newUnderstanding: null,
+        inquiryConclusion: null,
       );
       _isInquiryEditing = false;
       _showInquiryPrompt = false;

@@ -105,11 +105,11 @@ class _ExploreTaskSummaryDialogState
                     ),
             ),
 
-            // ─── 新理解区域（如有） ──────────────────
-            if (entry.newUnderstanding != null &&
-                entry.newUnderstanding!.isNotEmpty) ...[
+            // ─── 探究结论区域（如有） ──────────────────
+            if (entry.inquiryConclusion != null &&
+                entry.inquiryConclusion!.isNotEmpty) ...[
               const Divider(height: 16),
-              _buildNewUnderstandingArea(),
+              _buildInquiryConclusionArea(),
             ],
           ],
         ),
@@ -315,13 +315,13 @@ class _ExploreTaskSummaryDialogState
     );
   }
 
-  Widget _buildNewUnderstandingArea() {
+  Widget _buildInquiryConclusionArea() {
     final entry = widget.entry;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '💡 新理解',
+          '💡 探究结论',
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 4),
@@ -333,7 +333,7 @@ class _ExploreTaskSummaryDialogState
             border: Border.all(color: Colors.green.shade200),
           ),
           child: Text(
-            entry.newUnderstanding!,
+            entry.inquiryConclusion!,
             style: TextStyle(
               fontSize: 13,
               color: Colors.green.shade800,

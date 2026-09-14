@@ -57,8 +57,8 @@ class _InquiryPageState extends State<InquiryPage> {
 
   InquiryCardType? _cardType;
 
-  // ─── 新理解（仅保留字段，UI 已迁移） ──────────
-  String? _newUnderstanding;
+  // ─── 探究结论（仅保留字段，UI 已迁移） ──────────
+  String? _inquiryConclusion;
 
   // ─── 计算属性 ──────────────────────────────
   String get _currentQuestionText =>
@@ -76,7 +76,7 @@ class _InquiryPageState extends State<InquiryPage> {
   void initState() {
     super.initState();
     _questionController.text = widget.entry.inquiryQuestion ?? '';
-    _newUnderstanding = widget.entry.newUnderstanding;
+    _inquiryConclusion = widget.entry.inquiryConclusion;
 
     _exploreTasks = List.from(widget.entry.exploreTasks);
     if (_exploreTasks.isEmpty) {
@@ -160,7 +160,7 @@ class _InquiryPageState extends State<InquiryPage> {
         inquiryQuestion: _questionController.text.trim().isNotEmpty
             ? _questionController.text.trim()
             : null,
-        newUnderstanding: _newUnderstanding,
+        inquiryConclusion: _inquiryConclusion,
         exploreTasks: filteredTasks,
         updatedAt: DateTime.now(),
       );

@@ -1094,7 +1094,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         (n) => n.id == node.targetId,
         orElse: () => NotebookEntry.empty,
       );
-      final hasExplore = note.exploreTasks.isNotEmpty && note.newUnderstanding == null;
+      final hasExplore = note.exploreTasks.isNotEmpty && note.inquiryConclusion == null;
       cardContent = WisdomNoteCard(
         node: node,
         hasExplore: hasExplore,
