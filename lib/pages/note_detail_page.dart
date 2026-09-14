@@ -23,6 +23,7 @@
 // ✅ 子笔记嵌套：加工区下加"📎 子笔记（N）"入口
 //    A 方案：子笔记数用 State 字段缓存，不用 FutureBuilder（避免每次 build 打库）
 // ✅ v2 修复：选择题正确答案选择功能，choiceCorrectIndex 不再硬编码为 0
+// ✅ 骨架：编辑模式加素材面板（默认收起，280 宽侧栏，右侧撑满）
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,6 +36,7 @@ import '../widgets/fullscreen_editor.dart';
 import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
 import '../widgets/explore_task_summary_dialog.dart';
+import '../widgets/writing/material_panel.dart';
 import 'book_detail_page.dart';
 import 'inquiry_page.dart';
 
@@ -73,6 +75,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   // ✅ 子笔记嵌套：子笔记数缓存（A 方案，避免每次 build 打库）
   int _subNotesCount = 0;
 
+  // ✅ 骨架：素材面板状态
+  bool _showMaterialPanel = false;
+  List<CardModel> _indexCards = [];
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +88,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     _inquiryConclusionCtrl.addListener(_onInquiryConclusionChanged);
     _loadNoteCards();
     _loadSubNotesCount();
+    _loadIndexCards();
   }
 
   @override
@@ -117,6 +124,23 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     final children = await _db.getChildren(widget.nodeId!);
     if (!mounted) return;
     setState(() => _subNotesCount = children.length);
+  }
+
+  // ✅ 骨架：加载索引卡（素材面板用）
+  Future<void> _loadIndexCards() async {
+    final allCards = await _cardService.getAllCards();
+    if (!mounted) return;
+    setState(() => _indexCards = allCards.where((c) => c.cardType == CardType.indexCard).toList());
+  }
+
+  // ✅ 骨架：切换素材面板，展开时重载索引卡
+  void _toggleMaterialPanel() {
+    setState(() {
+      _showMaterialPanel = !_showMaterialPanel;
+    });
+    if (_showMaterialPanel) {
+      _loadIndexCards();
+    }
   }
 
   // ─── 加工台：保存加工区字段（独立方法，不复用 _saveNote） ─────
@@ -1097,39 +1121,60 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   Widget _buildEditMode() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [
-          if (_errorMessage != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(8),
-              margin: const EdgeInsets.only(top: 8),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                '⚠️ $_errorMessage',
-                style: TextStyle(color: Colors.red.shade800, fontSize: 12),
-              ),
+    return Row(
+      children: [
+        // ─── 左列：错误提示 + 探究缩略图 + 编辑器 ───
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              children: [
+                if (_errorMessage != null)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.only(top: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '⚠️ $_errorMessage',
+                      style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+                    ),
+                  ),
+                if (_entry.exploreTasks.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _buildExploreSummaryTile(),
+                ],
+                Expanded(
+                  child: FullscreenEditor(
+                    entry: _entry,
+                    isFromCollection: widget.isFromCollection,
+                    onSave: _saveNote,
+                    isSaving: _isSaving,
+                    onInquiryConfirmed: _handleInquiryConfirmed,
+                    isMaterialPanelOpen: _showMaterialPanel,
+                    onToggleMaterialPanel: _toggleMaterialPanel,
+                  ),
+                ),
+              ],
             ),
-          if (_entry.exploreTasks.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _buildExploreSummaryTile(),
-          ],
-          Expanded(
-            child: FullscreenEditor(
-              entry: _entry,
-              isFromCollection: widget.isFromCollection,
-              onSave: _saveNote,
-              isSaving: _isSaving,
-              onInquiryConfirmed: _handleInquiryConfirmed,
+          ),
+        ),
+        // ─── 右侧：素材面板（默认收起） ───
+        if (_showMaterialPanel) ...[
+          const VerticalDivider(width: 1, thickness: 1),
+          SizedBox(
+            width: 280,
+            child: MaterialPanel(
+              cards: _indexCards,
+              onInsertText: (text) => FullscreenEditor.insertText(text),
+              onInsertCard: (_) {},
             ),
           ),
         ],
-      ),
+      ],
     );
   }
 }

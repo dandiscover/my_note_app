@@ -8,6 +8,7 @@
 // ✅ 保存前重构 _entry，保证探究任务和问题完整写入
 // ✅ onSave 签名增加 exploreTasks 参数
 // ✅ 删除探究问题时同时清除 exploreTasks 和 inquiryConclusion
+// ✅ 骨架：新增素材库按钮（底部工具栏，紧跟深入探究）+ 静态 insertText 接口
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -36,6 +37,9 @@ class FullscreenEditor extends StatefulWidget {
   final Function(String)? onAddSubtask;
   // 兼容保留，但内部不再调用
   final void Function(String question)? onInquiryConfirmed;
+  // ✅ 骨架：素材面板状态与开关回调
+  final bool isMaterialPanelOpen;
+  final VoidCallback? onToggleMaterialPanel;
 
   const FullscreenEditor({
     super.key,
@@ -46,6 +50,8 @@ class FullscreenEditor extends StatefulWidget {
     this.exploreTaskId,
     this.onAddSubtask,
     this.onInquiryConfirmed,
+    this.isMaterialPanelOpen = false,
+    this.onToggleMaterialPanel,
   });
 
   @override
@@ -59,6 +65,12 @@ class FullscreenEditor extends StatefulWidget {
   static void triggerSave() {
     if (_currentEditor == null) return;
     _currentEditor!._handleSave();
+  }
+
+  // ✅ 骨架：外部往当前编辑器光标处插入文本
+  static void insertText(String text) {
+    if (_currentEditor == null) return;
+    _currentEditor!._insertTextIntoContent(text);
   }
 }
 
@@ -343,6 +355,24 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
     _showLightToast('✅ 子任务已添加');
   }
 
+  // ✅ 骨架：往内容光标处插入文本（供 MaterialPanel 等外部调用）
+  //   逻辑对齐 EditorArea.insertText：光标处插入，光标后移
+  void _insertTextIntoContent(String text) {
+    final cursorPosition = _contentController.selection.baseOffset;
+    final currentText = _contentController.text;
+    if (cursorPosition < 0 || cursorPosition > currentText.length) {
+      _contentController.text = currentText + text;
+    } else {
+      final newText = currentText.substring(0, cursorPosition) +
+          text +
+          currentText.substring(cursorPosition);
+      _contentController.text = newText;
+      final newCursor = cursorPosition + text.length;
+      _contentController.selection = TextSelection.collapsed(offset: newCursor);
+    }
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final wordCount = _contentController.text.length;
@@ -565,11 +595,19 @@ class _FullscreenEditorState extends State<FullscreenEditor> {
                 children: [
                   Row(
                     children: [
-                      // ✅ 深入探究图标按钮
+                      // ✅ 深入探究图标按钮（保留）
                       IconButton(
                         icon: const Icon(Icons.explore, color: Colors.purple, size: 20),
                         tooltip: '深入探究',
                         onPressed: _onPromptTap,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      // ✅ 骨架：素材库按钮（插在深入探究之后）
+                      IconButton(
+                        icon: const Icon(Icons.library_books, color: Colors.purple, size: 20),
+                        tooltip: '素材库',
+                        onPressed: () => widget.onToggleMaterialPanel?.call(),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                       ),
