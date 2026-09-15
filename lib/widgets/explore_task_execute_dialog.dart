@@ -78,6 +78,7 @@ class _ExploreTaskExecuteDialogState
         updatedAt: task.updatedAt,
         completedAt: task.completedAt,
       )).toList(),
+      contentFormat: source.contentFormat,   // ← 加这行
     );
   }
 

@@ -163,6 +163,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         inquiryQuestion: _entry.inquiryQuestion,
         inquiryConclusion: conclusion.isEmpty ? null : conclusion,
         exploreTasks: _entry.exploreTasks,
+        contentFormat: _entry.contentFormat,   // ← 只加这一行
+
       );
       await _db.updateNote(updated.toMap());
       if (mounted) {
@@ -219,6 +221,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         inquiryQuestion: inquiryQuestion,
         inquiryConclusion: _entry.inquiryConclusion,
         exploreTasks: exploreTasks,
+        contentFormat: _entry.contentFormat,   // ← 加这行
       );
 
       await _db.updateNote(updated.toMap());

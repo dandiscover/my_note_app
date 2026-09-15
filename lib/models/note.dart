@@ -3,9 +3,12 @@
 // ✅ 新增：inquiryQuestion（探究问题）
 // ✅ 新增：inquiryConclusion（探究结论）
 // ✅ 新增：exploreTasks（多任务探究列表）
+// ✅ 新增：contentFormat（笔记内容格式）
 // ✅ 移除：scaffoldSessions（迁移到 ExploreTask）
 // ✅ 移除：subtasks（迁移到 ExploreTask）
 // ✅ 移除：NoteSubtask（抽离到 note_subtask.dart）
+// ✅ 修复：copyWith 哨兵方案，inquiryQuestion / inquiryConclusion 支持清空（BUG-001）
+// ✅ T-177：fromMap 的 contentFormat 类型防御（脏数据不崩）
 
 import 'note_subtask.dart';
 import 'explore_task.dart';
@@ -23,6 +26,13 @@ class NotebookEntry {
   final String? inquiryConclusion;
   final List<ExploreTask> exploreTasks;
 
+  /// 笔记内容格式：'markdown' / 'richtext'
+  /// 默认 'markdown'，兼容现有笔记。
+  final String contentFormat;
+
+  /// copyWith 哨兵：区分“未传参”（保留旧值）与“显式传 null”（清空）
+  static const Object _unset = Object();
+
   const NotebookEntry({
     required this.id,
     required this.title,
@@ -35,6 +45,7 @@ class NotebookEntry {
     this.inquiryQuestion,
     this.inquiryConclusion,
     this.exploreTasks = const [],
+    this.contentFormat = 'markdown',
   });
 
   static final NotebookEntry empty = NotebookEntry(
@@ -49,9 +60,15 @@ class NotebookEntry {
     inquiryQuestion: null,
     inquiryConclusion: null,
     exploreTasks: const [],
+    contentFormat: 'markdown',
   );
 
   factory NotebookEntry.fromMap(Map<String, dynamic> map) {
+    // 空字符串等同于缺省，一律回退 'markdown'
+    // T-177：类型防御——脏数据（非 String）也回退，不崩
+    final cfRaw = map['contentFormat'];
+    final cf = (cfRaw is String && cfRaw.isNotEmpty) ? cfRaw : 'markdown';
+
     return NotebookEntry(
       id: map['id'] ?? '',
       title: map['title'] ?? '',
@@ -66,6 +83,7 @@ class NotebookEntry {
       exploreTasks: (map['exploreTasks'] as List?)
           ?.map((e) => ExploreTask.fromJson(e as Map<String, dynamic>))
           .toList() ?? [],
+      contentFormat: cf,
     );
   }
 
@@ -82,6 +100,7 @@ class NotebookEntry {
       'inquiryQuestion': inquiryQuestion,
       'inquiryConclusion': inquiryConclusion,
       'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
+      'contentFormat': contentFormat,
     };
   }
 
@@ -94,9 +113,10 @@ class NotebookEntry {
     String? editorMode,
     List<String>? tags,
     bool? isLocked,
-    String? inquiryQuestion,
-    String? inquiryConclusion,
+    Object? inquiryQuestion = _unset,
+    Object? inquiryConclusion = _unset,
     List<ExploreTask>? exploreTasks,
+    String? contentFormat,
   }) {
     return NotebookEntry(
       id: id ?? this.id,
@@ -107,9 +127,14 @@ class NotebookEntry {
       editorMode: editorMode ?? this.editorMode,
       tags: tags ?? this.tags,
       isLocked: isLocked ?? this.isLocked,
-      inquiryQuestion: inquiryQuestion ?? this.inquiryQuestion,
-      inquiryConclusion: inquiryConclusion ?? this.inquiryConclusion,
+      inquiryQuestion: identical(inquiryQuestion, _unset)
+          ? this.inquiryQuestion
+          : inquiryQuestion as String?,
+      inquiryConclusion: identical(inquiryConclusion, _unset)
+          ? this.inquiryConclusion
+          : inquiryConclusion as String?,
       exploreTasks: exploreTasks ?? this.exploreTasks,
+      contentFormat: contentFormat ?? this.contentFormat,
     );
   }
 }
