@@ -3,10 +3,8 @@
 //
 // 所有在结构 ↔ Delta 转换中用到的属性名，集中在这里。
 //
-// ⚠️ 待验证：以下属性名基于 Quill 惯例 + 第二轮方案 v4 约定。
-//    第三轮开工第一件事：逐项在 flutter_quill 11.5.1 实测，
-//    若不一致，只改本文件的常量值，不改适配层逻辑。
-//    验证方式见第三轮方案 v2 第五节。
+// ✅ 已实测：code-block / list 属性名与值已对 flutter_quill 11.5.1 实测。
+// ⚠️ 待验证：其余属性名基于 Quill 惯例，第三轮后续验证。
 
 /// Delta 属性名常量集合。
 class DeltaAttributes {
@@ -41,8 +39,14 @@ class DeltaAttributes {
   static const String blockquote = 'blockquote';
 
   /// 代码块
-  /// 值为语言名（如 'dart'），或空字符串表示无语言
-  /// ⚠️ 待验证：flutter_quill 11.5.1 可能用 'code-block-language' 分开存
+  ///
+  /// ✅ 已实测（flutter_quill 11.5.1）：
+  ///    值固定为 `true`，不带语言名。
+  ///    例：{ "insert": "\n", "attributes": { "code-block": true } }
+  ///
+  /// ⚠️ flutter_quill 11.5.1 不支持在 Delta 里挂代码块语言名。
+  ///    存储结构里 `code_block.language` 字段保留，
+  ///    但转 Delta 时不写、回读时为 null。
   static const String codeBlock = 'code-block';
 
   // ─── 4. 嵌入对象键 ───────────────────────────
@@ -53,7 +57,11 @@ class DeltaAttributes {
 
 /// `list` 属性的取值常量。
 ///
-/// ⚠️ 待验证：flutter_quill 11.5.1 的实际取值。
+/// ✅ 已实测（flutter_quill 11.5.1）：
+///    - 未勾选待办：'unchecked'
+///    - 有序列表：'ordered'
+///    - 无序列表：'bullet'（推定，未单独验）
+///    - 已勾选待办：'checked'（推定，与 unchecked 对称）
 class DeltaListValues {
   DeltaListValues._();
 
@@ -68,9 +76,24 @@ class DeltaAttributeValues {
   DeltaAttributeValues._();
 
   /// 空语言（代码块无指定语言时）
-  /// ⚠️ 待验证：flutter_quill 11.5.1 是要求空字符串 '',
-  ///    还是要求属性不带该键（即 null）。
-  ///    本常量先写 ''，验证后若不一致，改代码逻辑（在转换层判断），
-  ///    不改本常量。
+  ///
+  /// ⚠️ 已废弃（第二轮 T-133 保留观察）。
+  ///    flutter_quill 11.5.1 已实测：`code-block` 属性值为 `true`，
+  ///    不支持挂语言名。因此本常量不再有使用场景。
+  ///
+  /// 保留不删的理由：若将来 flutter_quill 升级支持代码块语言，
+  /// 可直接复用本常量，无需重新定义。
+  ///
+  /// ─── @Deprecated 说明（配合 T-197）───
+  ///
+  /// 本会话已核：structure_to_delta.dart / delta_to_structure.dart
+  /// 里均不再引用 emptyLanguage。
+  ///
+  /// 执行侧注意：
+  ///   1. 落盘后跑 flutter analyze。
+  ///   2. 若报 deprecated_member_use —— 说明有未清理的引用残留，
+  ///      那条引用要处理（改常量值，或改为不引用）。
+  ///   3. 若零报 —— 废弃标注到位，T-197 可关闭。
+  @Deprecated('flutter_quill 11.5.1 不支持代码块语言名')
   static const String emptyLanguage = '';
 }

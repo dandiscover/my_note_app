@@ -5,6 +5,17 @@
 //
 // contentHash：FNV-1a 32 位。算法同 structure_to_delta.dart。
 // 各块「可读文本」定义：见 structure_to_delta.dart 文件头。
+//
+// ─── 嵌套块处理（与第 6 文件一致）────────────
+//
+// 平坦化降级：Delta 里连续的 list 项合并为一个 list 块；
+// 每个 list 项作为一个 paragraph 子块，不嵌更深。
+// 同理 blockquote。
+//
+// ─── code_block.language 降级说明 ─────────────────────
+//
+// ✅ 已实测：flutter_quill 11.5.1 不在 Delta 里挂 code-block 语言名。
+//    从 Delta 回读时 language 固定为 null。
 
 import 'dart:convert';
 import 'dart:math';
@@ -256,9 +267,6 @@ class _StructureBuilder {
 
   Map<String, dynamic> _buildCodeBlock(List<Map<String, dynamic>> block) {
     final contentOps = DeltaOps.contentOpsOf(block);
-    final attrs = DeltaOps.blockAttributesOf(block);
-    final langRaw = attrs[DeltaAttributes.codeBlock];
-    final lang = langRaw is String ? langRaw : null;
     final text = contentOps
         .map((op) => DeltaOps.getText(op) ?? '')
         .join();
@@ -269,7 +277,10 @@ class _StructureBuilder {
     return <String, dynamic>{
       'id': id,
       'type': 'code_block',
-      'language': (lang == null || lang.isEmpty) ? null : lang,
+      // ✅ 已实测：flutter_quill 11.5.1 不在 Delta 里挂 code-block 语言名。
+      //    从 Delta 回读时 language 固定为 null。
+      //    用户存过语言的旧笔记，往返一次会丢语言。本轮接受此降级。
+      'language': null,
       'text': text,
       'marks': _matchMemoMarks(id),
     };

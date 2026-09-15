@@ -38,6 +38,12 @@
 //
 // list / blockquote 里的非 paragraph 子块：递归转换，不裹上 list 属性。
 // 数据保留，层级丢失。
+//
+// ─── code_block.language 降级说明 ─────────────────────
+//
+// ✅ 已实测：flutter_quill 11.5.1 里 `code-block` 属性值为 `true`，
+//    不支持挂语言名。
+//    存储结构的 `language` 字段本轮不进 Delta。
 
 import 'dart:convert';
 
@@ -339,16 +345,15 @@ class StructureToDelta {
     if (text is! String) {
       throw InvalidStructureException('code_block 缺 text', blockId: id);
     }
-    final language = block['language'] as String?;
     final marks = _readMarks(block);
 
     out.add(DeltaOps.textInsert(text));
 
-    final langValue = (language == null || language.isEmpty)
-        ? DeltaAttributeValues.emptyLanguage
-        : language;
+    // ✅ 已实测：flutter_quill 11.5.1 里 code-block 属性值为 true，
+    //    不支持挂语言名。
+    //    存储结构的 `language` 字段本轮不进 Delta。
     out.add(DeltaOps.newline(attributes: {
-      DeltaAttributes.codeBlock: langValue,
+      DeltaAttributes.codeBlock: true,
     }));
 
     memos.add(BlockMemo(

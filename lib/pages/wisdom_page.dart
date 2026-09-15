@@ -14,9 +14,9 @@
 // ✅ 新增：图书馆书籍状态筛选（全部/想读/在读/读完）
 // ✅ 修改：WisdomBookCard 传入 Book 对象以显示来源标识
 // ✅ 指导卡：_showCardDetailDialog 里，系统预置卡（system_guide_card）不显示“删除”按钮
-
+import 'dart:convert';
+import 'richtext_editor_page.dart';
 import 'package:flutter/material.dart';
-
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
@@ -388,7 +388,45 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📝 笔记已创建'), duration: Duration(seconds: 1)));
     }
   }
+  // ✅ 第三轮：新建富文本笔记（进 RichtextEditorPage）
+  //
+  // 按老白裁 2：
+  //   - 新建空 richtext 笔记（contentFormat='richtext'）
+  //   - 挂到当前文件夹
+  //   - 进 RichtextEditorPage
+  //   - 不做 Markdown 升级；不做"切换笔记类型"
+  Future<void> _createRichtextNote() async {
+    _closeFab();
+    final newEntry = NotebookEntry(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: '无标题',
+      content: jsonEncode({'version': 2, 'blocks': <dynamic>[]}),
+      updatedAt: DateTime.now(),
+      status: 'active',
+      editorMode: 'plain',
+      contentFormat: 'richtext',
+    );
+    await _db.insertNote(newEntry.toMap());
+    await _db.attachNoteToNode(
+      noteId: newEntry.id,
+      title: newEntry.title,
+      parentId: _currentFolderId,
+      tags: const [],
+    );
+    _cache.invalidate(_cacheKeyNodes);
+    _cache.invalidate(_cacheKeyNotes);
+    _folderStatsCache = null;
+    await _loadData();
 
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RichtextEditorPage(entry: newEntry),
+      ),
+    );
+    await _loadData();
+  }
   Future<void> _createMinimalStepCard() async {
     final card = CardModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -1232,12 +1270,15 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         AnimatedOpacity(
           opacity: _fabExpanded ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 200),
-          child: Visibility(
+                    child: Visibility(
             visible: _fabExpanded,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildFabOption(icon: Icons.edit_note, label: '新建笔记', color: Colors.blue, onTap: _createNote),
+                const SizedBox(height: 8),
+                // ✅ 第三轮：新建富文本笔记（老白裁 2 + 图标 Icons.article_outlined）
+                _buildFabOption(icon: Icons.article_outlined, label: '新建富文本笔记', color: Colors.teal, onTap: _createRichtextNote),
                 const SizedBox(height: 8),
                 _buildFabOption(icon: Icons.create_new_folder, label: '新建文件夹', color: Colors.orange, onTap: _createFolder),
                 const SizedBox(height: 12),

@@ -5,7 +5,8 @@ import 'delta_to_structure.dart';
 import 'structure_to_delta.dart';
 import 'shared/block_memo.dart';
 import 'shared/delta_with_memo.dart';
-
+export 'shared/block_memo.dart';
+export 'shared/delta_with_memo.dart';
 /// 富文本适配层主入口。
 class RichtextAdapter {
   RichtextAdapter._();

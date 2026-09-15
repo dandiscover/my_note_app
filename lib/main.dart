@@ -9,6 +9,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'models/pet.dart';
 import 'dart:io';
 import 'web_shortcut.dart'
@@ -50,9 +52,9 @@ void main() async {
 
   if (!kIsWeb) {
     if (Platform.isWindows || Platform.isLinux) {
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
-}
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
   }
 
   final supabaseUrl = EnvService.supabaseUrl;
@@ -88,6 +90,19 @@ class MyApp extends StatelessWidget {
       title: '云脑计划',
       debugShowCheckedModeBanner: false,
       navigatorObservers: [_petObserver],   // ✅ Spike：弹窗/底部面板隐藏宠物
+
+      // ✅ Quill 本地化配置（flutter_quill 渲染工具栏 / 编辑器的界面文字需要）
+      localizationsDelegates: const [
+        quill.FlutterQuillLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale('zh'),
+      ],
+
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color.fromARGB(255, 238, 241, 242),
