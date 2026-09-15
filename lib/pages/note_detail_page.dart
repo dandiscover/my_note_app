@@ -26,14 +26,24 @@
 // ✅ 骨架：编辑模式加素材面板（默认收起，280 宽侧栏，右侧撑满）
 // ✅ B 提交：AppBar 加素材库按钮（生成卡片与文件树之间，仅编辑模式显示），FullscreenEditor 撤两参数
 // ✅ T-091：_saveNote 的 inquiryQuestion 去掉 ?? 兜底，传 null 就清空
+// ✅ T-167：复制构造点显式带 contentFormat
+// ✅ 第三轮：richtext 路由分派（_toggleMode push 到 RichtextEditorPage）
+// ✅ 第三轮：读模式富文本渲染（只读 QuillEditor）
+// ✅ 路一 v6：读模式自建右键菜单（云脑生成卡片 + 复制）
+
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/card.dart';
 import '../models/explore_task.dart';
 import '../services/card_service.dart';
+import '../services/richtext_adapter/richtext_adapter.dart';
+import '../services/richtext_adapter/shared/attributes.dart';
 import '../widgets/fullscreen_editor.dart';
 import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
@@ -41,6 +51,7 @@ import '../widgets/explore_task_summary_dialog.dart';
 import '../widgets/writing/material_panel.dart';
 import 'book_detail_page.dart';
 import 'inquiry_page.dart';
+import 'richtext_editor_page.dart';
 
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
@@ -84,7 +95,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   void initState() {
     super.initState();
-    _isReadMode = !widget.isFromCollection;
+    // 富文本笔记强制进读模式；编辑走 AppBar 按钮 push 到 RichtextEditorPage。
+    // markdown 笔记沿用旧规则：采集页进来编辑，其他进来读。
+    if (widget.entry.contentFormat == 'richtext') {
+      _isReadMode = true;
+    } else {
+      _isReadMode = !widget.isFromCollection;
+    }
     _entry = widget.entry;
     _inquiryConclusionCtrl.text = _entry.inquiryConclusion ?? '';
     _inquiryConclusionCtrl.addListener(_onInquiryConclusionChanged);
@@ -163,8 +180,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         inquiryQuestion: _entry.inquiryQuestion,
         inquiryConclusion: conclusion.isEmpty ? null : conclusion,
         exploreTasks: _entry.exploreTasks,
-        contentFormat: _entry.contentFormat,   // ← 只加这一行
-
+        contentFormat: _entry.contentFormat,   // ← T-167：复制点显式带字段
       );
       await _db.updateNote(updated.toMap());
       if (mounted) {
@@ -221,7 +237,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         inquiryQuestion: inquiryQuestion,
         inquiryConclusion: _entry.inquiryConclusion,
         exploreTasks: exploreTasks,
-        contentFormat: _entry.contentFormat,   // ← 加这行
+        contentFormat: _entry.contentFormat,   // ← T-167：复制点显式带字段
       );
 
       await _db.updateNote(updated.toMap());
@@ -621,10 +637,50 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   // ─── 切换模式 ─────────────────────────────
-  void _toggleMode() {
+  //
+  // richtext：不内嵌编辑，push 到 RichtextEditorPage。
+  // markdown：现有逻辑，切换 _isReadMode。
+  Future<void> _toggleMode() async {
+    if (_entry.contentFormat == 'richtext') {
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RichtextEditorPage(entry: _entry),
+        ),
+      );
+      if (result == true && mounted) {
+        await _reloadEntry();
+      }
+      return;
+    }
     setState(() {
       _isReadMode = !_isReadMode;
     });
+  }
+
+  /// 富文本编辑页保存后，从库读最新 entry 并刷新本页。
+  Future<void> _reloadEntry() async {
+    try {
+      final all = await _db.getAllNotes(includeDeleted: false);
+      final map = all.firstWhere(
+        (n) => n['id'] == _entry.id,
+        orElse: () => <String, dynamic>{},
+      );
+      if (map.isEmpty) return;
+      final fresh = NotebookEntry.fromMap(map);
+      if (mounted) {
+        // 先更新 _entry（rebuild）。
+        setState(() {
+          _entry = fresh;
+        });
+        // 再设 ctrl.text（在 setState 外）。
+        // 触发 listener → listener 比较 ctrl.text 与 _entry.inquiryConclusion
+        // → 一致 → 不 setState。
+        _inquiryConclusionCtrl.text = fresh.inquiryConclusion ?? '';
+      }
+    } catch (e) {
+      debugPrint('重新加载笔记失败: $e');
+    }
   }
 
   // ─── 文件树 ─────────────────────────────
@@ -802,7 +858,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           ),
           IconButton(
             icon: Icon(_isReadMode ? Icons.edit : Icons.remove_red_eye),
-            tooltip: _isReadMode ? '切换到修改模式' : '切换到阅读模式',
+            tooltip: _entry.contentFormat == 'richtext'
+                ? '编辑'
+                : (_isReadMode ? '切换到修改模式' : '切换到阅读模式'),
             onPressed: _toggleMode,
           ),
           IconButton(
@@ -832,6 +890,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   Widget _buildReadMode() {
+    // 富文本笔记：走只读 QuillEditor 分支
+    if (_entry.contentFormat == 'richtext') {
+      return _buildRichtextReadMode();
+    }
+    // markdown：现有逻辑不动
     return Padding(
       padding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
@@ -886,6 +949,109 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             Text(
               '更新于 ${_entry.updatedAt.toLocal().toString().substring(0, 16)}',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 富文本笔记的只读渲染。
+  ///
+  /// 老白裁定：
+  ///   - 只读，不带工具栏、不带交互
+  ///   - 损坏 JSON 兜底到纯文本
+  ///   - 复用 RichtextAdapter.structureToDelta
+  Widget _buildRichtextReadMode() {
+    // 1. 解析结构
+    Map<String, dynamic> structure;
+    try {
+      structure = jsonDecode(_entry.content) as Map<String, dynamic>;
+    } catch (_) {
+      return _buildReadFallback('内容不是合法 JSON');
+    }
+
+    // 2. 结构 → Delta（复用适配层，不重写转换）
+    DeltaWithMemo result;
+    try {
+      result = RichtextAdapter.structureToDelta(structure);
+    } catch (e) {
+      return _buildReadFallback('结构转换失败：$e');
+    }
+
+    // 3. 只读渲染
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_entry.tags.isNotEmpty) ...[
+              Wrap(
+                spacing: 4,
+                children: _entry.tags.map((tag) => Chip(
+                  label: Text(tag),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                )).toList(),
+              ),
+              const SizedBox(height: 12),
+            ],
+            _RichtextReadView(
+              key: ValueKey(_entry.content),
+              delta: result.delta,
+              onGenerateCard: (text) => _generateCard(selectedText: text),
+            ),
+            if (_entry.exploreTasks.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildExploreSummaryTile(),
+            ],
+            const SizedBox(height: 12),
+            _buildCraftingSection(),
+            const SizedBox(height: 12),
+            _buildSubNotesSection(),
+            const SizedBox(height: 12),
+            _buildNoteCardsSection(),
+            const SizedBox(height: 12),
+            Text(
+              '更新于 ${_entry.updatedAt.toLocal().toString().substring(0, 16)}',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 富文本读模式兜底：显示提示 + 原始 content。
+  ///
+  /// 触发场景：
+  ///   - content 不是合法 JSON
+  ///   - structureToDelta 抛异常（版本不符 / 结构非法）
+  /// 不崩。用户至少能看到原文。
+  Widget _buildReadFallback(String reason) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.orange.shade200, width: 0.5),
+              ),
+              child: Text(
+                '⚠️ 富文本渲染失败，显示原始内容（$reason）',
+                style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SelectableText(
+              _entry.content,
+              style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
             ),
           ],
         ),
@@ -1133,6 +1299,14 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   Widget _buildEditMode() {
+    // 防御：richtext 不该走到这里（initState 强制读模式，
+    // _toggleMode 走 push）。若真到了，显示占位，不崩。
+    if (_entry.contentFormat == 'richtext') {
+      return const Center(
+        child: Text('请通过编辑按钮打开富文本编辑器'),
+      );
+    }
+
     return Row(
       children: [
         // ─── 左列：错误提示 + 探究缩略图 + 编辑器 ───
@@ -1186,5 +1360,138 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         ],
       ],
     );
+  }
+}
+
+/// 富文本只读渲染 widget。
+///
+/// 持有 QuillController，dispose 时释放。
+///
+/// 为什么独立成 StatefulWidget：
+///   - QuillController 有生命周期，不能在 build 里 new
+///   - _buildReadMode 每次 rebuild 都调用，controller 要复用
+class _RichtextReadView extends StatefulWidget {
+  final List<Map<String, dynamic>> delta;
+  final ValueChanged<String> onGenerateCard;
+
+  const _RichtextReadView({
+    super.key,
+    required this.delta,
+    required this.onGenerateCard,
+  });
+
+  @override
+  State<_RichtextReadView> createState() => _RichtextReadViewState();
+}
+
+class _RichtextReadViewState extends State<_RichtextReadView> {
+  late final quill.QuillController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = quill.QuillController(
+      document: quill.Document.fromJson(widget.delta),
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+    _controller.readOnly = true; // ✅ readOnly 在 controller 上
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return quill.QuillEditor.basic(
+      controller: _controller,
+      config: quill.QuillEditorConfig(
+        embedBuilders: [_DividerEmbedBuilder()],
+        // ✅ 路一 v6：自建菜单（云脑生成卡片 + 复制）
+        contextMenuBuilder: _buildContextMenu,
+      ),
+    );
+  }
+
+  /// 读模式自定义右键菜单。
+  ///
+  /// 自建菜单两项：
+  ///   1. 📇 生成卡片（云脑）
+  ///   2. 复制
+  ///
+  /// 不依赖 flutter_quill 内部默认菜单函数。
+  ///
+  /// 签名匹配 typedef：
+  ///   Widget Function(BuildContext, QuillRawEditorState)
+   /// 读模式自定义右键菜单。
+  ///
+  /// 用 AdaptiveTextSelectionToolbar——它自带定位，贴在选区附近。
+  /// 不自己拼 Column（会被全屏撑开）。
+  Widget _buildContextMenu(
+    BuildContext context,
+    quill.QuillRawEditorState rawEditorState,
+  ) {
+    final controller = rawEditorState.controller;
+    final selectedText = _getSelectedText(controller);
+
+    // 无选中 → 空菜单
+    if (selectedText.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: rawEditorState.contextMenuAnchors,
+      buttonItems: [
+        ContextMenuButtonItem(
+          label: '📇 生成卡片',
+          onPressed: () {
+            ContextMenuController.removeAny();
+            widget.onGenerateCard(selectedText);
+          },
+        ),
+        ContextMenuButtonItem(
+          label: '复制',
+          onPressed: () {
+            ContextMenuController.removeAny();
+            Clipboard.setData(ClipboardData(text: selectedText));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('✅ 已复制'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  /// 从 QuillController 拿当前选中文本。
+  /// 空选返回空字符串。
+  String _getSelectedText(quill.QuillController controller) {
+    final selection = controller.selection;
+    if (!selection.isValid) return '';
+    final text = controller.document.toPlainText();
+    final start = selection.start.clamp(0, text.length);
+    final end = selection.end.clamp(0, text.length);
+    if (start >= end) return '';
+    return text.substring(start, end);
+  }
+}
+
+/// 分割线嵌入对象的渲染器（读模式用）。
+///
+/// 与 `RichtextEditorPage` 里的 `_DividerEmbedBuilder` 逻辑一致——
+/// 但因两者都是文件私有类，无法跨文件复用。
+/// 若将来出现第三处使用，应提升为公共 widget。
+class _DividerEmbedBuilder extends quill.EmbedBuilder {
+  @override
+  String get key => DeltaAttributes.divider;
+
+  @override
+  Widget build(BuildContext context, quill.EmbedContext embedContext) {
+    return const Divider(thickness: 1);
   }
 }
