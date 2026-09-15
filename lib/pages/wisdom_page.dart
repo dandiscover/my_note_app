@@ -14,6 +14,7 @@
 // ✅ 新增：图书馆书籍状态筛选（全部/想读/在读/读完）
 // ✅ 修改：WisdomBookCard 传入 Book 对象以显示来源标识
 // ✅ 指导卡：_showCardDetailDialog 里，系统预置卡（system_guide_card）不显示“删除”按钮
+// ✅ 第四轮批 1：搜索数据源改 DatabaseService.searchIndex()，不建新页（老白裁 A）
 import 'dart:convert';
 import 'richtext_editor_page.dart';
 import 'package:flutter/material.dart';
@@ -59,6 +60,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   List<CardModel> _cards = [];
   String? _currentFolderId;
   String _searchKeyword = '';
+  // ✅ 第四轮批 1 新增：统一搜索结果（searchIndex() 返回的混合列表）
+  // 依据老白裁 A：改搜索数据源为 searchIndex()，不建新页。
+  List<Map<String, dynamic>> _searchResults = [];
   bool _isSelectMode = false;
   final Set<String> _selectedIds = {};
   bool _showSearchBar = false;
@@ -627,31 +631,38 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     final folderStats = _getFolderStats();
     final systemFolders = _systemFolders;
 
+    // ✅ 第四轮批 1 新增：搜索态优先——搜索框开 + 关键词非空
+    final isSearching = _showSearchBar && _searchKeyword.trim().isNotEmpty;
+
     return Column(
       children: [
         _buildBreadcrumb(),
         const Divider(height: 1),
         if (_showSearchBar) _buildSearchBar(),
-        WisdomToolbar(
-          currentMode: _viewMode,
-          onModeChanged: (mode) { setState(() => _viewMode = mode); },
-          isSelectMode: _isSelectMode,
-          onToggleSelectMode: _toggleSelectMode,
-          selectedCount: _selectedIds.length,
-          onBatchDelete: _batchDelete,
-          onBatchMove: _batchMove,
-        ),
-        // ✅ 图书馆筛选栏
-        if (_isLibraryFolder) _buildBookFilterBar(),
+        // 搜索态不显示工具栏 / 图书筛选栏（这些作用于节点树，与全库搜索无关）
+        if (!isSearching) ...[
+          WisdomToolbar(
+            currentMode: _viewMode,
+            onModeChanged: (mode) { setState(() => _viewMode = mode); },
+            isSelectMode: _isSelectMode,
+            onToggleSelectMode: _toggleSelectMode,
+            selectedCount: _selectedIds.length,
+            onBatchDelete: _batchDelete,
+            onBatchMove: _batchMove,
+          ),
+          if (_isLibraryFolder) _buildBookFilterBar(),
+        ],
         Expanded(
-          child: children.isEmpty && systemFolders.isEmpty
-              ? _buildEmptyState()
-              : Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: _viewMode == WisdomViewMode.split
-                      ? _buildSplitView(children, folderStats, systemFolders)
-                      : _buildContentView(children, folderStats, systemFolders),
-                ),
+          child: isSearching
+              ? _buildSearchResults()
+              : (children.isEmpty && systemFolders.isEmpty
+                  ? _buildEmptyState()
+                  : Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: _viewMode == WisdomViewMode.split
+                          ? _buildSplitView(children, folderStats, systemFolders)
+                          : _buildContentView(children, folderStats, systemFolders),
+                    )),
         ),
       ],
     );
@@ -688,10 +699,118 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: WisdomSearchBar(
         initialQuery: _searchKeyword,
-        onChanged: (query) { setState(() { _searchKeyword = query; _cachedFilteredNodes = null; }); },
-        onClear: () { setState(() { _searchKeyword = ''; _cachedFilteredNodes = null; _showSearchBar = false; }); },
+        onChanged: (query) {
+          setState(() {
+            _searchKeyword = query;
+            _cachedFilteredNodes = null;
+          });
+          _runSearch(query);
+        },
+        onClear: () {
+          setState(() {
+            _searchKeyword = '';
+            _cachedFilteredNodes = null;
+            _showSearchBar = false;
+            _searchResults = [];
+          });
+        },
       ),
     );
+  }
+
+  /// 第四轮批 1 新增：调 DatabaseService.searchIndex() 拿混合结果。
+  ///
+  /// 连续输入会连续调用；查询串变化时丢弃过期结果（防乱序）。
+  /// 本轮不做防抖——最小实现。若真机发现抖动明显，再补 Timer debounce。
+  Future<void> _runSearch(String query) async {
+    final kw = query.trim();
+    if (kw.isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+    try {
+      final results = await _db.searchIndex(kw);
+      if (!mounted) return;
+      // 查询串已变，丢弃过期结果
+      if (_searchKeyword.trim() != kw) return;
+      setState(() => _searchResults = results);
+    } catch (e) {
+      debugPrint('searchIndex 失败: $e');
+    }
+  }
+
+  /// 第四轮批 1 新增：渲染统一搜索结果（searchIndex() 返回的混合列表）。
+  ///
+  /// 每条按 kind 显示图标 / 颜色 / 类型标签。
+  /// 点击 → _openSearchResult() 分流跳转。
+  Widget _buildSearchResults() {
+    if (_searchResults.isEmpty) {
+      return const Center(
+        child: Text('无匹配结果', style: TextStyle(color: Colors.grey)),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: _searchResults.length,
+      itemBuilder: (context, index) {
+        final row = _searchResults[index];
+        final kind = row['kind'] as String? ?? '';
+        final rawText = (row['rawText'] as String?) ?? '';
+        final searchText = (row['searchText'] as String?) ?? '';
+
+        final (IconData icon, Color color, String label) = switch (kind) {
+          'note_text' => (Icons.note, Colors.blue, '笔记'),
+          'note_tag' => (Icons.label, Colors.purple, '标记'),
+          'book_highlight' => (Icons.highlight, Colors.amber, '高亮'),
+          'book_annotation' => (Icons.chat_bubble_outline, Colors.teal, '批注'),
+          _ => (Icons.search, Colors.grey, '结果'),
+        };
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 6),
+          child: ListTile(
+            leading: Icon(icon, color: color),
+            title: Text(
+              rawText.isEmpty ? searchText : rawText,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13),
+            ),
+            subtitle: Text(label,
+                style: TextStyle(fontSize: 11, color: color)),
+            onTap: () => _openSearchResult(row),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 第四轮批 1 新增：搜索结果点击跳转。
+  ///
+  /// 依据老白裁 C：搜索跳转只打开书，不定位章节。
+  /// 实现方式：反查 Node（_nodes 是全库的），复用现有 _openNode()。
+  Future<void> _openSearchResult(Map<String, dynamic> row) async {
+    final sourceType = row['sourceType'] as String? ?? '';
+    final sourceId = row['sourceId'] as String? ?? '';
+    if (sourceId.isEmpty) return;
+
+    final Node node;
+    if (sourceType == 'note') {
+      node = _nodes.firstWhere(
+        (n) => n.nodeType == 'note' && n.targetId == sourceId,
+        orElse: () => Node.empty,
+      );
+    } else if (sourceType == 'book') {
+      node = _nodes.firstWhere(
+        (n) => n.nodeType == 'book' && n.targetId == sourceId,
+        orElse: () => Node.empty,
+      );
+    } else {
+      return;
+    }
+    if (node.id.isEmpty) return;
+
+    await _openNode(node);
   }
 
   Widget _buildEmptyState() {

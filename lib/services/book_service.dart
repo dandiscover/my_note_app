@@ -2,6 +2,7 @@
 // 图书服务层 — Windows 用本地文件，Web 用 Supabase，导入时同步云端
 // ✅ 新增：importBook 中创建 Book 时设置 source = 'import'
 // ✅ 新增：导入时从文件名提取 ISBN，查询封面，存入 coverUrl（非阻塞）
+// ✅ 第四轮批 1：saveNote / deleteNote / deleteAllNotes 加搜索索引同步钩子
 
 import 'dart:convert';
 import 'dart:io';
@@ -393,6 +394,12 @@ class BookService {
     final updated = [...existing, note];
     await prefs.setString(key, jsonEncode(updated.map((n) => n.toMap()).toList()));
 
+    // ✅ 第四轮批 1 新增：同步书侧搜索索引
+    await _db.syncBookNotesIndex(
+      note.bookId,
+      updated.map((n) => n.toMap()).toList(),
+    );
+
     if (SupabaseService().isLoggedIn) {
       try {
         await CloudSyncService().syncBookNote(note);
@@ -409,6 +416,12 @@ class BookService {
     final key = '$_notesKeyPrefix$bookId';
     await prefs.setString(key, jsonEncode(updated.map((n) => n.toMap()).toList()));
 
+    // ✅ 第四轮批 1 新增：同步书侧搜索索引（全量重写）
+    await _db.syncBookNotesIndex(
+      bookId,
+      updated.map((n) => n.toMap()).toList(),
+    );
+
     if (SupabaseService().isLoggedIn) {
       try {
         await CloudSyncService().deleteBookNote(noteId);
@@ -422,5 +435,10 @@ class BookService {
     final prefs = await SharedPreferences.getInstance();
     final key = '$_notesKeyPrefix$bookId';
     await prefs.remove(key);
+
+    // ✅ 第四轮批 1 新增（老白裁 A）：同步书侧搜索索引（传空列表，清空该书索引）
+    // 依据：方法语义是"清空该书全部笔记"，不清索引会留数据不一致。
+    // 标注：死方法补全，本轮无真机验证路径。
+    await _db.syncBookNotesIndex(bookId, const []);
   }
 }

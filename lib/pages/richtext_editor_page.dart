@@ -13,6 +13,7 @@
 // ✅ T-206：布局避开键盘 overflow（无固定高度子区 + SafeArea）
 // ✅ divider 自定义嵌入：EmbedBuilder（B 部分实测确认）
 // ✅ T-213：initState 解析失败不静默回退——显示错误页，禁保存
+// ✅ 第四轮批 1：AppBar 加 ⭐/❓ 笔记级标记入口（依据 v5 方案 §6.2）
 
 import 'dart:convert';
 
@@ -46,11 +47,17 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
 
   bool _isSaving = false;
 
+  // ✅ 第四轮批 1 新增：笔记级标记（⭐ 重要 / ❓ 待解决）
+  // 依据老白裁定 + v5 方案 §6.2：批 1 只做笔记级标记，blockId=null。
+  // 保存时写回 entry.tags，经 DatabaseService._syncSearchIndexForNote 进 tag_index。
+  late List<String> _currentTags;
+
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.entry.title);
     _titleController.addListener(_onTitleChanged);
+    _currentTags = List<String>.from(widget.entry.tags);
 
     try {
       // 1. 解析 entry.content 为自定义结构
@@ -75,6 +82,18 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
 
   void _onTitleChanged() {
     setState(() {});
+  }
+
+  /// 切换笔记级标记（⭐ 重要 / ❓ 待解决）。
+  /// 第四轮批 1 新增。依据 v5 方案 §6.2。
+  void _toggleTag(String tag) {
+    setState(() {
+      if (_currentTags.contains(tag)) {
+        _currentTags.remove(tag);
+      } else {
+        _currentTags.add(tag);
+      }
+    });
   }
 
   @override
@@ -112,6 +131,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
         title: newTitle.isEmpty ? widget.entry.title : newTitle,
         content: jsonEncode(newStructure),
         updatedAt: DateTime.now(),
+        tags: _currentTags,
       );
       await DatabaseService().updateNote(updated.toMap());
 
@@ -161,6 +181,24 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
         ),
         centerTitle: false,
         actions: [
+          // ✅ 第四轮批 1 新增：笔记级标记 ⭐/❓
+          // 依据 v5 方案 §6.2：批 1 只做笔记级标记，不碰光标映射。
+          IconButton(
+            icon: Icon(
+              _currentTags.contains('重要') ? Icons.star : Icons.star_border,
+              color: _currentTags.contains('重要') ? Colors.amber : null,
+            ),
+            tooltip: '重要',
+            onPressed: _isSaving ? null : () => _toggleTag('重要'),
+          ),
+          IconButton(
+            icon: Icon(
+              _currentTags.contains('待解决') ? Icons.help : Icons.help_outline,
+              color: _currentTags.contains('待解决') ? Colors.orange : null,
+            ),
+            tooltip: '待解决',
+            onPressed: _isSaving ? null : () => _toggleTag('待解决'),
+          ),
           TextButton(
             onPressed: _isSaving ? null : _cancel,
             child: const Text('取消'),

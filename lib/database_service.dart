@@ -1,10 +1,7 @@
 // lib/database_service.dart
 // 数据层 — 统一字段标准：代码层驼峰，数据库层下划线
-// ✅ 数据库版本 14 → 15：新增 5 张线索墙表
-// ✅ 数据库版本 15 → 16：新增 tag_index / search_index 表 + notes.content_format 列
-// ✅ 新增 8 个 CRUD 方法（只走 Map，不 import 模型）
-// ✅ 子笔记嵌套：getAncestors 加防御（防环 + 防孤儿）；deleteNode 分支互斥（folder 级联删 / 笔记上移）
-// ✅ 9a：SearchIndexService 接入，笔记保存 / 删除同步搜索索引
+// ✅ 第四轮批 1：数据库版本 16 → 17（tag_index 加 sourceType，noteId 改名 sourceId）；
+//    _syncSearchIndexForNote 适配；新增 syncBookNotesIndex / searchIndex
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
@@ -244,9 +241,6 @@ class DatabaseService {
     }
   }
 
-  // ✅ 子笔记嵌套：deleteNode 分支互斥
-  //   - folder 节点：级联删整棵子树（用户删文件夹 = 明确删整棵）
-  //   - 笔记节点：子节点上移到祖父，只删本节点（B 方案，不丢数据）
   Future<void> deleteNode(String id) async {
     final maps = await _getAllNodesInternal();
     final allNodes = maps.map((n) => Node.fromMap(n)).toList();
@@ -306,7 +300,6 @@ class DatabaseService {
     await _saveNodes(maps);
   }
 
-  // ✅ 子笔记嵌套：getAncestors 加防御
   Future<List<Node>> getAncestors(String nodeId) async {
     final all = await getAllNodes();
     final nodeMap = {for (var n in all) n.id: n};
@@ -429,7 +422,6 @@ class DatabaseService {
       await db.insert('notes', _prepareNoteForDb(noteMap), conflictAlgorithm: ConflictAlgorithm.replace);
     }
 
-    // ✅ 新增：同步搜索索引
     await _syncSearchIndexForNote(noteMap);
   }
 
@@ -493,8 +485,6 @@ class DatabaseService {
     }
     cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
     cleaned['inquiryConclusion'] = cleaned['inquiryConclusion'] as String?;
-    // 空字符串等同于缺省，一律回退 'markdown'
-    // T-170：类型防御——脏数据（非 String）也回退
     final cfRaw = cleaned['contentFormat'];
     cleaned['contentFormat'] = (cfRaw is String && cfRaw.isNotEmpty)
         ? cfRaw
@@ -605,7 +595,6 @@ class DatabaseService {
       await _saveNotes(notes);
     }
 
-    // ✅ 新增：清搜索索引
     await _clearSearchIndexForNote(id);
   }
 
@@ -614,7 +603,6 @@ class DatabaseService {
     notes.removeWhere((n) => n['id'] == id);
     await _saveNotes(notes);
 
-    // ✅ 新增：清搜索索引
     await _clearSearchIndexForNote(id);
   }
 
@@ -626,7 +614,6 @@ class DatabaseService {
       await _saveNotes(notes);
     }
 
-    // ✅ 新增：同步搜索索引
     await _syncSearchIndexForNote(noteMap);
   }
 
@@ -648,15 +635,7 @@ class DatabaseService {
 
   /// 笔记保存后同步搜索索引。
   ///
-  /// 步骤（先删后写）：
-  ///   1. 删该 noteId 的 note_text 行
-  ///   2. 算 + 写 note_text 行
-  ///   3. 删该 noteId 的 tag_index 行
-  ///   4. 算 + 写 tag_index 行
-  ///   5. 删该 noteId 的 note_tag 行
-  ///   6. 读 tag_index → 算 → 写 note_tag 行
-  ///
-  /// 全部 try-catch 兜底：索引失败记日志，不抛。
+  /// 第四轮批 1 变更：调用方法改名（_deleteTagIndexByNoteId → _deleteTagIndexBySourceId 等）。
   Future<void> _syncSearchIndexForNote(Map<String, dynamic> noteMap) async {
     final noteId = noteMap['id'] as String?;
     if (noteId == null || noteId.isEmpty) return;
@@ -670,7 +649,7 @@ class DatabaseService {
       }
 
       // 步骤 3 + 4：tag_index
-      await _deleteTagIndexByNoteId(noteId);
+      await _deleteTagIndexBySourceId(noteId);
       final format = (noteMap['contentFormat'] as String?) ?? 'markdown';
       final tagRows = SearchIndexService.computeTagRows(noteMap, format);
       for (final row in tagRows) {
@@ -679,7 +658,7 @@ class DatabaseService {
 
       // 步骤 5 + 6：note_tag（从 tag_index 派生）
       await _deleteSearchRowBySourceAndKind('note', noteId, 'note_tag');
-      final readTagRows = await _queryTagIndexByNoteId(noteId);
+      final readTagRows = await _queryTagIndexBySourceId(noteId);
       final searchRows = SearchIndexService.computeSearchRowsFromTagRows(
         noteId,
         readTagRows,
@@ -689,20 +668,52 @@ class DatabaseService {
       }
     } catch (e, st) {
       debugPrint('_syncSearchIndexForNote 失败: $e\n$st');
-      // 本轮不做"索引失败标记重建"。留待后续重建函数轮处理。
+    }
+  }
+
+  /// 书来源（高亮 / 批注）的索引同步。第四轮批 1 新增。
+  ///
+  /// 步骤（先删后写）：
+  ///   1. 删该 bookId 的全部 book 来源 tag_index 行
+  ///   2. 算 + 写 tag_index 行
+  ///   3. 删该 bookId 的 book_highlight / book_annotation 行
+  ///   4. 读 tag_index → 算 → 写 search_index 行
+  Future<void> syncBookNotesIndex(
+    String bookId,
+    List<Map<String, dynamic>> bookNoteMaps,
+  ) async {
+    if (bookId.isEmpty) return;
+
+    try {
+      await _deleteTagIndexBySourceId(bookId);
+
+      final tagRows = SearchIndexService.computeBookTagRows(bookNoteMaps, bookId);
+      for (final row in tagRows) {
+        await _insertTagIndexRow(row);
+      }
+
+      await _deleteSearchRowBySourceAndKind('book', bookId, 'book_highlight');
+      await _deleteSearchRowBySourceAndKind('book', bookId, 'book_annotation');
+
+      final readTagRows = await _queryTagIndexBySourceId(bookId);
+      final searchRows = SearchIndexService.computeSearchRowsFromTagRows(
+        bookId,
+        readTagRows,
+      );
+      for (final row in searchRows) {
+        await _insertSearchRow(row);
+      }
+    } catch (e, st) {
+      debugPrint('syncBookNotesIndex 失败: $e\n$st');
     }
   }
 
   /// 笔记删除后清搜索索引。
-  ///
-  /// 步骤：
-  ///   1. 清 tag_index
-  ///   2. 清 search_index（按 SearchIndexService.computeDeleteScopes()）
   Future<void> _clearSearchIndexForNote(String noteId) async {
     if (noteId.isEmpty) return;
 
     try {
-      await _deleteTagIndexByNoteId(noteId);
+      await _deleteTagIndexBySourceId(noteId);
       for (final scope in SearchIndexService.computeDeleteScopes()) {
         await _deleteSearchRowBySourceAndKind(
           scope.sourceType,
@@ -716,13 +727,57 @@ class DatabaseService {
   }
 
   // ═══════════════════════════════════════════════════════
+  // 统一搜索（第四轮批 1 新增）
+  // ═══════════════════════════════════════════════════════
+
+  /// 统一搜索：查 search_index 表。
+  Future<List<Map<String, dynamic>>> searchIndex(
+    String keyword, {
+    int limit = 50,
+  }) async {
+    final kw = keyword.trim();
+    if (kw.isEmpty) return [];
+
+    if (_isWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_searchIndexDataKey);
+      if (raw == null || raw.isEmpty) return [];
+      final list = jsonDecode(raw) as List;
+      final lower = kw.toLowerCase();
+      final results = list
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((e) {
+            final st = (e['searchText'] as String?)?.toLowerCase() ?? '';
+            final rt = (e['rawText'] as String?)?.toLowerCase() ?? '';
+            return st.contains(lower) || rt.contains(lower);
+          })
+          .toList();
+      results.sort((a, b) {
+        final ca = a['createdAt'] as String? ?? '';
+        final cb = b['createdAt'] as String? ?? '';
+        return cb.compareTo(ca);
+      });
+      return results.take(limit).toList();
+    } else {
+      final db = await _getDatabase();
+      final rows = await db.query(
+        'search_index',
+        where: 'searchText LIKE ? OR rawText LIKE ?',
+        whereArgs: ['%$kw%', '%$kw%'],
+        orderBy: 'createdAt DESC',
+        limit: limit,
+      );
+      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
   // tag_index / search_index 读写辅助
   // ═══════════════════════════════════════════════════════
 
   static const String _tagIndexDataKey = 'tag_index_data';
   static const String _searchIndexDataKey = 'search_index_data';
-
-  // ─── tag_index 辅助 ──────────────────────────────
 
   Future<void> _insertTagIndexRow(Map<String, dynamic> row) async {
     if (_isWeb) {
@@ -739,8 +794,9 @@ class DatabaseService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _queryTagIndexByNoteId(
-      String noteId) async {
+  /// 第四轮批 1 改名：_queryTagIndexByNoteId → _queryTagIndexBySourceId
+  Future<List<Map<String, dynamic>>> _queryTagIndexBySourceId(
+      String sourceId) async {
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_tagIndexDataKey);
@@ -748,18 +804,19 @@ class DatabaseService {
       final List<dynamic> list = jsonDecode(raw) as List;
       return list
           .whereType<Map>()
-          .where((e) => e['noteId'] == noteId)
+          .where((e) => e['sourceId'] == sourceId)
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
     } else {
       final db = await _getDatabase();
       final rows =
-          await db.query('tag_index', where: 'noteId = ?', whereArgs: [noteId]);
+          await db.query('tag_index', where: 'sourceId = ?', whereArgs: [sourceId]);
       return rows.map((r) => Map<String, dynamic>.from(r)).toList();
     }
   }
 
-  Future<void> _deleteTagIndexByNoteId(String noteId) async {
+  /// 第四轮批 1 改名：_deleteTagIndexByNoteId → _deleteTagIndexBySourceId
+  Future<void> _deleteTagIndexBySourceId(String sourceId) async {
     if (_isWeb) {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_tagIndexDataKey);
@@ -768,16 +825,14 @@ class DatabaseService {
       final filtered = list
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
-          .where((e) => e['noteId'] != noteId)
+          .where((e) => e['sourceId'] != sourceId)
           .toList();
       await prefs.setString(_tagIndexDataKey, jsonEncode(filtered));
     } else {
       final db = await _getDatabase();
-      await db.delete('tag_index', where: 'noteId = ?', whereArgs: [noteId]);
+      await db.delete('tag_index', where: 'sourceId = ?', whereArgs: [sourceId]);
     }
   }
-
-  // ─── search_index 辅助 ──────────────────────────
 
   Future<void> _insertSearchRow(Map<String, dynamic> row) async {
     if (_isWeb) {
@@ -1115,7 +1170,8 @@ class DatabaseService {
   Future<Database> _getDatabase() async {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
-    _database = await openDatabase(path, version: 16, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    // ✅ 第四轮批 1：版本 16 → 17
+    _database = await openDatabase(path, version: 17, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1197,7 +1253,6 @@ class DatabaseService {
         ''');
       } catch (_) {}
     }
-    // ✅ 版本 14 → 15：新增 5 张线索墙表
     if (oldVersion < 15) {
       try {
         await db.execute('''
@@ -1234,15 +1289,11 @@ class DatabaseService {
         await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
       } catch (_) {}
     }
-    // ✅ 版本 15 → 16：新增 tag_index / search_index 表 + notes.content_format 列
     if (oldVersion < 16) {
-      // 建两张新表：全部 IF NOT EXISTS，SQL 层幂等，无需 try-catch
       for (final sql in SearchIndexService.getCreateTableSql()) {
         await db.execute(sql);
       }
 
-      // 加 notes.content_format 列：
-      // SQLite 不支持 ADD COLUMN IF NOT EXISTS，用 PRAGMA 检查
       final cols = await db.rawQuery('PRAGMA table_info(notes)');
       final hasContentFormat =
           cols.any((c) => c['name'] == 'content_format');
@@ -1250,6 +1301,48 @@ class DatabaseService {
         await db.execute(
           "ALTER TABLE notes ADD COLUMN content_format TEXT DEFAULT 'markdown'",
         );
+      }
+    }
+    // ✅ 第四轮批 1：版本 16 → 17：tag_index 加 sourceType 列，noteId 改名 sourceId
+    if (oldVersion < 17) {
+      try {
+        final cols = await db.rawQuery('PRAGMA table_info(tag_index)');
+        final hasTable = cols.isNotEmpty;
+        final hasNoteId = cols.any((c) => c['name'] == 'noteId');
+        final hasSourceId = cols.any((c) => c['name'] == 'sourceId');
+
+        if (!hasTable) {
+          for (final sql in SearchIndexService.getCreateTableSql()) {
+            await db.execute(sql);
+          }
+        } else if (hasSourceId) {
+          // 已是新 schema：跳过
+        } else if (hasNoteId) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS tag_index_new(
+              id TEXT PRIMARY KEY,
+              sourceType TEXT NOT NULL DEFAULT 'note',
+              sourceId TEXT NOT NULL,
+              type TEXT NOT NULL,
+              tag TEXT NOT NULL,
+              blockId TEXT,
+              text TEXT,
+              createdAt TEXT NOT NULL
+            )
+          ''');
+          await db.execute('''
+            INSERT INTO tag_index_new (id, sourceType, sourceId, type, tag, blockId, text, createdAt)
+            SELECT id, 'note', noteId, type, tag, blockId, text, createdAt FROM tag_index
+          ''');
+          await db.execute('DROP TABLE tag_index');
+          await db.execute('ALTER TABLE tag_index_new RENAME TO tag_index');
+          await db.execute('DROP INDEX IF EXISTS idx_tag_index_note');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_tag_index_tag ON tag_index(tag)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_tag_index_source ON tag_index(sourceId)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_tag_index_type ON tag_index(type)');
+        }
+      } catch (e) {
+        debugPrint('tag_index 16→17 迁移失败: $e');
       }
     }
   }
@@ -1334,7 +1427,6 @@ class DatabaseService {
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
 
-    // ✅ 新增：建 tag_index / search_index
     for (final sql in SearchIndexService.getCreateTableSql()) {
       await db.execute(sql);
     }
@@ -1385,7 +1477,7 @@ class DatabaseService {
   }
 
   // ═══════════════════════════════════════════════════════
-  // 线索墙 CRUD（8 个，只走 Map，不 import 模型）
+  // 线索墙 CRUD
   // ═══════════════════════════════════════════════════════
 
   Future<Map<String, dynamic>?> getBoardView(String id) async {
