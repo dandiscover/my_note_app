@@ -27,6 +27,10 @@ import '../widgets/stats_card.dart';
 import '../widgets/insight/knowledge_graph.dart';
 import '../widgets/insight/review_card_item.dart';
 import '../widgets/insight/review_stats.dart';
+// ✅ 第四轮批3：标记统计区
+import '../widgets/mark_summary/mark_summary_item.dart';
+import '../widgets/mark_summary/mark_summary_builder.dart';
+import '../widgets/mark_summary/mark_stats_section.dart';
 import '../utils/app_date_utils.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
@@ -75,6 +79,9 @@ class InsightPageState extends State<InsightPage>
   int _reviewIndex = 0;
   bool _isReviewing = false;
 
+  // ✅ 第四轮批3：标记统计 DTO 列表（_loadData 时构造）
+  List<MarkSummaryItem> _markItems = [];
+
   late TabController _tabController;
   final Set<String> _hoveredNodeIds = {};
 
@@ -83,6 +90,8 @@ class InsightPageState extends State<InsightPage>
   static const String _cacheKeyBooks = 'insight_books';
   static const String _cacheKeySettings = 'insight_settings';
   static const String _cacheKeyPet = 'insight_pet';
+  // ✅ 第四轮批3：tag_index 全量行缓存
+  static const String _cacheKeyTagRows = 'insight_tag_rows';
 
   static const String _boardViewId = 'global';
 
@@ -93,6 +102,8 @@ class InsightPageState extends State<InsightPage>
     _cache.invalidate(_cacheKeyBooks);
     _cache.invalidate(_cacheKeySettings);
     _cache.invalidate(_cacheKeyPet);
+    // ✅ 第四轮批3
+    _cache.invalidate(_cacheKeyTagRows);
     await _loadData();
   }
 
@@ -153,12 +164,25 @@ class InsightPageState extends State<InsightPage>
         ttl: const Duration(minutes: 2),
       );
 
+      // ✅ 第四轮批3：加载 tag_index 全量行，走缓存；用 builder 转 DTO
+      final tagRows = await _cache.get<List<Map<String, dynamic>>>(
+        _cacheKeyTagRows,
+        () => _db.getAllTagRows(),
+        ttl: const Duration(seconds: 30),
+      );
+      final markItems = MarkSummaryBuilder.build(
+        tagRows,
+        nodes: nodes,
+        books: books,
+      );
+
       setState(() {
         _allNodes = nodes;
         _allNotes = notes;
         _allBooks = books;
         _userSettings = settings;
         _pet = pet;
+        _markItems = markItems;
         _isLoading = false;
       });
 
@@ -752,6 +776,9 @@ class InsightPageState extends State<InsightPage>
           _buildStatsRow(),
           const SizedBox(height: 8),
           _buildCardStats(),
+          const SizedBox(height: 8),
+          // ✅ 第四轮批3：标记统计（分布 + 趋势）
+          MarkStatsSection(items: _markItems),
           const SizedBox(height: 8),
           _buildPetAndHeatmap(),
           const SizedBox(height: 8),

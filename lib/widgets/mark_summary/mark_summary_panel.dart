@@ -37,13 +37,38 @@ class _MarkSummaryPanelState extends State<MarkSummaryPanel> {
   /// 筛选：'all' / 'custom' / 'highlight' / 'annotation'
   String _filter = 'all';
 
-  List<MarkSummaryItem> get _filtered {
+  /// 标记名筛选。null = 不筛。
+  /// 第四轮批3 新增。
+  String? _selectedTag;
+
+  /// type 筛选后的结果（不含 tag 筛选）。
+  /// tag chip 栏的数据源基于此——避免选 tag 后无结果。
+  List<MarkSummaryItem> get _typeFiltered {
     if (_filter == 'all') return widget.items;
     return widget.items.where((i) => i.type == _filter).toList();
   }
 
+  List<MarkSummaryItem> get _filtered {
+    if (_selectedTag == null) return _typeFiltered;
+    return _typeFiltered.where((i) => i.tag == _selectedTag).toList();
+  }
+
   int _countOf(String type) =>
       widget.items.where((i) => i.type == type).length;
+
+  /// tag 名 + 计数，按 count 降序。
+  /// 数据源：_typeFiltered。
+  List<({String tag, int count})> _tagCounts() {
+    final map = <String, int>{};
+    for (final i in _typeFiltered) {
+      map[i.tag] = (map[i.tag] ?? 0) + 1;
+    }
+    final list = map.entries
+        .map((e) => (tag: e.key, count: e.value))
+        .toList();
+    list.sort((a, b) => b.count.compareTo(a.count));
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +90,8 @@ class _MarkSummaryPanelState extends State<MarkSummaryPanel> {
       children: [
         _buildHeader(),
         _buildFilterBar(),
+        // ✅ 第四轮批3：标记名筛选层（第二批 chips）
+        _buildTagChipBar(),
         const Divider(height: 1),
         Expanded(child: _buildList(byType)),
       ],
@@ -118,11 +145,122 @@ class _MarkSummaryPanelState extends State<MarkSummaryPanel> {
       label: Text('$label ($count)'),
       selected: _filter == value,
       onSelected: (sel) {
-        if (sel) setState(() => _filter = value);
+        if (sel) {
+          setState(() {
+            _filter = value;
+            // ✅ type 切换时重置 tag 筛选——旧 tag 可能不在新 type 集合里。
+            _selectedTag = null;
+          });
+        }
       },
       padding: EdgeInsets.zero,
       visualDensity: VisualDensity.compact,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
+  /// ✅ 第四轮批3：标记名筛选栏。
+  /// 前 8 个 chips + （超 8）「+N 更多」按钮。
+  Widget _buildTagChipBar() {
+    final tagCounts = _tagCounts();
+    if (tagCounts.isEmpty) return const SizedBox.shrink();
+
+    const maxVisible = 8;
+    final visible = tagCounts.take(maxVisible).toList();
+    final overflow = tagCounts.length - maxVisible;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            ...visible.map((e) => Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _tagChip(e.tag, e.count),
+                )),
+            if (overflow > 0)
+              Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: ActionChip(
+                  label: Text('+$overflow 更多'),
+                  onPressed: _showAllTagsSheet,
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tagChip(String tag, int count) {
+    final isSelected = _selectedTag == tag;
+    return ChoiceChip(
+      label: Text('$tag ($count)'),
+      selected: isSelected,
+      onSelected: (sel) {
+        setState(() {
+          // 点已选中的 → 取消筛选
+          _selectedTag = sel ? tag : null;
+        });
+      },
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
+  /// 全量 tag 弹窗。
+  void _showAllTagsSheet() {
+    final tagCounts = _tagCounts();
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                '全部标记',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: tagCounts.length,
+                itemBuilder: (_, i) {
+                  final e = tagCounts[i];
+                  final isSelected = _selectedTag == e.tag;
+                  return ListTile(
+                    dense: true,
+                    selected: isSelected,
+                    title: Text(e.tag, style: const TextStyle(fontSize: 13)),
+                    trailing: Text(
+                      '${e.count}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() => _selectedTag = e.tag);
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 

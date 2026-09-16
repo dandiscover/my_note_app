@@ -43,6 +43,7 @@ import 'writing_page.dart';
 // ✅ 第四轮批 2a：标记汇总面板
 import '../widgets/mark_summary/mark_summary_item.dart';
 import '../widgets/mark_summary/mark_summary_panel.dart';
+import '../widgets/mark_summary/mark_summary_builder.dart';
 import 'epub_reader_page.dart';
 import 'pdf_reader_page.dart';
 
@@ -547,36 +548,12 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     final tagRows = await _db.getAllTagRows();
     if (!mounted) return;
 
-    final items = tagRows.map<MarkSummaryItem>((row) {
-      final sourceType = row['sourceType'] as String? ?? '';
-      final sourceId = row['sourceId'] as String? ?? '';
-
-      String sourceTitle = '';
-      if (sourceType == 'note') {
-        final node = _nodes.firstWhere(
-          (n) => n.nodeType == 'note' && n.targetId == sourceId,
-          orElse: () => Node.empty,
-        );
-        sourceTitle = node.id.isEmpty ? '（笔记已删除）' : node.title;
-      } else if (sourceType == 'book') {
-        final book = _books.firstWhere(
-          (b) => b.id == sourceId,
-          orElse: () => Book.empty,
-        );
-        sourceTitle = book.id.isEmpty ? '（书已删除）' : book.title;
-      }
-
-      return MarkSummaryItem(
-        type: row['type'] as String? ?? 'custom',
-        tag: row['tag'] as String? ?? '',
-        text: (row['text'] as String?) ?? '',
-        sourceType: sourceType,
-        sourceId: sourceId,
-        sourceTitle: sourceTitle,
-        blockId: row['blockId'] as String?,
-        createdAt: row['createdAt'] as String? ?? '',
-      );
-    }).toList();
+    // ✅ 第四轮批3：构造逻辑抽到 MarkSummaryBuilder，与 insight_page 共用。
+    final items = MarkSummaryBuilder.build(
+      tagRows,
+      nodes: _nodes,
+      books: _books,
+    );
 
     await showModalBottomSheet(
       context: context,
