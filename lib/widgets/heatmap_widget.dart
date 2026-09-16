@@ -72,23 +72,40 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
     }
 
     final totalCount = _cachedData.values.fold(0, (sum, v) => sum + v);
-    const cellSize = 12.0;
-    const cellMargin = 1.0;
-    const cellTotal = cellSize + cellMargin * 2;
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildMonthLabels(year, cellTotal),
-          const SizedBox(height: 2),
-          _buildGrid(now, year, cellSize, cellMargin, cellTotal, isWordMode),
-          const SizedBox(height: 2),
-          _buildLegend(isWordMode, totalCount),
-        ],
-      ),
+    // ✅ T-023：LayoutBuilder 按可用高度自适应——缩格子，不缩字号。
+    //   根因：Column 固有 120（月标签 10 + 2 + 网格 98 + 2 + 图例 8），
+    //         实收 86，溢出 34。
+    //   处理：网格行高随约束收缩，cellSize 从 12 降到下限 6；
+    //         字号始终 5px，不缩放。
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 固定子项高度：月标签 10 + 2 + 2 + 图例 8 = 22
+        const fixedHeight = 22.0;
+        // 网格可用高度：上限 98 = 7 行 ×（cellSize 12 + 2×margin 1）
+        final gridAvail = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight - fixedHeight).clamp(0.0, 98.0)
+            : 98.0;
+        final rowAvail = gridAvail / 7.0;
+        const cellMargin = 1.0;
+        final cellSize = (rowAvail - cellMargin * 2).clamp(6.0, 12.0);
+        final cellTotal = cellSize + cellMargin * 2;
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildMonthLabels(year, cellTotal),
+              const SizedBox(height: 2),
+              _buildGrid(now, year, cellSize, cellMargin, cellTotal, isWordMode),
+              const SizedBox(height: 2),
+              _buildLegend(isWordMode, totalCount),
+            ],
+          ),
+        );
+      },
     );
   }
 

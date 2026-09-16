@@ -213,23 +213,28 @@ class _ClueBoardState extends State<ClueBoard> {
   }
 
   Future<void> _flushToDbWith(String viewId, Set<String> validCardIds) async {
-    final validNodes = _nodes.where((n) {
-      if (n.type == 'card' && n.data is CardModel) {
-        return validCardIds.contains((n.data as CardModel).id);
-      }
-      return true;
-    }).toList();
+    // ✅ T-007：写库全链路 try-catch 兜底，避免 dispose 场景异常静默丢失。
+    try {
+      final validNodes = _nodes.where((n) {
+        if (n.type == 'card' && n.data is CardModel) {
+          return validCardIds.contains((n.data as CardModel).id);
+        }
+        return true;
+      }).toList();
 
-    final cardNodes = validNodes.where((n) => n.type == 'card').toList();
-    final textNodes = validNodes.where((n) => n.type == 'text').toList();
-    final validNodeIds = validNodes.map((n) => n.id).toSet();
-    final validEdges = _edges
-        .where((e) => validNodeIds.contains(e.sourceId) && validNodeIds.contains(e.targetId))
-        .toList();
+      final cardNodes = validNodes.where((n) => n.type == 'card').toList();
+      final textNodes = validNodes.where((n) => n.type == 'text').toList();
+      final validNodeIds = validNodes.map((n) => n.id).toSet();
+      final validEdges = _edges
+          .where((e) => validNodeIds.contains(e.sourceId) && validNodeIds.contains(e.targetId))
+          .toList();
 
-    await _db.replaceBoardNodes(viewId, cardNodes.map((n) => _nodeToMap(n, viewId)).toList());
-    await _db.replaceBoardEdges(viewId, validEdges.map((e) => _edgeToMap(e, viewId)).toList());
-    await _db.replaceBoardTexts(viewId, textNodes.map((n) => _nodeToMap(n, viewId)).toList());
+      await _db.replaceBoardNodes(viewId, cardNodes.map((n) => _nodeToMap(n, viewId)).toList());
+      await _db.replaceBoardEdges(viewId, validEdges.map((e) => _edgeToMap(e, viewId)).toList());
+      await _db.replaceBoardTexts(viewId, textNodes.map((n) => _nodeToMap(n, viewId)).toList());
+    } catch (e, st) {
+      debugPrint('ClueBoard _flushToDbWith 失败: $e\n$st');
+    }
   }
 
   Map<String, dynamic> _nodeToMap(ClueNode n, String viewId) {
@@ -264,7 +269,12 @@ class _ClueBoardState extends State<ClueBoard> {
     _saveDebounce?.cancel();
     final viewId = widget.viewId;
     final validCardIds = widget.cards.map((c) => c.id).toSet();
-    _flushToDbWith(viewId, validCardIds);
+    // ✅ T-007：dispose 无法 await 异步；触发写入并兜底异常。
+    //   注：本方法内已被 try-catch 覆盖，此处再挂 catchError 是双保险
+    //   （将来有人重构 _flushToDbWith 去掉 try-catch，这层能兜）。
+    _flushToDbWith(viewId, validCardIds).catchError((Object e, StackTrace st) {
+      debugPrint('ClueBoard dispose flush 失败: $e\n$st');
+    });
     super.dispose();
   }
 
