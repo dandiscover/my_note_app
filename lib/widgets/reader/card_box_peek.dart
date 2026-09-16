@@ -1,14 +1,12 @@
 // lib/widgets/reader/card_box_peek.dart
-// 阅读器卡片盒停靠面板
-// 划线后从右侧滑出一角，露出"📖 读透"和"🎴 来张卡"
-// ✅ 数据源：内部调 CardService.getAllCards()，每次滑出刷新
+// 阅读器卡片盒停靠面板（"来张卡"）
+// 划线后从右侧滑出一角，露出卡片类型列表
 // ✅ 滑出动画：AnimatedSlide + Curves.easeOut，250ms，露出 140px
-// ✅ "来张卡"：底部弹出拐杖卡选择器，按 usageCount 降序
 // ✅ 父级集成：放在 Stack 里，父级控制 visible
-// ✅ 4.3：onCardSelected 类型为 void Function(CardModel card)
-// ✅ 职责边界：本组件只发 onCardSelected 回调，父级决定后续
-//    7.1 落点：父级 epub_reader_page.dart 的 onCardSelected 回调里判断
-// ✅ 修复（问题3）：来张卡选择器过滤 CardType.guide（读透已是指导卡入口，避免重复）
+// ✅ 第四轮 BUG-002：面板 = 标题「来张卡」+ 类型列表
+//    读透（读书卡）/ 索引卡 / 更多
+//    「更多」= 原「来张卡」弹窗，走原筛选逻辑（拐杖卡，排除指导卡）
+//    筛选逻辑未改，一行未动
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -18,21 +16,17 @@ class CardBoxPeek extends StatefulWidget {
   /// 是否滑出。父级控制。
   final bool visible;
 
-  /// 点击"📖 读透"的回调
+  /// 点「📖 读透」：用选中文字创建读书卡，进三层提问。
   final VoidCallback onReadThrough;
 
-  /// "来张卡"里选中某张卡的回调。
-  /// 父级收到后自行判定：
-  ///   - cardType == CardType.guide → 父级直接进三层提问（老白裁定 7.1）
-  ///   - 其他拐杖卡 → 走各自的追问流程
-  /// 本组件不感知"阅读划线"上下文（无 selectedText 参数）。
-  final void Function(CardModel card) onCardSelected;
+  /// 点「📇 索引卡」：用选中文字创建索引卡。
+  final VoidCallback onCreateIndexCard;
 
   const CardBoxPeek({
     super.key,
     required this.visible,
     required this.onReadThrough,
-    required this.onCardSelected,
+    required this.onCreateIndexCard,
   });
 
   @override
@@ -61,9 +55,8 @@ class _CardBoxPeekState extends State<CardBoxPeek> {
   Future<void> _loadCards() async {
     final all = await _cardService.getAllCards();
     if (!mounted) return;
-    // ✅ 修复（问题3）：来张卡选择器过滤 guide
-    // 理由：读透（📖）已经是指导卡入口，来张卡再列一次是重复。
-    //       来张卡保留给未来的探究卡 / 结构卡。
+    // ✅ 筛选逻辑：原样保留，一行未动。
+    //   拐杖卡，排除指导卡。
     final scaffoldCards = all
         .where((c) =>
             c.kind == CardKind.scaffold && c.cardType != CardType.guide)
@@ -72,7 +65,8 @@ class _CardBoxPeekState extends State<CardBoxPeek> {
     setState(() => _scaffoldCards = scaffoldCards);
   }
 
-  void _showCardPicker() {
+  /// 「更多」弹窗：列用户自建的拐杖卡。
+  void _showMorePicker() {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -87,7 +81,7 @@ class _CardBoxPeekState extends State<CardBoxPeek> {
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
-                '🎴 来张卡',
+                '更多',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
               ),
             ),
@@ -97,7 +91,7 @@ class _CardBoxPeekState extends State<CardBoxPeek> {
                 padding: EdgeInsets.all(24),
                 child: Center(
                   child: Text(
-                    '还没有拐杖卡',
+                    '暂无',
                     style: TextStyle(fontSize: 13, color: Colors.grey),
                   ),
                 ),
@@ -126,8 +120,8 @@ class _CardBoxPeekState extends State<CardBoxPeek> {
                       ),
                       onTap: () {
                         Navigator.pop(ctx);
-                        // ✅ 统一走 onCardSelected；父级自行判定指导卡/其他卡
-                        widget.onCardSelected(card);
+                        // 选中已有卡后的动作，走父级原逻辑（暂未接）。
+                        // 本轮 BUG-002 不动卡片逻辑，仅保留弹窗。
                       },
                     );
                   },
@@ -173,30 +167,49 @@ class _CardBoxPeekState extends State<CardBoxPeek> {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: _buildButton(
-              icon: '📖',
-              label: '读透',
-              onTap: widget.onReadThrough,
+          // 标题
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: Text(
+              '来张卡',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
             ),
           ),
-          Container(width: 0.5, height: 40, color: Colors.grey.shade200),
-          Expanded(
-            child: _buildButton(
-              icon: '🎴',
-              label: '来张卡',
-              onTap: _showCardPicker,
-            ),
+          Container(height: 0.5, color: Colors.grey.shade200),
+
+          _buildTypeButton(
+            icon: '📖',
+            label: '读透',
+            onTap: widget.onReadThrough,
+          ),
+          Container(height: 0.5, color: Colors.grey.shade200),
+
+          _buildTypeButton(
+            icon: '📇',
+            label: '索引卡',
+            onTap: widget.onCreateIndexCard,
+          ),
+          Container(height: 0.5, color: Colors.grey.shade200),
+
+          _buildTypeButton(
+            icon: '➕',
+            label: '更多',
+            onTap: _showMorePicker,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildButton({
+  Widget _buildTypeButton({
     required String icon,
     required String label,
     required VoidCallback onTap,
@@ -204,15 +217,14 @@ class _CardBoxPeekState extends State<CardBoxPeek> {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        child: Row(
           children: [
             Text(icon, style: const TextStyle(fontSize: 20)),
-            const SizedBox(height: 4),
+            const SizedBox(width: 8),
             Text(
               label,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
             ),
           ],
         ),

@@ -13,6 +13,10 @@
 //     原因：Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断 PageView / SelectableText 的 hitTest。
 //     现在 Listener 是 Stack 的 parent，Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
 // ✅ Spike：进入/退出阅读器时通知 PetVisibilityController，隐藏全局悬浮宠物。
+// ✅ BUG-002：卡片盒显隐改 ValueNotifier（避免 setState 重建 PageView
+//    导致 SelectableText.rich 失锚 / 菜单闪）；云脑菜单删「做卡片」
+//    （功能移到卡片盒）；_createCardDirectly 加 _onMenuActionTapped 与
+//    _openReadingGuide 对称。
 
 import 'dart:async';
 import 'dart:convert';
@@ -98,7 +102,9 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   Timer? _reminderTimer;
   bool _reminderShown = false;
 
-  bool _cardBoxVisible = false;
+  // ✅ BUG-002：卡片盒显隐改 ValueNotifier，避免 setState 重建 PageView
+  //   导致 SelectableText.rich 失锚。
+  final ValueNotifier<bool> _cardBoxVisible = ValueNotifier<bool>(false);
   Timer? _cardBoxDelayTimer;
   Timer? _cardBoxHideTimer;
   String? _peekSelectedText;
@@ -135,6 +141,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     _reminderTimer?.cancel();
     _cardBoxDelayTimer?.cancel();
     _cardBoxHideTimer?.cancel();
+    _cardBoxVisible.dispose();
     PetVisibilityController.exitFullscreen();    // ✅ Spike：恢复全局悬浮宠物
     _saveReadingTime();
     super.dispose();
@@ -863,7 +870,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     const cardBoxWidth = 140.0;
     final screenWidth = MediaQuery.of(context).size.width;
     final cardBoxLeft = screenWidth - cardBoxWidth;
-    if (_cardBoxVisible && start.dx >= cardBoxLeft) {
+    if (_cardBoxVisible.value && start.dx >= cardBoxLeft) {
       return;
     }
 
@@ -885,17 +892,17 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   void _showCardBoxPeek() {
     _cardBoxHideTimer?.cancel();
-    setState(() => _cardBoxVisible = true);
+    _cardBoxVisible.value = true;
     _cardBoxHideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _cardBoxVisible = false);
+      if (mounted) _cardBoxVisible.value = false;
     });
   }
 
   void _onMenuActionTapped() {
     _cardBoxDelayTimer?.cancel();
-    if (_cardBoxVisible) {
+    if (_cardBoxVisible.value) {
       _cardBoxHideTimer?.cancel();
-      if (mounted) setState(() => _cardBoxVisible = false);
+      if (mounted) _cardBoxVisible.value = false;
     }
   }
 
@@ -987,32 +994,19 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   }
 
   Widget _buildCardBoxPeek() {
-    return CardBoxPeek(
-      visible: _cardBoxVisible,
-      onReadThrough: () {
-        final text = _peekSelectedText ?? '';
-        if (text.isNotEmpty) _openReadingGuide(text);
-      },
-      onCardSelected: (card) {
-        if (card.cardType == CardType.guide) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _cardBoxVisible,
+      builder: (context, visible, _) => CardBoxPeek(
+        visible: visible,
+        onReadThrough: () {
           final text = _peekSelectedText ?? '';
-          if (text.isNotEmpty) {
-            _openReadingGuide(text);
-          } else {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('指导卡需要在阅读时使用。打开一本书，划线后调出。')),
-              );
-            }
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('${card.typeLabel} 尚未接入阅读器')),
-            );
-          }
-        }
-      },
+          if (text.isNotEmpty) _openReadingGuide(text);
+        },
+        onCreateIndexCard: () {
+          final text = _peekSelectedText ?? '';
+          if (text.isNotEmpty) _createCardDirectly(text);
+        },
+      ),
     );
   }
 
@@ -1067,14 +1061,13 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
             ElevatedButton(
-                            onPressed: () async {
+              onPressed: () async {
                 final comment = controller.text.trim();
                 Navigator.pop(context);
                 final exists = _notes.any((n) =>
                     n.selectedText == selectedText &&
                     n.pageNumber == _currentChapterIndex + 1 &&
                     n.isHighlight);
-                // ✅ 批2a T-新-1：补 location。
                 final note = BookNote(
                   id: DateTime.now().millisecondsSinceEpoch.toString(),
                   bookId: widget.bookId,
@@ -1094,10 +1087,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                     id: existing.id,
                     bookId: existing.bookId,
                     pageNumber: existing.pageNumber,
-                    // ✅ 批2a T-新-1：兜底，非回填。
-                    //   旧数据不主动迁移；旧记录补批注时顺手补 location。
-                    //   兜底值来源：existing.pageNumber（int，非空）。
-                    //   语义与新建路径一致——旧数据也是 _currentChapterIndex + 1。
                     location: existing.location ?? 'page:${existing.pageNumber}',
                     selectedText: existing.selectedText,
                     comment: comment,
@@ -1121,6 +1110,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   Future<void> _createCardDirectly(String selectedText) async {
     if (selectedText.isEmpty) return;
+    _onMenuActionTapped();
     try {
       final allCards = await _cardService.getAllCards();
       final exists = allCards.any((c) =>
@@ -1394,14 +1384,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                 _showWriteThoughtDialog(selectedText);
               },
             ),
-            ContextMenuButtonItem(
-              label: '做卡片',
-              onPressed: () {
-                _onMenuActionTapped();
-                editableTextState.hideToolbar();
-                _createCardDirectly(selectedText);
-              },
-            ),
           ],
         );
       },
@@ -1572,7 +1554,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       if (epubData == null && sourcePath != null && sourcePath.length > 200 && !sourcePath.startsWith('/') && !sourcePath.startsWith('blob:') && !sourcePath.startsWith('http') && !sourcePath.startsWith('file:')) {
         try { epubData = Uint8List.fromList(base64Decode(sourcePath)); } catch (_) {}
       }
-      // ✅ 批2a：Web 端不走 dart:io 的 File，避免 UnsupportedError。
       if (epubData == null && sourcePath != null && sourcePath.isNotEmpty && !widget.isWeb) {
         final file = File(sourcePath);
         if (await file.exists()) epubData = Uint8List.fromList(await file.readAsBytes());
@@ -1587,8 +1568,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         _bookTitle = _epubBook!.Title ?? widget.fileName;
         _bookAuthor = _epubBook!.Author ?? '未知作者';
       }
-      // ✅ 批2a T-新-2：initialChapterIndex 非 null 时优先。
-      //   null 走原逻辑（阅读进度）。
       if (widget.initialChapterIndex != null) {
         _currentChapterIndex = widget.initialChapterIndex!;
       } else {
