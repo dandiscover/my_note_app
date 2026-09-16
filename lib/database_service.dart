@@ -773,6 +773,39 @@ class DatabaseService {
   }
 
   // ═══════════════════════════════════════════════════════
+  // 读全量 tag_index（第四轮批 2a 新增）
+  // ═══════════════════════════════════════════════════════
+
+  /// 读全量 tag_index，按 createdAt DESC 排序。
+  ///
+  /// 供摘要面板用——面板需要跨书 / 跨笔记的所有标记。
+  /// 现有 _queryTagIndexBySourceId 只按 sourceId 查，不够用。
+  ///
+  /// 第四轮批 2a 新增。方案 v3 §2.1。
+  Future<List<Map<String, dynamic>>> getAllTagRows() async {
+    if (_isWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_tagIndexDataKey);
+      if (raw == null || raw.isEmpty) return [];
+      final list = jsonDecode(raw) as List;
+      final rows = list
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      rows.sort((a, b) {
+        final ca = a['createdAt'] as String? ?? '';
+        final cb = b['createdAt'] as String? ?? '';
+        return cb.compareTo(ca);
+      });
+      return rows;
+    } else {
+      final db = await _getDatabase();
+      final rows = await db.query('tag_index', orderBy: 'createdAt DESC');
+      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
   // tag_index / search_index 读写辅助
   // ═══════════════════════════════════════════════════════
 

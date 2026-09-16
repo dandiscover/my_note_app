@@ -42,6 +42,10 @@ class EpubReaderPage extends StatefulWidget {
   final String? fileUrl;
   final bool isWeb;
   final String fileName;
+  // ✅ 批2a T-新-2：初始章节 index。
+  //   null = 不定位，用 Book.readingProgress（现状不变）
+  //   非 null = 定位到该章节（0 是有效值，表示第一页）
+  final int? initialChapterIndex;
 
   const EpubReaderPage({
     super.key,
@@ -50,6 +54,7 @@ class EpubReaderPage extends StatefulWidget {
     this.fileUrl,
     this.isWeb = false,
     this.fileName = '文档',
+    this.initialChapterIndex,
   });
 
   @override
@@ -1023,6 +1028,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bookId: widget.bookId,
       pageNumber: _currentChapterIndex + 1,
+      location: 'page:${_currentChapterIndex + 1}',
       selectedText: selectedText,
       comment: '',
       color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
@@ -1061,17 +1067,19 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
             ElevatedButton(
-              onPressed: () async {
+                            onPressed: () async {
                 final comment = controller.text.trim();
                 Navigator.pop(context);
                 final exists = _notes.any((n) =>
                     n.selectedText == selectedText &&
                     n.pageNumber == _currentChapterIndex + 1 &&
                     n.isHighlight);
+                // ✅ 批2a T-新-1：补 location。
                 final note = BookNote(
                   id: DateTime.now().millisecondsSinceEpoch.toString(),
                   bookId: widget.bookId,
                   pageNumber: _currentChapterIndex + 1,
+                  location: 'page:${_currentChapterIndex + 1}',
                   selectedText: selectedText,
                   comment: comment,
                   color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
@@ -1086,6 +1094,11 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                     id: existing.id,
                     bookId: existing.bookId,
                     pageNumber: existing.pageNumber,
+                    // ✅ 批2a T-新-1：兜底，非回填。
+                    //   旧数据不主动迁移；旧记录补批注时顺手补 location。
+                    //   兜底值来源：existing.pageNumber（int，非空）。
+                    //   语义与新建路径一致——旧数据也是 _currentChapterIndex + 1。
+                    location: existing.location ?? 'page:${existing.pageNumber}',
                     selectedText: existing.selectedText,
                     comment: comment,
                     color: existing.color,
@@ -1436,6 +1449,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bookId: widget.bookId,
       pageNumber: _currentChapterIndex + 1,
+      location: 'page:${_currentChapterIndex + 1}',
       selectedText: _selectedText ?? text,
       comment: _selectedText != null ? text : '',
       color: '#FFD93D',
@@ -1558,7 +1572,8 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       if (epubData == null && sourcePath != null && sourcePath.length > 200 && !sourcePath.startsWith('/') && !sourcePath.startsWith('blob:') && !sourcePath.startsWith('http') && !sourcePath.startsWith('file:')) {
         try { epubData = Uint8List.fromList(base64Decode(sourcePath)); } catch (_) {}
       }
-      if (epubData == null && sourcePath != null && sourcePath.isNotEmpty) {
+      // ✅ 批2a：Web 端不走 dart:io 的 File，避免 UnsupportedError。
+      if (epubData == null && sourcePath != null && sourcePath.isNotEmpty && !widget.isWeb) {
         final file = File(sourcePath);
         if (await file.exists()) epubData = Uint8List.fromList(await file.readAsBytes());
       }
@@ -1572,7 +1587,13 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         _bookTitle = _epubBook!.Title ?? widget.fileName;
         _bookAuthor = _epubBook!.Author ?? '未知作者';
       }
-      _currentChapterIndex = _book?.readingProgress ?? 0;
+      // ✅ 批2a T-新-2：initialChapterIndex 非 null 时优先。
+      //   null 走原逻辑（阅读进度）。
+      if (widget.initialChapterIndex != null) {
+        _currentChapterIndex = widget.initialChapterIndex!;
+      } else {
+        _currentChapterIndex = _book?.readingProgress ?? 0;
+      }
       if (_currentChapterIndex >= (_chapters?.length ?? 0)) _currentChapterIndex = 0;
       await _loadChapterContent(_currentChapterIndex);
       setState(() => _isLoading = false);

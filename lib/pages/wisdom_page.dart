@@ -18,6 +18,7 @@
 import 'dart:convert';
 import 'richtext_editor_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
@@ -39,6 +40,11 @@ import '../widgets/wisdom/wisdom_search_bar.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
 import 'writing_page.dart';
+// ✅ 第四轮批 2a：标记汇总面板
+import '../widgets/mark_summary/mark_summary_item.dart';
+import '../widgets/mark_summary/mark_summary_panel.dart';
+import 'epub_reader_page.dart';
+import 'pdf_reader_page.dart';
 
 enum WisdomViewMode { list, grid, large, split }
 
@@ -536,6 +542,120 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
   }
 
+  // ✅ 第四轮批 2a：打开标记汇总面板。
+  Future<void> _openMarkSummary() async {
+    final tagRows = await _db.getAllTagRows();
+    if (!mounted) return;
+
+    final items = tagRows.map<MarkSummaryItem>((row) {
+      final sourceType = row['sourceType'] as String? ?? '';
+      final sourceId = row['sourceId'] as String? ?? '';
+
+      String sourceTitle = '';
+      if (sourceType == 'note') {
+        final node = _nodes.firstWhere(
+          (n) => n.nodeType == 'note' && n.targetId == sourceId,
+          orElse: () => Node.empty,
+        );
+        sourceTitle = node.id.isEmpty ? '（笔记已删除）' : node.title;
+      } else if (sourceType == 'book') {
+        final book = _books.firstWhere(
+          (b) => b.id == sourceId,
+          orElse: () => Book.empty,
+        );
+        sourceTitle = book.id.isEmpty ? '（书已删除）' : book.title;
+      }
+
+      return MarkSummaryItem(
+        type: row['type'] as String? ?? 'custom',
+        tag: row['tag'] as String? ?? '',
+        text: (row['text'] as String?) ?? '',
+        sourceType: sourceType,
+        sourceId: sourceId,
+        sourceTitle: sourceTitle,
+        blockId: row['blockId'] as String?,
+        createdAt: row['createdAt'] as String? ?? '',
+      );
+    }).toList();
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (_, scrollController) => MarkSummaryPanel(
+          items: items,
+          onTap: _onMarkSummaryTap,
+          scrollController: scrollController,
+        ),
+      ),
+    );
+  }
+
+  /// ✅ 第四轮批 2a：标记汇总点击跳转。
+  Future<void> _onMarkSummaryTap(MarkSummaryItem item) async {
+    Navigator.pop(context); // 关面板
+
+    if (item.sourceType == 'note') {
+      final node = _nodes.firstWhere(
+        (n) => n.nodeType == 'note' && n.targetId == item.sourceId,
+        orElse: () => Node.empty,
+      );
+      if (node.id.isEmpty) return;
+      await _openNode(node);
+      return;
+    }
+
+    if (item.sourceType == 'book') {
+      final book = _books.firstWhere(
+        (b) => b.id == item.sourceId,
+        orElse: () => Book.empty,
+      );
+      if (book.id.isEmpty) return;
+
+      if (book.fileType == 'epub') {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => EpubReaderPage(
+              bookId: item.sourceId,
+              fileUrl: kIsWeb ? book.filePath : null,
+              isWeb: kIsWeb,
+              initialChapterIndex: item.chapterIndex,
+            ),
+          ),
+        );
+        _cache.invalidate(_cacheKeyBooks);
+        await _loadData();
+      } else {
+        // PDF / 其他：批2a 只打开书，不定位（老白裁甲）
+        if (kIsWeb) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Web 端暂不支持 PDF 阅读')),
+            );
+          }
+          return;
+        }
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PdfReaderPage(
+              filePath: book.filePath,
+              fileName: book.title,
+              bookId: book.id,
+            ),
+          ),
+        );
+        _cache.invalidate(_cacheKeyBooks);
+        await _loadData();
+      }
+    }
+  }
+
   // ─── 图书筛选栏 ──────────────────────────────────
 
   Widget _buildBookFilterBar() {
@@ -621,6 +741,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       leading: _isCardBoxView ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => _navigateToFolder(null), tooltip: '返回智库') : null,
       actions: [
         IconButton(icon: const Icon(Icons.search), onPressed: _toggleSearch, tooltip: '搜索'),
+        // ✅ 第四轮批 2a：标记汇总入口
+        IconButton(icon: const Icon(Icons.bookmarks_outlined), onPressed: _openMarkSummary, tooltip: '标记汇总'),
         IconButton(icon: const Icon(Icons.bubble_chart, color: Colors.teal), onPressed: _openClueBoard, tooltip: '🧩 线索墙'),
       ],
     );
