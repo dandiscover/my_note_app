@@ -47,3 +47,6 @@ app.*.map.json
 *.zip
 .env
 list.txt
+build_web.txt
+
+analyze_full.txt
