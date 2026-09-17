@@ -46,6 +46,10 @@ import '../widgets/mark_summary/mark_summary_panel.dart';
 import '../widgets/mark_summary/mark_summary_builder.dart';
 import 'epub_reader_page.dart';
 import 'pdf_reader_page.dart';
+// ✅ 第五轮：EPUB 导出
+import '../services/epub_export/epub_exporter.dart';
+import '../services/epub_export/epub_platform_saver.dart';
+import '../widgets/wisdom/epub_reorder_dialog.dart';
 
 enum WisdomViewMode { list, grid, large, split }
 
@@ -526,6 +530,139 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
   }
 
+  /// 批量导出 EPUB（第五轮）
+  ///
+  /// 流程（老白裁甲：先选模式）：
+  ///   1. _selectedIds（node.id 集合）→ 取 node.nodeType == 'note'
+  ///   2. node.targetId 找到 note.id → 从 _notes 取 NotebookEntry
+  ///   3. 弹「合并 / 分别」选择
+  ///   4a. 若「合并」→ 弹 EpubReorderDialog（标题 + 拖拽排序）→ exportBook
+  ///   4b. 若「分别」→ 直接 exportSeparate（跳过设置对话框）
+  ///   5. EpubPlatformSaver.save / saveMany
+  Future<void> _batchExport() async {
+    if (_selectedIds.isEmpty) return;
+
+    // 1. 过滤出笔记类型节点
+    final noteNodes = _nodes.where(
+      (n) => _selectedIds.contains(n.id) && n.nodeType == 'note',
+    ).toList();
+
+    if (noteNodes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('只能导出笔记（当前选中无笔记）')),
+      );
+      return;
+    }
+
+    // 2. node.targetId → note.id → NotebookEntry
+    final entries = <NotebookEntry>[];
+    for (final node in noteNodes) {
+      final noteId = node.targetId;
+      if (noteId == null) continue;
+      final found = _notes.where((n) => n.id == noteId).toList();
+      if (found.isEmpty) continue;
+      entries.add(found.first);
+    }
+
+    if (entries.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未找到可导出的笔记')),
+      );
+      return;
+    }
+
+    // 3. 先选模式：合并 / 分别（老白裁甲）
+    final mode = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('导出方式'),
+        content: const Text('合并成一本，还是分别导出？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('分别导出'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('合并成一本'),
+          ),
+        ],
+      ),
+    );
+    if (mode == null) return;
+
+    try {
+      if (mode == true) {
+        // 4a. 合并：弹设置对话框（标题 + 拖拽排序）
+        final now = DateTime.now();
+        final defaultTitle =
+            '合并导出 ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+        final settings = await showDialog<EpubExportSettings>(
+          context: context,
+          builder: (_) => EpubReorderDialog(
+            items: entries
+                .map((e) => EpubReorderItem(id: e.id, title: e.title))
+                .toList(),
+            defaultTitle: defaultTitle,
+          ),
+        );
+        if (settings == null) return;
+
+        // 按 settings.items 顺序重排
+        final idToEntry = {for (final e in entries) e.id: e};
+        final ordered = settings.items
+            .map((item) => idToEntry[item.id])
+            .whereType<NotebookEntry>()
+            .toList();
+
+        if (ordered.isEmpty) return;
+
+        final book = EpubExporter.exportBook(ordered);
+        await EpubPlatformSaver.save(book.bytes, book.suggestedFilename);
+
+        if (!mounted) return;
+        final skipMsg = book.skippedCount > 0
+            ? '（${book.skippedCount} 篇跳过）'
+            : '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ 已导出：${book.title}$skipMsg')),
+        );
+      } else {
+        // 4b. 分别：跳过设置对话框，直接导出
+        final results = EpubExporter.exportSeparate(entries);
+        final successes = results.where((r) => r.success).toList();
+        await EpubPlatformSaver.saveMany(
+          successes
+              .map((r) => (bytes: r.bytes!, filename: r.filename))
+              .toList(),
+        );
+
+        if (!mounted) return;
+        final ok = successes.length;
+        final fail = results.length - ok;
+        final msg = fail > 0 ? '已导出 $ok 本，$fail 本失败' : '已导出 $ok 本';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ $msg')),
+        );
+      }
+
+      // 导出后退出选择模式
+      setState(() {
+        _isSelectMode = false;
+        _selectedIds.clear();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('导出失败: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _openNode(Node node) async {
     if (node.isFolder) { _navigateToFolder(node.id); return; }
     if (node.nodeType == 'note') {
@@ -748,6 +885,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             selectedCount: _selectedIds.length,
             onBatchDelete: _batchDelete,
             onBatchMove: _batchMove,
+            onBatchExport: _batchExport,
           ),
           if (_isLibraryFolder) _buildBookFilterBar(),
         ],
@@ -1488,7 +1626,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         AnimatedOpacity(
           opacity: _fabExpanded ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 200),
-                    child: Visibility(
+          child: Visibility(
             visible: _fabExpanded,
             child: Column(
               mainAxisSize: MainAxisSize.min,

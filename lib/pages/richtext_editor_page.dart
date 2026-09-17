@@ -22,6 +22,8 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 import '../database_service.dart';
 import '../models/note.dart';
+import '../services/epub_export/epub_exporter.dart';
+import '../services/epub_export/epub_platform_saver.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
 
@@ -156,6 +158,64 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     }
   }
 
+  /// 导出当前笔记为 EPUB（单篇）
+  ///
+  /// 流程：编辑器内容 → 静默保存 → EpubExporter.exportBook([entry]) → 平台保存
+  Future<void> _exportEpub() async {
+    final controller = _quillController;
+    final memo = _memo;
+    if (controller == null || memo == null) return;
+    if (_isSaving) return;
+
+    setState(() => _isSaving = true);
+    try {
+      // 1. 从编辑器取当前 Delta
+      final delta = controller.document.toDelta().toJson();
+
+      // 2. Delta → 结构
+      final newStructure = RichtextAdapter.deltaToStructure(
+        delta.cast<Map<String, dynamic>>(),
+        memo: memo,
+      );
+
+      // 3. 构造新 entry
+      final newTitle = _titleController.text.trim();
+      final updated = widget.entry.copyWith(
+        title: newTitle.isEmpty ? widget.entry.title : newTitle,
+        content: jsonEncode(newStructure),
+        updatedAt: DateTime.now(),
+        tags: _currentTags,
+      );
+
+      // 4. 静默保存到数据库（老白裁定：导出触发一次保存）
+      await DatabaseService().updateNote(updated.toMap());
+
+      // 5. 导出
+      final book = EpubExporter.exportBook([updated]);
+
+      // 6. 平台特定保存（抽出的公共 service）
+      await EpubPlatformSaver.save(book.bytes, book.suggestedFilename);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ 已导出：${book.title}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('导出失败: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
   void _cancel() {
     Navigator.pop(context, false);
   }
@@ -215,6 +275,11 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
                 : const Text('保存'),
           ),
           const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: '导出 EPUB',
+            onPressed: _isSaving ? null : _exportEpub,
+          ),
         ],
       ),
       body: SafeArea(

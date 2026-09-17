@@ -12,6 +12,7 @@ class WisdomToolbar extends StatelessWidget {
   final int selectedCount;
   final VoidCallback onBatchDelete;
   final VoidCallback onBatchMove;
+  final VoidCallback onBatchExport;
 
   const WisdomToolbar({
     super.key,
@@ -22,6 +23,7 @@ class WisdomToolbar extends StatelessWidget {
     required this.selectedCount,
     required this.onBatchDelete,
     required this.onBatchMove,
+    required this.onBatchExport,
   });
 
   @override
@@ -55,6 +57,11 @@ class WisdomToolbar extends StatelessWidget {
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.ios_share, size: 20),
+                  onPressed: selectedCount > 0 ? onBatchExport : null,
+                  tooltip: '导出 EPUB',
+                ),
                 IconButton(
                   icon: const Icon(Icons.drive_file_move_outlined, size: 20),
                   onPressed: selectedCount > 0 ? onBatchMove : null,

@@ -64,6 +64,10 @@ dependencies:
   mobile_scanner: ^7.4.0
   pdfrx: ^2.6.1
 
+  # ✅ 第五轮新增：EPUB 导出
+  archive: ^3.3.0
+  xml: ^5.0.0
+
 
   # ✅ PDF Spike 验证所需
 dev_dependencies:
