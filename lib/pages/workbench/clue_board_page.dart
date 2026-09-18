@@ -30,8 +30,7 @@ class _ClueBoardPageState extends State<ClueBoardPage> {
     final all = await _cardService.getAllCards();
     if (!mounted) return;
     setState(() {
-            _indexCards = all.toList();
-      _isLoading = false;
+      _indexCards = all.where((c) => c.cardType == CardType.indexCard).toList();      _isLoading = false;
     });
   }
 
