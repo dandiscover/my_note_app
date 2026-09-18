@@ -39,6 +39,7 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database_service.dart';
 import '../models/note.dart';
+import '../utils/app_string_utils.dart';
 import '../models/card.dart';
 import '../models/explore_task.dart';
 import '../services/card_service.dart';
@@ -250,26 +251,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         }
       }
 
-      if (widget.isFromCollection && newStatus == 'active') {
-        final existingNodes = await _db.getAllNodes();
-        final alreadyHasNode = existingNodes.any(
-          (n) => n.targetId == _entry.id && n.nodeType == 'note',
-        );
-        if (!alreadyHasNode) {
-          await _db.attachNoteToNode(
-            noteId: _entry.id,
-            title: updated.title,
-            parentId: null,
-            tags: tags,
-          );
-        }
-      }
-
-      if (widget.isFromCollection) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('last_organized_at', DateTime.now().toIso8601String());
-        floatingPetKey.currentState?.showMessage('水开始蒸发了。');
-      }
+      // 原 isFromCollection 逻辑已迁 NoteService.organizeRawNote
 
       setState(() {
         _entry = updated;
@@ -658,6 +640,101 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     });
   }
 
+  /// 切换「重要」标记（改造批 A）
+  Future<void> _toggleTagImportant() async {
+    final newTags = List<String>.from(_entry.tags);
+    if (newTags.contains('重要')) {
+      newTags.remove('重要');
+    } else {
+      newTags.add('重要');
+    }
+    try {
+      final updated =
+          _entry.copyWith(tags: newTags, updatedAt: DateTime.now());
+      await _db.updateNote(updated.toMap());
+
+      // ✅ 同步 node.tags（与 _saveNote 一致）
+      if (widget.nodeId != null) {
+        final node = await _db.getNode(widget.nodeId!);
+        if (node != null) {
+          await _db.updateNode(node.copyWith(tags: newTags));
+        }
+      }
+
+      if (mounted) setState(() => _entry = updated);
+    } catch (e) {
+      debugPrint('toggleTagImportant 失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('标记失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// 切换「待解决」标记（改造批 A）
+  Future<void> _toggleTagPending() async {
+    final newTags = List<String>.from(_entry.tags);
+    if (newTags.contains('待解决')) {
+      newTags.remove('待解决');
+    } else {
+      newTags.add('待解决');
+    }
+    try {
+      final updated =
+          _entry.copyWith(tags: newTags, updatedAt: DateTime.now());
+      await _db.updateNote(updated.toMap());
+
+      // ✅ 同步 node.tags（与 _saveNote 一致）
+      if (widget.nodeId != null) {
+        final node = await _db.getNode(widget.nodeId!);
+        if (node != null) {
+          await _db.updateNode(node.copyWith(tags: newTags));
+        }
+      }
+
+      if (mounted) setState(() => _entry = updated);
+    } catch (e) {
+      debugPrint('toggleTagPending 失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('标记失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// 笔记级标记行 —— ⭐ 重要 / ❓ 待解决
+  Widget _buildTagToggleRow() {
+    return Row(
+      children: [
+        ActionChip(
+          avatar: Icon(
+            _entry.tags.contains('重要') ? Icons.star : Icons.star_border,
+            size: 16,
+            color: _entry.tags.contains('重要') ? Colors.amber : null,
+          ),
+          label: const Text('重要'),
+          onPressed: _toggleTagImportant,
+          visualDensity: VisualDensity.compact,
+        ),
+        const SizedBox(width: 8),
+        ActionChip(
+          avatar: Icon(
+            _entry.tags.contains('待解决')
+                ? Icons.help
+                : Icons.help_outline,
+            size: 16,
+            color: _entry.tags.contains('待解决') ? Colors.orange : null,
+          ),
+          label: const Text('待解决'),
+          onPressed: _toggleTagPending,
+          visualDensity: VisualDensity.compact,
+        ),
+      ],
+    );
+  }
+
   /// 富文本编辑页保存后，从库读最新 entry 并刷新本页。
   Future<void> _reloadEntry() async {
     try {
@@ -844,7 +921,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: Text(
-          _isReadMode ? '📖 ${_entry.title}' : '✏️ ${_entry.title}',
+          _isReadMode
+              ? '📖 ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}'
+              : '✏️ ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}',
         ),
         centerTitle: true,
         elevation: 0,
@@ -901,6 +980,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _buildTagToggleRow(),
+            const SizedBox(height: 12),
             if (_entry.tags.isNotEmpty)
               Wrap(
                 spacing: 4,
@@ -986,6 +1067,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _buildTagToggleRow(),
+            const SizedBox(height: 12),
             if (_entry.tags.isNotEmpty) ...[
               Wrap(
                 spacing: 4,
@@ -1315,6 +1398,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
               children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _buildTagToggleRow(),
+                ),
                 if (_errorMessage != null)
                   Container(
                     width: double.infinity,

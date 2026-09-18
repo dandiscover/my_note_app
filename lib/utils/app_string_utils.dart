@@ -37,4 +37,23 @@ class AppStringUtils {
     final regExp = RegExp(r'#([\w\u4e00-\u9fa5]+)');
     return regExp.allMatches(text).map((m) => m.group(1) ?? '').where((t) => t.isNotEmpty).toList();
   }
+
+  // ─── 改造批 A · 标题系统 ─────────────────────────────
+
+  /// 笔记虚拟标题——正文前 10 字 + 「…」
+  static String virtualNoteTitle(String? content) {
+    final c = (content ?? '').trim().replaceAll('\n', ' ');
+    if (c.isEmpty) return '无标题';
+    if (c.length <= 10) return c;
+    final code = c.codeUnitAt(9);
+    final end = (code >= 0xD800 && code <= 0xDBFF) ? 9 : 10;
+    return '${c.substring(0, end)}…';
+  }
+
+  /// 笔记显示标题
+  static String displayNoteTitle(String? title, String? content) {
+    final t = (title ?? '').trim();
+    if (t.isNotEmpty) return t;
+    return virtualNoteTitle(content);
+  }
 }

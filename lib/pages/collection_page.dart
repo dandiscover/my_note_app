@@ -33,11 +33,23 @@ import 'creation_page.dart' as creation;
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
 import 'scan_isbn_page.dart';
+// ✅ 改造批 A：采集入口加刷新 Key + 轻模式替换
+import 'light_mode_page.dart';
+import 'wisdom_page.dart';
+import 'insight_page.dart';
 
 class CollectionPage extends StatefulWidget {
   final GlobalKey<creation.CreationPageState>? creationKey;
+  // ✅ 改造批 A：刷新 Key（A 批只加参数，不实现刷新逻辑）
+  final GlobalKey<WisdomPageState>? wisdomKey;
+  final GlobalKey<InsightPageState>? insightKey;
 
-  const CollectionPage({super.key, this.creationKey});
+  const CollectionPage({
+    super.key,
+    this.creationKey,
+    this.wisdomKey,
+    this.insightKey,
+  });
 
   static Future<void> Function()? _saveCallback;
 
@@ -275,21 +287,28 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
   }
 
   Future<void> _editNote(NotebookEntry note) async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NoteDetailPage(
+    // ✅ 改造批 A · T2：轻模式 = 弹窗
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (ctx, scrollController) => LightModePage(
           entry: note,
-          isFromCollection: true,
+          scrollController: scrollController,
         ),
       ),
     );
     if (result == true) {
       _cache.invalidate(_cacheKeyRawNotes);
       await _loadData();
-
-      // ✅ 条件②已移至 NoteDetailPage._saveNote，此处不再重复触发
-      // 保留 last_organized_at 更新在 NoteDetailPage 中统一处理
     }
   }
 
@@ -690,6 +709,10 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 4),
+              // TODO（工作台改造 · 入口可配置化）：采集页入口当前硬编码——
+              //   快速记 / 导入电子书 / 扫 ISBN。
+              //   将来加语音 / 拍照 / 画板时，改为读一份入口配置。
+              //   归后续批。
               const Text(
                 '快速捕获',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
