@@ -103,6 +103,8 @@ class CardModel {
   final String? indexTitle;
   final String? author;
   final String? highlight;
+  /// ✅ 改造批 A：火花卡位置锚点（预留，A 批只留字段）
+  final String? anchor;
   final String? question;
   final String? answer;
   final String? fillQuestion;
@@ -140,6 +142,7 @@ class CardModel {
     this.indexTitle,
     this.author,
     this.highlight,
+    this.anchor,
     this.question,
     this.answer,
     this.fillQuestion,
@@ -313,6 +316,7 @@ class CardModel {
     'indexTitle': indexTitle,
     'author': author,
     'highlight': highlight,
+    'anchor': anchor,
     'question': question,
     'answer': answer,
     'fillQuestion': fillQuestion,
@@ -349,6 +353,7 @@ class CardModel {
     indexTitle: json['indexTitle'] as String?,
     author: json['author'] as String?,
     highlight: json['highlight'] as String?,
+    anchor: json['anchor'] as String?,
     question: json['question'] as String?,
     answer: json['answer'] as String?,
     fillQuestion: json['fillQuestion'] as String?,
@@ -432,6 +437,7 @@ class CardModel {
     String? indexTitle,
     String? author,
     String? highlight,
+    String? anchor,
     String? question,
     String? answer,
     String? fillQuestion,
@@ -466,6 +472,7 @@ class CardModel {
     indexTitle: indexTitle ?? this.indexTitle,
     author: author ?? this.author,
     highlight: highlight ?? this.highlight,
+    anchor: anchor ?? this.anchor,
     question: question ?? this.question,
     answer: answer ?? this.answer,
     fillQuestion: fillQuestion ?? this.fillQuestion,

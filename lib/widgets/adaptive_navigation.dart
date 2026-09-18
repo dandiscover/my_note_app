@@ -86,9 +86,11 @@ class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
     // ─── 构建页面列表 ──────────────────────────────────────
 
     final children = <Widget>[
-      CollectionPage(
-        creationKey: widget.creationKey,
-      ),
+        CollectionPage(
+          creationKey: widget.creationKey,
+          wisdomKey: widget.wisdomKey,
+          insightKey: widget.insightKey,
+        ),
       WisdomPage(
         key: widget.wisdomKey,
       ),
