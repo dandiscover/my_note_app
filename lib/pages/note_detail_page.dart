@@ -45,6 +45,9 @@ import 'workbench/kernel_markdown.dart';
 import 'workbench/editor_kernel.dart';
 import 'workbench/editor_material_slot.dart';
 import 'workbench/editor_explore_area.dart';
+import 'workbench/editor_app_bar.dart';
+import 'workbench/editor_title_bar.dart';
+import 'workbench/editor_bottom_bar.dart';
 import '../models/note.dart';
 import '../utils/app_string_utils.dart';
 import '../models/card.dart';
@@ -138,6 +141,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   void dispose() {
     focusModeNotifier.removeListener(_onFocusModeChanged);
+    _kernel.dispose();
     super.dispose();
   }
 
@@ -631,78 +635,53 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      appBar: _focusMode ? null : AppBar(
-        title: Text(
-          _isReadMode
-              ? '📖 ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}'
-              : '✏️ ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}',
-        ),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.explore, color: Colors.purple),
-            tooltip: '深入',
-            onPressed: _openInquiry,
-          ),
-          IconButton(
-            icon: Icon(_isReadMode ? Icons.edit : Icons.remove_red_eye),
-            tooltip: _entry.contentFormat == 'richtext'
-                ? '编辑'
-                : (_isReadMode ? '切换到修改模式' : '切换到阅读模式'),
-            onPressed: _toggleMode,
-          ),
-          IconButton(
-            icon: const Icon(Icons.credit_card),
-            tooltip: '生成卡片',
-            onPressed: () => _showFullNoteCardDialog(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            tooltip: '快速切换笔记',
-            onPressed: _showQuickSwitch,
-          ),
-          if (!_isReadMode)
-            IconButton(
-              icon: Icon(_layoutIcon(_layoutMode)),
-              tooltip: '布局：${_layoutLabel(_layoutMode)}',
-              onPressed: _cycleLayout,
-            ),
-          if (!_isReadMode && _layoutMode == 'double')
-            IconButton(
-              icon: Icon(_sidebarContent == 'material'
+      backgroundColor: Colors.grey.shade50,   
+        appBar: _focusMode
+          ? null
+          : EditorAppBar(
+              title: _isReadMode
+                  ? '📖 ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}'
+                  : '✏️ ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}',
+              isReadMode: _isReadMode,
+              isRichtext: _entry.contentFormat == 'richtext',
+              onInquiry: _openInquiry,
+              onToggleMode: _toggleMode,
+              onCard: () => _showFullNoteCardDialog(),
+              onQuickSwitch: _showQuickSwitch,
+              onCycleLayout: _cycleLayout,
+              layoutIcon: _layoutIcon(_layoutMode),
+              layoutLabel: '布局：${_layoutLabel(_layoutMode)}',
+              onToggleSidebar: _layoutMode == 'double'
+                  ? () {
+                      setState(() {
+                        _sidebarContent = _sidebarContent == 'material'
+                            ? 'fileTree'
+                            : 'material';
+                      });
+                    }
+                  : null,
+              sidebarIcon: _sidebarContent == 'material'
                   ? Icons.library_books
-                  : Icons.folder_open),
-              tooltip: _sidebarContent == 'material' ? '切换为文件树' : '切换为素材',
-              onPressed: () {
-                setState(() {
-                  _sidebarContent =
-                      _sidebarContent == 'material' ? 'fileTree' : 'material';
-                });
-              },
+                  : Icons.folder_open,
+              sidebarLabel:
+                  _sidebarContent == 'material' ? '切换为文件树' : '切换为素材',
+              onToggleFocus: _toggleFocusMode,
+              isFocusMode: _focusMode,
+              onToggleMaterial: _layoutMode != 'double'
+                  ? _toggleMaterialPanel
+                  : null,
+              onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
             ),
-          IconButton(
-            icon: Icon(_focusMode ? Icons.fullscreen_exit : Icons.fullscreen),
-            tooltip: _focusMode ? '退出专注' : '专注模式',
-            onPressed: _toggleFocusMode,
-          ),
-          if (!_isReadMode && _layoutMode != 'double')
-            IconButton(
-              icon: const Icon(Icons.library_books, color: Colors.purple),
-              tooltip: '素材库',
-              onPressed: _toggleMaterialPanel,
-            ),
-          if (!widget.isFromCollection)
-            IconButton(
-              icon: const Icon(Icons.folder_open),
-              onPressed: _toggleFileTree,
-              tooltip: '文件树',
-            ),
-        ],
-      ),
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
       body: _isReadMode
           ? _buildReadMode()
           : _buildEditMode(),
@@ -1042,9 +1021,42 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
     // ─── 专注模式：全屏编辑器 ───
     if (_focusMode) {
-      return Workbench(
-        kernel: _kernel,
-        entry: _entry,
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            EditorTitleBar(
+              controller: _kernel.titleController,
+              onChanged: () => setState(() {}),
+            ),
+            const Divider(height: 8),
+            Expanded(
+              child: Workbench(kernel: _kernel, entry: _entry),
+            ),
+            const Divider(height: 8),
+            EditorBottomBar(
+              wordCount: _kernel.wordCount,
+              lineCount: _kernel.lineCount,
+              tagCount: _kernel.tags.length,
+              isMarkdown: _kernel.isMarkdown,
+              onMarkdownChanged: (v) {
+                _kernel.toggleMarkdown(v);
+                setState(() {});
+              },
+              isSaving: _kernel.isSaving,
+              onSave: () async {
+                await _kernel.save();
+                if (mounted) setState(() {});
+              },
+              onCancel: null,
+              onGenerateCard: _kernel.createReviewCard,
+              isGeneratingCard: _kernel.isGeneratingCard,
+              saveLabel:
+                  widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+              isFromCollection: widget.isFromCollection,
+            ),
+          ],
+        ),
       );
     }
 
@@ -1128,6 +1140,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   const SizedBox(height: 8),
                   EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
                 ],
+                EditorTitleBar(
+                  controller: _kernel.titleController,
+                  onChanged: () => setState(() {}),
+                ),
+                const Divider(height: 8),
                 Expanded(
                   child: DragTarget<MaterialItem>(
                     onAcceptWithDetails: _handleDropItem,
@@ -1136,6 +1153,28 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       entry: _entry,
                     ),
                   ),
+                ),
+                const Divider(height: 8),
+                EditorBottomBar(
+                  wordCount: _kernel.wordCount,
+                  lineCount: _kernel.lineCount,
+                  tagCount: _kernel.tags.length,
+                  isMarkdown: _kernel.isMarkdown,
+                  onMarkdownChanged: (v) {
+                    _kernel.toggleMarkdown(v);
+                    setState(() {});
+                  },
+                  isSaving: _kernel.isSaving,
+                  onSave: () async {
+                    await _kernel.save();
+                    if (mounted) setState(() {});
+                  },
+                  onCancel: () => Navigator.pop(context),
+                  onGenerateCard: _kernel.createReviewCard,
+                  isGeneratingCard: _kernel.isGeneratingCard,
+                  saveLabel:
+                      widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+                  isFromCollection: widget.isFromCollection,
                 ),
               ],
             ),
