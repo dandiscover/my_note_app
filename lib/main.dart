@@ -29,7 +29,6 @@ import 'widgets/floating_pet.dart';  // ✅ 导出 floatingPetKey + PetVisibilit
 import 'widgets/sync_indicator.dart';
 
 import 'pages/collection_page.dart';
-import 'pages/collection_page.dart';
 import 'services/focus_mode_notifier.dart';
 import 'models/note.dart';
 import 'widgets/quick_switch_dialog.dart';
