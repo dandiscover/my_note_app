@@ -53,6 +53,7 @@ import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
 import '../widgets/explore_task_summary_dialog.dart';
 import '../widgets/writing/material_panel.dart';
+import '../models/material_item.dart';
 import '../widgets/note_card_dialog.dart';
 import 'book_detail_page.dart';
 import 'inquiry_page.dart';
@@ -94,6 +95,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   // ✅ 骨架：素材面板状态
   bool _showMaterialPanel = false;
   List<CardModel> _indexCards = [];
+  List<NotebookEntry> _relatedNotes = [];
 
   @override
   void initState() {
@@ -147,6 +149,15 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     final allCards = await _cardService.getAllCards();
     if (!mounted) return;
     setState(() => _indexCards = allCards.where((c) => c.cardType == CardType.indexCard).toList());
+      final noteMaps = await _db.getAllNotes(includeDeleted: false);
+    final allNotes = noteMaps.map((m) => NotebookEntry.fromMap(m)).toList();
+    if (!mounted) return;
+    setState(() {
+      _relatedNotes = allNotes
+          .where((n) =>
+              n.tags.any((t) => _entry.tags.contains(t)) && n.id != _entry.id)
+          .toList();
+    });
   }
 
   // ✅ 骨架：切换素材面板，展开时重载索引卡
@@ -1109,9 +1120,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           SizedBox(
             width: 280,
             child: MaterialPanel(
-              cards: _indexCards,
-              onInsertText: (text) => EditorKernel.insertTextGlobal(text),
-              onInsertCard: (_) {},
+              items: [
+                ..._indexCards.map(MaterialItem.fromCard),
+                ..._relatedNotes.map(MaterialItem.fromNote),
+              ],
+              onInsertCard: (card) {
+                final quote =
+                    card.highlight ?? card.indexTitle ?? card.displayFront;
+                final citation =
+                    '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}';
+                EditorKernel.insertTextGlobal(citation);
+              },
+              onInsertNote: (_) {},
             ),
           ),
         ],

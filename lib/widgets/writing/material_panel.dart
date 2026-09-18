@@ -1,29 +1,77 @@
 // lib/widgets/writing/material_panel.dart
-// 写作素材面板 — 支持点击插入 + 拖拽
+// 写作素材面板 — 搜索 + 筛选 + 排序 + 插入
+// E批：接 MaterialItem（卡片 + 笔记两源）
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
+import '../../models/note.dart';
+import '../../models/material_item.dart';
 
-class MaterialPanel extends StatelessWidget {
-  final List<CardModel> cards;
-  final Function(String) onInsertText;
+class MaterialPanel extends StatefulWidget {
+  final List<MaterialItem> items;
   final Function(CardModel) onInsertCard;
+  final Function(NotebookEntry) onInsertNote;
 
   const MaterialPanel({
     super.key,
-    required this.cards,
-    required this.onInsertText,
+    required this.items,
     required this.onInsertCard,
+    required this.onInsertNote,
   });
 
   @override
+  State<MaterialPanel> createState() => _MaterialPanelState();
+}
+
+class _MaterialPanelState extends State<MaterialPanel> {
+  String _keyword = '';
+  MaterialItemType? _typeFilter; // null = 全部
+  MaterialSortKey _sortKey = MaterialSortKey.timeDesc;
+
+  List<MaterialItem> _filtered() {
+    // ⚠️ List.from——不直接引用 widget.items，避免 sort 改原 list
+    var list = List<MaterialItem>.from(widget.items);
+
+    if (_typeFilter != null) {
+      list = list.where((i) => i.type == _typeFilter).toList();
+    }
+
+    if (_keyword.isNotEmpty) {
+      final kw = _keyword.toLowerCase();
+      list = list.where((i) =>
+        i.title.toLowerCase().contains(kw) ||
+        i.summary.toLowerCase().contains(kw) ||
+        i.tags.any((t) => t.toLowerCase().contains(kw))
+      ).toList();
+    }
+
+    switch (_sortKey) {
+      case MaterialSortKey.timeDesc:
+        list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        break;
+      case MaterialSortKey.timeAsc:
+        list.sort((a, b) => a.updatedAt.compareTo(b.updatedAt));
+        break;
+      case MaterialSortKey.titleAsc:
+        list.sort((a, b) => a.title.compareTo(b.title));
+        break;
+      case MaterialSortKey.tagCount:
+        list.sort((a, b) => b.tags.length.compareTo(a.tags.length));
+        break;
+    }
+    return list;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final filtered = _filtered();
+
     return Container(
       color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题
+          // ─── 标题 + 计数 ───
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -31,26 +79,29 @@ class MaterialPanel extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Text('📚 素材库', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                const Text('📚 素材库',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: Colors.teal.shade100,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '${cards.length}',
+                    '${filtered.length}',
                     style: TextStyle(fontSize: 12, color: Colors.teal.shade700),
                   ),
                 ),
               ],
             ),
           ),
-          // 搜索
+          // ─── 搜索框 ───
           Padding(
             padding: const EdgeInsets.all(8),
             child: TextField(
+              onChanged: (v) => setState(() => _keyword = v),
               decoration: InputDecoration(
                 hintText: '🔍 搜索素材...',
                 border: OutlineInputBorder(
@@ -59,35 +110,73 @@ class MaterialPanel extends StatelessWidget {
                 ),
                 filled: true,
                 fillColor: Colors.grey.shade50,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 isDense: true,
               ),
             ),
           ),
-          // 卡片列表
+          // ─── 筛选 chip + 排序 ───
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Row(
+              children: [
+                _chip('全部', null),
+                const SizedBox(width: 4),
+                _chip('卡片', MaterialItemType.card),
+                const SizedBox(width: 4),
+                _chip('笔记', MaterialItemType.note),
+                const Spacer(),
+                PopupMenuButton<MaterialSortKey>(
+                  icon: const Icon(Icons.sort, size: 18),
+                  tooltip: '排序',
+                  onSelected: (k) => setState(() => _sortKey = k),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                        value: MaterialSortKey.timeDesc, child: Text('时间倒序')),
+                    PopupMenuItem(
+                        value: MaterialSortKey.timeAsc, child: Text('时间正序')),
+                    PopupMenuItem(
+                        value: MaterialSortKey.titleAsc, child: Text('标题')),
+                    PopupMenuItem(
+                        value: MaterialSortKey.tagCount, child: Text('标签数')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // ─── 列表 ───
           Expanded(
-            child: cards.isEmpty
+            child: filtered.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.inbox, size: 48, color: Colors.grey.shade300),
+                        Icon(Icons.inbox,
+                            size: 48, color: Colors.grey.shade300),
                         const SizedBox(height: 8),
-                        Text('暂无索引卡', style: TextStyle(color: Colors.grey.shade500)),
+                        Text(
+                          widget.items.isEmpty ? '暂无素材' : '无匹配结果',
+                          style: TextStyle(color: Colors.grey.shade500),
+                        ),
                         const SizedBox(height: 4),
-                        Text('在智库中创建索引卡后，可在此调用', style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
+                        Text(
+                          widget.items.isEmpty
+                              ? '在智库中创建索引卡后，可在此调用'
+                              : '试试调整搜索或筛选条件',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade400),
+                        ),
                       ],
                     ),
                   )
                 : ListView.builder(
-                    itemCount: cards.length,
-                    itemBuilder: (context, index) {
-                      final card = cards[index];
-                      return _buildMaterialItem(card);
-                    },
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) =>
+                        _buildMaterialItem(filtered[index]),
                   ),
           ),
-          // 底部提示
+          // ─── 底部提示 ───
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
@@ -104,7 +193,32 @@ class MaterialPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildMaterialItem(CardModel card) {
+  Widget _chip(String label, MaterialItemType? type) {
+    final selected = _typeFilter == type;
+    return GestureDetector(
+      onTap: () => setState(() => _typeFilter = type),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: selected ? Colors.teal.shade100 : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? Colors.teal.shade300 : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: selected ? Colors.teal.shade700 : Colors.grey.shade700,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMaterialItem(MaterialItem item) {
     bool isHovered = false;
 
     return StatefulBuilder(
@@ -114,15 +228,12 @@ class MaterialPanel extends StatelessWidget {
           onExit: (_) => setState(() => isHovered = false),
           child: GestureDetector(
             onTap: () {
-              final quote = card.highlight ?? card.indexTitle ?? card.displayFront;
-              final citation = '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}';
-              onInsertText(citation);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('📝 已引用：${(card.indexTitle ?? '未命名').substring(0, (card.indexTitle?.length ?? 20).clamp(0, 20))}...'),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
+              if (item.type == MaterialItemType.card && item.card != null) {
+                widget.onInsertCard(item.card!);
+              } else if (item.type == MaterialItemType.note &&
+                  item.note != null) {
+                widget.onInsertNote(item.note!);
+              }
             },
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -131,11 +242,16 @@ class MaterialPanel extends StatelessWidget {
                 color: isHovered ? Colors.teal.shade50 : Colors.white,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: isHovered ? Colors.teal.shade300 : Colors.grey.shade200,
+                  color:
+                      isHovered ? Colors.teal.shade300 : Colors.grey.shade200,
                   width: isHovered ? 1.5 : 0.5,
                 ),
                 boxShadow: isHovered
-                    ? [BoxShadow(color: Colors.teal.withValues(alpha: 0.08), blurRadius: 4)]
+                    ? [
+                        BoxShadow(
+                            color: Colors.teal.withValues(alpha: 0.08),
+                            blurRadius: 4)
+                      ]
                     : null,
               ),
               child: Column(
@@ -143,56 +259,70 @@ class MaterialPanel extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(card.typeIcon, style: const TextStyle(fontSize: 14)),
+                      Text(
+                        item.type == MaterialItemType.card ? '📇' : '📝',
+                        style: const TextStyle(fontSize: 14),
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          card.indexTitle ?? '未命名',
+                          item.title,
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: isHovered ? Colors.teal.shade700 : Colors.black87,
+                            color: isHovered
+                                ? Colors.teal.shade700
+                                : Colors.black87,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (card.author != null && card.author!.isNotEmpty)
+                      if (item.sourceType == 'book')
                         Text(
-                          card.author!,
-                          style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          '📖',
+                          style: TextStyle(
+                              fontSize: 9, color: Colors.grey.shade500),
                         ),
                     ],
                   ),
-                  if (card.highlight != null && card.highlight!.isNotEmpty)
+                  if (item.summary.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
-                        card.highlight!,
+                        item.summary,
                         style: TextStyle(
                           fontSize: 12,
-                          color: isHovered ? Colors.black87 : Colors.grey.shade600,
+                          color: isHovered
+                              ? Colors.black87
+                              : Colors.grey.shade600,
                           fontStyle: FontStyle.italic,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  if (card.tags.isNotEmpty)
+                  if (item.tags.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
                       child: Wrap(
                         spacing: 4,
-                        children: card.tags.take(2).map((tag) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: _getTagColor(tag).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(tag, style: TextStyle(fontSize: 7, color: _getTagColor(tag))),
-                        )).toList(),
+                        children: item.tags
+                            .take(2)
+                            .map((tag) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 4, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: _getTagColor(tag)
+                                        .withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(tag,
+                                      style: TextStyle(
+                                          fontSize: 7,
+                                          color: _getTagColor(tag))),
+                                ))
+                            .toList(),
                       ),
                     ),
                 ],
@@ -207,9 +337,16 @@ class MaterialPanel extends StatelessWidget {
   Color _getTagColor(String tag) {
     final hash = tag.hashCode.abs();
     final colors = [
-      Colors.blue, Colors.green, Colors.purple, Colors.orange,
-      Colors.teal, Colors.pink, Colors.indigo, Colors.cyan,
-      Colors.deepPurple, Colors.red,
+      Colors.blue,
+      Colors.green,
+      Colors.purple,
+      Colors.orange,
+      Colors.teal,
+      Colors.pink,
+      Colors.indigo,
+      Colors.cyan,
+      Colors.deepPurple,
+      Colors.red,
     ];
     return colors[hash % colors.length];
   }

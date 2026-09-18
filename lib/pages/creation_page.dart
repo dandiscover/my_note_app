@@ -23,6 +23,7 @@ import '../mixins/state_mixin.dart';
 import '../widgets/task/task_toolbar.dart';
 import '../widgets/quick_task_card.dart';
 import '../widgets/writing/material_panel.dart';
+import '../models/material_item.dart';
 import '../widgets/explore_task_execute_dialog.dart';
 import 'workbench/markdown_editor_page.dart';
 import '../utils/app_date_utils.dart';
@@ -525,9 +526,17 @@ class CreationPageState extends State<CreationPage>
         minChildSize: 0.4,
         expand: false,
         builder: (context, scrollController) => MaterialPanel(
-          cards: _indexCards,
-          onInsertText: (text) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('📝 已引用：$text'), duration: const Duration(seconds: 2))); Navigator.pop(context); },
-          onInsertCard: (card) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('📇 已插入卡片：${card.indexTitle ?? '未命名'}'), duration: const Duration(seconds: 2))); Navigator.pop(context); },
+          items: _indexCards.map(MaterialItem.fromCard).toList(),
+          onInsertCard: (card) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('📇 已插入卡片：${card.indexTitle ?? '未命名'}'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            Navigator.pop(context);
+          },
+          onInsertNote: (_) {},
         ),
       ),
     );
