@@ -43,6 +43,7 @@ import '../database_service.dart';
 import 'workbench/workbench.dart';
 import 'workbench/kernel_markdown.dart';
 import 'workbench/editor_kernel.dart';
+import 'workbench/editor_material_slot.dart';
 import '../models/note.dart';
 import '../utils/app_string_utils.dart';
 import '../models/card.dart';
@@ -1125,19 +1126,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       }
                     },
                   )
-                : MaterialPanel(
+                : EditorMaterialSlot(
                     items: [
                       ..._indexCards.map(MaterialItem.fromCard),
                       ..._relatedNotes.map(MaterialItem.fromNote),
                     ],
-                    onInsertCard: (card) {
-                      final quote =
-                          card.highlight ?? card.indexTitle ?? card.displayFront;
-                      final citation =
-                          '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}';
-                      EditorKernel.insertTextGlobal(citation);
-                    },
-                    onInsertNote: (_) {},
                   ),
           ),
           const VerticalDivider(width: 1, thickness: 1),
@@ -1205,22 +1198,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         // ─── 右侧：素材面板 ───
         if (showMaterial) ...[
           const VerticalDivider(width: 1, thickness: 1),
-          SizedBox(
-            width: 280,
-            child: MaterialPanel(
-              items: [
-                ..._indexCards.map(MaterialItem.fromCard),
-                ..._relatedNotes.map(MaterialItem.fromNote),
-              ],
-              onInsertCard: (card) {
-                final quote =
-                    card.highlight ?? card.indexTitle ?? card.displayFront;
-                final citation =
-                    '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}';
-                EditorKernel.insertTextGlobal(citation);
-              },
-              onInsertNote: (_) {},
-            ),
+          EditorMaterialSlot(
+            items: [
+              ..._indexCards.map(MaterialItem.fromCard),
+              ..._relatedNotes.map(MaterialItem.fromNote),
+            ],
           ),
         ],
       ],
