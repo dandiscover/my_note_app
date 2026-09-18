@@ -26,6 +26,7 @@ import '../models/note.dart';
 import '../models/book.dart';
 import '../models/node.dart';
 import '../models/card.dart';
+import '../utils/app_string_utils.dart';
 import '../services/card_service.dart';
 import '../services/cache_manager.dart';
 import '../services/sync/cloud_sync_service.dart';
@@ -51,7 +52,7 @@ import '../services/epub_export/epub_exporter.dart';
 import '../services/epub_export/epub_platform_saver.dart';
 import '../widgets/wisdom/epub_reorder_dialog.dart';
 
-enum WisdomViewMode { list, grid, large, split }
+enum WisdomViewMode { list, grid, large, split, cardWall, timeline, gallery }
 
 class WisdomPage extends StatefulWidget {
   const WisdomPage({super.key});
@@ -80,6 +81,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   final Set<String> _expandedFolderIds = <String>{};
 
   WisdomViewMode _viewMode = WisdomViewMode.grid;
+  Set<String> _selectedTags = {};
   bool _fabExpanded = false;
 
   // ✅ 图书状态筛选
@@ -249,7 +251,15 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
   List<Node> get _filteredNodes {
     if (_cachedFilteredNodes != null) return _cachedFilteredNodes!;
-    final children = _children;
+    var children = _children;
+
+    // 标签筛选——多选，节点 tags 与选中集交集非空
+    if (_selectedTags.isNotEmpty) {
+      children = children.where((n) =>
+        n.tags.any((t) => _selectedTags.contains(t))
+      ).toList();
+    }
+
     if (_searchKeyword.isEmpty) { _cachedFilteredNodes = children; return children; }
     final result = children.where((n) =>
       n.title.toLowerCase().contains(_searchKeyword.toLowerCase()) ||
@@ -887,6 +897,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             onBatchDelete: _batchDelete,
             onBatchMove: _batchMove,
             onBatchExport: _batchExport,
+            onTagFilter: _showTagFilterDialog,
+            selectedTagCount: _selectedTags.length,
           ),
           if (_isLibraryFolder) _buildBookFilterBar(),
         ],
@@ -1249,6 +1261,21 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       }
     }
 
+    if (allItems.isEmpty && nonSystemChildren.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    // 新模式——独立构建（不走 allItems 列表逻辑）
+    if (_viewMode == WisdomViewMode.cardWall) {
+      return _buildCardWallView(nonSystemChildren, folderStats);
+    }
+    if (_viewMode == WisdomViewMode.timeline) {
+      return _buildTimelineView(nonSystemChildren, folderStats);
+    }
+    if (_viewMode == WisdomViewMode.gallery) {
+      return _buildGalleryView(nonSystemChildren, folderStats);
+    }
+
     if (allItems.isEmpty) {
       return _buildEmptyState();
     }
@@ -1270,7 +1297,311 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       itemBuilder: (context, index) => allItems[index],
     );
   }
+  // ─── 新增视图 · 卡片墙 ──────────────────────────────
+  //
+  // 初版：2 列固定高卡片（不引入 flutter_staggered_grid_view）
+  // 真瀑布流归债 F-1
 
+  Widget _buildCardWallView(
+    List<Node> nodes,
+    Map<String, Map<String, int>> folderStats,
+  ) {
+    if (nodes.isEmpty) return _buildEmptyState();
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: GridView.builder(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 1.5,
+        ),
+        itemCount: nodes.length,
+        itemBuilder: (context, index) {
+          final node = nodes[index];
+          return RepaintBoundary(child: _buildCard(node, folderStats));
+        },
+      ),
+    );
+  }
+
+  // ─── 新增视图 · 时间线 ──────────────────────────────
+
+  Widget _buildTimelineView(
+    List<Node> nodes,
+    Map<String, Map<String, int>> folderStats,
+  ) {
+    if (nodes.isEmpty) return _buildEmptyState();
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final weekStart = todayStart.subtract(Duration(days: now.weekday - 1));
+    final monthStart = DateTime(now.year, now.month, 1);
+
+    final groups = <String, List<Node>>{
+      '今天': [],
+      '本周': [],
+      '本月': [],
+      '更早': [],
+    };
+
+    for (var node in nodes) {
+      final t = _nodeUpdatedAt(node);
+      if (t.isAfter(todayStart)) {
+        groups['今天']!.add(node);
+      } else if (t.isAfter(weekStart)) {
+        groups['本周']!.add(node);
+      } else if (t.isAfter(monthStart)) {
+        groups['本月']!.add(node);
+      } else {
+        groups['更早']!.add(node);
+      }
+    }
+
+    final children = <Widget>[];
+    for (var entry in groups.entries) {
+      if (entry.value.isEmpty) continue;
+      children.add(Padding(
+        padding: const EdgeInsets.only(left: 4, top: 12, bottom: 4),
+        child: Text(
+          entry.key,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade700,
+          ),
+        ),
+      ));
+      for (var node in entry.value) {
+        children.add(Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 56,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    _formatTimelineDate(_nodeUpdatedAt(node)),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: RepaintBoundary(
+                  child: _buildCard(node, folderStats),
+                ),
+              ),
+            ],
+          ),
+        ));
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: children,
+    );
+  }
+
+  DateTime _nodeUpdatedAt(Node node) {
+    if (node.nodeType == 'note') {
+      final note = _notes.firstWhere(
+        (n) => n.id == node.targetId,
+        orElse: () => NotebookEntry.empty,
+      );
+      return note.updatedAt;
+    }
+    if (node.nodeType == 'book') {
+      final book = _books.firstWhere(
+        (b) => b.id == node.targetId,
+        orElse: () => Book.empty,
+      );
+      return book.lastReadAt ?? book.createdAt;
+    }
+    return DateTime.now();
+  }
+
+  String _formatTimelineDate(DateTime d) {
+    return '${d.month}/${d.day}';
+  }
+
+  // ─── 新增视图 · 画廊 ────────────────────────────────
+
+  Widget _buildGalleryView(
+    List<Node> nodes,
+    Map<String, Map<String, int>> folderStats,
+  ) {
+    if (nodes.isEmpty) return _buildEmptyState();
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: nodes.length,
+      itemBuilder: (context, index) {
+        final node = nodes[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _buildGalleryCard(node),
+        );
+      },
+    );
+  }
+
+  Widget _buildGalleryCard(Node node) {
+    String title = node.title;
+    String summary = '';
+    List<String> tags = node.tags;
+
+    if (node.nodeType == 'note') {
+      final note = _notes.firstWhere(
+        (n) => n.id == node.targetId,
+        orElse: () => NotebookEntry.empty,
+      );
+      title = AppStringUtils.displayNoteTitle(note.title, note.content);
+      final c = note.content.replaceAll('\n', ' ').trim();
+      summary = c.length > 120 ? '${c.substring(0, 120)}…' : c;
+    } else if (node.nodeType == 'book') {
+      final book = _books.firstWhere(
+        (b) => b.id == node.targetId,
+        orElse: () => Book.empty,
+      );
+      summary = '📖 ${book.author.isNotEmpty ? book.author : '未知作者'}';
+    }
+
+    return GestureDetector(
+      onTap: () => _openNode(node),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(node.iconEmoji, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (summary.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                summary,
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.5),
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            if (tags.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 4,
+                children: tags.take(5).map((t) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(t, style: TextStyle(fontSize: 10, color: Colors.teal.shade700)),
+                )).toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── 标签筛选弹窗 ──────────────────────────────────
+
+  Future<void> _showTagFilterDialog() async {
+    final allTags = <String>{};
+    for (var node in _nodes) {
+      allTags.addAll(node.tags);
+    }
+    final sortedTags = allTags.toList()..sort();
+
+    final selected = Set<String>.from(_selectedTags);
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateLocal) => AlertDialog(
+          title: const Text('按标签筛选'),
+          content: SizedBox(
+            width: 400,
+            height: 400,
+            child: sortedTags.isEmpty
+                ? const Center(child: Text('暂无标签'))
+                : ListView.builder(
+                    itemCount: sortedTags.length,
+                    itemBuilder: (ctx, i) {
+                      final tag = sortedTags[i];
+                      return CheckboxListTile(
+                        dense: true,
+                        title: Text(tag, style: const TextStyle(fontSize: 14)),
+                        value: selected.contains(tag),
+                        onChanged: (v) {
+                          setStateLocal(() {
+                            if (v == true) {
+                              selected.add(tag);
+                            } else {
+                              selected.remove(tag);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                selected.clear();
+                setStateLocal(() {});
+              },
+              child: const Text('清空'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != true) return;
+    setState(() {
+      _selectedTags = Set<String>.from(selected);
+      _cachedFilteredNodes = null;
+    });
+  }
   Widget _buildContentGrid(List<Node> children, Map<String, Map<String, int>> folderStats) {
     // ✅ 应用书籍状态筛选
     final filteredChildren = _applyBookFilter(children);
@@ -1443,18 +1774,19 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       case WisdomViewMode.grid: return 6;
       case WisdomViewMode.large: return 3;
       case WisdomViewMode.split: return 4;
+      default: return 6;
     }
   }
 
-  double _getAspectRatio() {
+    double _getAspectRatio() {
     switch (_viewMode) {
       case WisdomViewMode.list: return 4.0;
       case WisdomViewMode.grid: return 0.7;
       case WisdomViewMode.large: return 0.8;
       case WisdomViewMode.split: return 0.8;
+      default: return 0.7;
     }
   }
-
   Widget _buildCard(Node node, Map<String, Map<String, int>> folderStats) {
     final cardWidth = 120.0;
     final cardHeight = 120.0;
@@ -1669,4 +2001,5 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       ),
     );
   }
+  
 }

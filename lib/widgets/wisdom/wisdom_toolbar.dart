@@ -2,7 +2,7 @@
 // 智库工具栏 — 从 wisdom_page 引用枚举
 
 import 'package:flutter/material.dart';
-import '../../pages/wisdom_page.dart';  // ✅ 引用 wisdom_page 中的枚举
+import '../../pages/wisdom_page.dart';
 
 class WisdomToolbar extends StatelessWidget {
   final WisdomViewMode currentMode;
@@ -13,6 +13,8 @@ class WisdomToolbar extends StatelessWidget {
   final VoidCallback onBatchDelete;
   final VoidCallback onBatchMove;
   final VoidCallback onBatchExport;
+  final VoidCallback onTagFilter;
+  final int selectedTagCount;
 
   const WisdomToolbar({
     super.key,
@@ -24,6 +26,8 @@ class WisdomToolbar extends StatelessWidget {
     required this.onBatchDelete,
     required this.onBatchMove,
     required this.onBatchExport,
+    required this.onTagFilter,
+    this.selectedTagCount = 0,
   });
 
   @override
@@ -46,16 +50,48 @@ class WisdomToolbar extends StatelessWidget {
                 _buildModeIcon(Icons.grid_on, WisdomViewMode.large),
                 const SizedBox(width: 4),
                 _buildModeIcon(Icons.view_column, WisdomViewMode.split),
+                const SizedBox(width: 4),
+                _buildModeIcon(Icons.dashboard_outlined, WisdomViewMode.cardWall),
+                const SizedBox(width: 4),
+                _buildModeIcon(Icons.timeline, WisdomViewMode.timeline),
+                const SizedBox(width: 4),
+                _buildModeIcon(Icons.photo_library_outlined, WisdomViewMode.gallery),
+                const SizedBox(width: 12),
+                GestureDetector(
+                  onTap: onTagFilter,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: selectedTagCount > 0 ? Colors.teal.shade100 : Colors.transparent,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.filter_alt_outlined,
+                          size: 20,
+                          color: selectedTagCount > 0 ? Colors.teal.shade700 : Colors.grey.shade600,
+                        ),
+                        if (selectedTagCount > 0) ...[
+                          const SizedBox(width: 2),
+                          Text(
+                            '$selectedTagCount',
+                            style: TextStyle(fontSize: 11, color: Colors.teal.shade700, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           const Spacer(),
           if (isSelectMode)
             Row(
               children: [
-                Text(
-                  '已选 $selectedCount',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
+                Text('已选 $selectedCount',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                 const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.ios_share, size: 20),
