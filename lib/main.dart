@@ -29,6 +29,11 @@ import 'widgets/floating_pet.dart';  // ✅ 导出 floatingPetKey + PetVisibilit
 import 'widgets/sync_indicator.dart';
 
 import 'pages/collection_page.dart';
+import 'pages/collection_page.dart';
+import 'services/focus_mode_notifier.dart';
+import 'models/note.dart';
+import 'widgets/quick_switch_dialog.dart';
+import 'pages/note_detail_page.dart';
 import 'pages/wisdom_page.dart';
 import 'pages/insight_page.dart';
 import 'pages/creation_page.dart' as creation;
@@ -379,6 +384,12 @@ class _NotebookPageState extends State<NotebookPage> {
       case 'italic':
         _insertMarkdown('*');
         break;
+      case 'focus':
+        focusModeNotifier.value = !focusModeNotifier.value;
+        break;
+      case 'quickSwitch':
+        _handleQuickSwitch();
+        break;
       default:
         break;
     }
@@ -401,7 +412,26 @@ class _NotebookPageState extends State<NotebookPage> {
       extentOffset: end + mark.length,
     );
   }
-
+  Future<void> _handleQuickSwitch() async {
+    final maps = await DatabaseService().getAllNotes(includeDeleted: false);
+    final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => QuickSwitchDialog(
+        notes: notes,
+        onSelect: (note) {
+          Navigator.pop(ctx);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => NoteDetailPage(entry: note),
+            ),
+          );
+        },
+      ),
+    );
+  }
   TextEditingController? _getFocusedController() {
     final focus = FocusManager.instance.primaryFocus;
     if (focus == null || focus.context == null) return null;

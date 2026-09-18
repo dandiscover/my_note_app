@@ -1,6 +1,7 @@
 // lib/widgets/writing/material_panel.dart
-// 写作素材面板 — 搜索 + 筛选 + 排序 + 插入
+// 写作素材面板 — 搜索 + 筛选 + 排序 + 插入 + 拖拽
 // E批：接 MaterialItem（卡片 + 笔记两源）
+// 功能批1 C：加 Draggable
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -25,11 +26,10 @@ class MaterialPanel extends StatefulWidget {
 
 class _MaterialPanelState extends State<MaterialPanel> {
   String _keyword = '';
-  MaterialItemType? _typeFilter; // null = 全部
+  MaterialItemType? _typeFilter;
   MaterialSortKey _sortKey = MaterialSortKey.timeDesc;
 
   List<MaterialItem> _filtered() {
-    // ⚠️ List.from——不直接引用 widget.items，避免 sort 改原 list
     var list = List<MaterialItem>.from(widget.items);
 
     if (_typeFilter != null) {
@@ -71,7 +71,6 @@ class _MaterialPanelState extends State<MaterialPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ─── 标题 + 计数 ───
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -97,7 +96,6 @@ class _MaterialPanelState extends State<MaterialPanel> {
               ],
             ),
           ),
-          // ─── 搜索框 ───
           Padding(
             padding: const EdgeInsets.all(8),
             child: TextField(
@@ -116,7 +114,6 @@ class _MaterialPanelState extends State<MaterialPanel> {
               ),
             ),
           ),
-          // ─── 筛选 chip + 排序 ───
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Row(
@@ -145,7 +142,6 @@ class _MaterialPanelState extends State<MaterialPanel> {
               ],
             ),
           ),
-          // ─── 列表 ───
           Expanded(
             child: filtered.isEmpty
                 ? Center(
@@ -176,7 +172,6 @@ class _MaterialPanelState extends State<MaterialPanel> {
                         _buildMaterialItem(filtered[index]),
                   ),
           ),
-          // ─── 底部提示 ───
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
@@ -226,106 +221,132 @@ class _MaterialPanelState extends State<MaterialPanel> {
         return MouseRegion(
           onEnter: (_) => setState(() => isHovered = true),
           onExit: (_) => setState(() => isHovered = false),
-          child: GestureDetector(
-            onTap: () {
-              if (item.type == MaterialItemType.card && item.card != null) {
-                widget.onInsertCard(item.card!);
-              } else if (item.type == MaterialItemType.note &&
-                  item.note != null) {
-                widget.onInsertNote(item.note!);
-              }
-            },
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isHovered ? Colors.teal.shade50 : Colors.white,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color:
-                      isHovered ? Colors.teal.shade300 : Colors.grey.shade200,
-                  width: isHovered ? 1.5 : 0.5,
+          child: Draggable<MaterialItem>(
+            data: item,
+            feedback: Material(
+              color: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.teal.shade300),
                 ),
-                boxShadow: isHovered
-                    ? [
-                        BoxShadow(
-                            color: Colors.teal.withValues(alpha: 0.08),
-                            blurRadius: 4)
-                      ]
-                    : null,
+                child: Text(
+                  item.title,
+                  style: TextStyle(fontSize: 12, color: Colors.teal.shade700),
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        item.type == MaterialItemType.card ? '📇' : '📝',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          item.title,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: isHovered
-                                ? Colors.teal.shade700
-                                : Colors.black87,
+            ),
+            childWhenDragging: Opacity(
+              opacity: 0.3,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.all(8),
+                child: Text(item.title, style: const TextStyle(fontSize: 13)),
+              ),
+            ),
+            child: GestureDetector(
+              onTap: () {
+                if (item.type == MaterialItemType.card && item.card != null) {
+                  widget.onInsertCard(item.card!);
+                } else if (item.type == MaterialItemType.note &&
+                    item.note != null) {
+                  widget.onInsertNote(item.note!);
+                }
+              },
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isHovered ? Colors.teal.shade50 : Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color:
+                        isHovered ? Colors.teal.shade300 : Colors.grey.shade200,
+                    width: isHovered ? 1.5 : 0.5,
+                  ),
+                  boxShadow: isHovered
+                      ? [
+                          BoxShadow(
+                              color: Colors.teal.withValues(alpha: 0.08),
+                              blurRadius: 4)
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          item.type == MaterialItemType.card ? '📇' : '📝',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: isHovered
+                                  ? Colors.teal.shade700
+                                  : Colors.black87,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 1,
+                        ),
+                        if (item.sourceType == 'book')
+                          Text(
+                            '📖',
+                            style: TextStyle(
+                                fontSize: 9, color: Colors.grey.shade500),
+                          ),
+                      ],
+                    ),
+                    if (item.summary.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          item.summary,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isHovered
+                                ? Colors.black87
+                                : Colors.grey.shade600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (item.sourceType == 'book')
-                        Text(
-                          '📖',
-                          style: TextStyle(
-                              fontSize: 9, color: Colors.grey.shade500),
+                    if (item.tags.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Wrap(
+                          spacing: 4,
+                          children: item.tags
+                              .take(2)
+                              .map((tag) => Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: _getTagColor(tag)
+                                          .withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(tag,
+                                        style: TextStyle(
+                                            fontSize: 7,
+                                            color: _getTagColor(tag))),
+                                  ))
+                              .toList(),
                         ),
-                    ],
-                  ),
-                  if (item.summary.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        item.summary,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isHovered
-                              ? Colors.black87
-                              : Colors.grey.shade600,
-                          fontStyle: FontStyle.italic,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  if (item.tags.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Wrap(
-                        spacing: 4,
-                        children: item.tags
-                            .take(2)
-                            .map((tag) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 4, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: _getTagColor(tag)
-                                        .withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(tag,
-                                      style: TextStyle(
-                                          fontSize: 7,
-                                          color: _getTagColor(tag))),
-                                ))
-                            .toList(),
-                      ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

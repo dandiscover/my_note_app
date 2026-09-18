@@ -114,6 +114,21 @@ class KeyboardShortcut {
         description: '关闭对话框或返回上一页',
         key: 'escape',
       ),
+      KeyboardShortcut(
+        id: 'focus',
+        name: '专注模式',
+        description: '切换编辑器专注模式',
+        key: 'f',
+        isCtrlRequired: true,
+        isShiftRequired: true,
+      ),
+      KeyboardShortcut(
+        id: 'quickSwitch',
+        name: '快速切换',
+        description: '快速切换笔记',
+        key: 'p',
+        isCtrlRequired: true,
+      ),
     ];
   }
 
@@ -128,7 +143,7 @@ class KeyboardShortcut {
     return parts.join('+');
   }
 
-  // ─── 🆕 从显示名称解析为 KeyboardShortcut ─────────────────────────────
+  // ─── 从显示名称解析为 KeyboardShortcut ─────────────────────────────
   static KeyboardShortcut? fromDisplayName(String displayName) {
     final parts = displayName.split('+');
     if (parts.isEmpty) return null;
