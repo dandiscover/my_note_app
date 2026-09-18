@@ -25,7 +25,6 @@ class MarkdownKernel extends EditorKernel {
   final EditorContext _ctx;
   _MarkdownBodyState? _state;
 
-  // ─── 零件化：controller 归 kernel 所有（页面组装时能直接拿）───
   late final TextEditingController titleController =
       TextEditingController(text: _ctx.entry.title);
   late final TextEditingController contentController =
@@ -50,7 +49,7 @@ class MarkdownKernel extends EditorKernel {
   @override
   void insertText(String text) => _state?.insertText(text);
 
-  @override
+    @override
   void updateEntry(NotebookEntry entry) {
     _ctx.entry = entry;
     _state?.updateEntry(entry);
@@ -71,12 +70,9 @@ class MarkdownKernel extends EditorKernel {
   void submitTagInput(String value) => _state?.submitTagInput(value);
   void createReviewCard() => _state?.createReviewCardExternal();
 
-  // ─── 零件化：dispose（页面须调）───
+  // ─── 零件化：dispose ───
   void dispose() {
-    titleController.dispose();
     contentController.dispose();
-    tagController.dispose();
-    subtaskController.dispose();
   }
 }
 

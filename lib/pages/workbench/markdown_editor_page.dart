@@ -4,14 +4,10 @@ import '../../models/explore_task.dart';
 import 'workbench.dart';
 import 'editor_kernel.dart';
 import 'kernel_markdown.dart';
+import 'editor_title_bar.dart';
+import 'editor_bottom_bar.dart';
 
-/// Markdown 编辑器页壳——D批块5b
-///
-/// 场景两个：
-///  1. push（wisdom 新建笔记）：shouldPopOnSave = true，保存后关闭本页
-///  2. tab（adaptive 第 5 tab）：shouldPopOnSave = false，保存后留原地
-///
-/// 结构 = Scaffold + Workbench + 可选 pop
+/// Markdown 编辑器页壳——D批块5b（丁方案零件化）
 class MarkdownEditorPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -62,20 +58,68 @@ class _MarkdownEditorPageState extends State<MarkdownEditorPage> {
     List<ExploreTask> exploreTasks,
   ) async {
     final success = await widget.onSave(
-      entry, title, content, editorMode, tags, inquiryQuestion, exploreTasks,
+      entry,
+      title,
+      content,
+      editorMode,
+      tags,
+      inquiryQuestion,
+      exploreTasks,
     );
     if (success && mounted && widget.shouldPopOnSave) {
       Navigator.pop(context, true);
     }
+    if (mounted) setState(() {});
     return success;
+  }
+
+  @override
+  void dispose() {
+    _kernel.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Workbench(
-        kernel: _kernel,
-        entry: widget.entry,
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            EditorTitleBar(
+              controller: _kernel.titleController,
+              onChanged: () => setState(() {}),
+            ),
+            const Divider(height: 8),
+            Expanded(
+              child: Workbench(
+                kernel: _kernel,
+                entry: widget.entry,
+              ),
+            ),
+            const Divider(height: 8),
+            EditorBottomBar(
+              wordCount: _kernel.wordCount,
+              lineCount: _kernel.lineCount,
+              tagCount: _kernel.tags.length,
+              isMarkdown: _kernel.isMarkdown,
+              onMarkdownChanged: (v) {
+                _kernel.toggleMarkdown(v);
+                setState(() {});
+              },
+              isSaving: _kernel.isSaving,
+              onSave: () async {
+                await _kernel.save();
+                if (mounted) setState(() {});
+              },
+              onCancel: null,
+              onGenerateCard: _kernel.createReviewCard,
+              isGeneratingCard: _kernel.isGeneratingCard,
+              saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+              isFromCollection: widget.isFromCollection,
+            ),
+          ],
+        ),
       ),
     );
   }
