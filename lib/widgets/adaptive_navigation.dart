@@ -9,8 +9,9 @@ import '../pages/wisdom_page.dart';
 import '../pages/insight_page.dart';
 import '../pages/creation_page.dart' as creation;
 import '../pages/profile_page.dart';
-import '../pages/writing_page.dart';
-
+import '../pages/workbench/markdown_editor_page.dart';
+import '../database_service.dart';
+import '../models/note.dart';
 /// 设备类型枚举
 enum DeviceType { mobile, tablet, desktop, web }
 
@@ -38,6 +39,7 @@ class AdaptiveNavigation extends StatefulWidget {
 
 class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
   int _currentIndex = 0;
+  NotebookEntry? _draftNote;
 
   // ─── 内置平台检测 ──────────────────────────────────────────
 
@@ -71,7 +73,46 @@ class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
     setState(() => _currentIndex = index);
     widget.onTabChange?.call(index);
   }
-
+  /// 第 5 tab「写作」——无参默认 editor 模式。
+  ///
+  /// ⚠️ build 副作用：首次 sidebar 渲染时建草稿，缓存到 _draftNote。
+  /// 跨 rebuild 保留，避免 _entry 被替换触发 kernel 重建。
+  Widget _buildWritingTab() {
+    _draftNote ??= NotebookEntry(
+      id: 'tab_draft_${DateTime.now().millisecondsSinceEpoch}',
+      title: '无标题',
+      content: '',
+      tags: [],
+      updatedAt: DateTime.now(),
+      editorMode: 'plain',
+    );
+    return MarkdownEditorPage(
+      entry: _draftNote!,
+      isFromCollection: false,
+      shouldPopOnSave: false,
+      onSave: (entry, title, content, editorMode, tags, inquiryQuestion, exploreTasks) async {
+        final noteMap = {
+          'id': entry.id,
+          'title': title,
+          'content': content,
+          'status': 'active',
+          'editorMode': editorMode,
+          'updatedAt': DateTime.now().toIso8601String(),
+          'isLocked': 0,
+          'inquiryQuestion': inquiryQuestion,
+          'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
+        };
+        await DatabaseService().insertNote(noteMap);
+        await DatabaseService().attachNoteToNode(
+          noteId: entry.id,
+          title: title,
+          parentId: null,
+          tags: tags,
+        );
+        return true;
+      },
+    );
+  }
   @override
   Widget build(BuildContext context) {
     final deviceType = _getDeviceType(context);
@@ -120,7 +161,7 @@ class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
     ];
 
     final pageWidgets = showSidebar
-        ? [...children, const WritingPage()]
+        ? [...children, _buildWritingTab()]
         : children;
 
     final pageContent = IndexedStack(

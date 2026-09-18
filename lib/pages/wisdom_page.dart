@@ -16,6 +16,8 @@
 // ✅ 指导卡：_showCardDetailDialog 里，系统预置卡（system_guide_card）不显示“删除”按钮
 // ✅ 第四轮批 1：搜索数据源改 DatabaseService.searchIndex()，不建新页（老白裁 A）
 import 'dart:convert';
+import 'workbench/markdown_editor_page.dart';
+import 'workbench/clue_board_page.dart';
 import 'richtext_editor_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -29,7 +31,6 @@ import '../services/cache_manager.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
 import '../mixins/state_mixin.dart';
-import '../widgets/fullscreen_editor.dart';
 import '../widgets/wisdom/wisdom_folder_card.dart';
 import '../widgets/wisdom/wisdom_note_card.dart';
 import '../widgets/wisdom/wisdom_book_card.dart';
@@ -39,7 +40,6 @@ import '../widgets/wisdom/wisdom_draggable.dart';
 import '../widgets/wisdom/wisdom_search_bar.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
-import 'writing_page.dart';
 // ✅ 第四轮批 2a：标记汇总面板
 import '../widgets/mark_summary/mark_summary_item.dart';
 import '../widgets/mark_summary/mark_summary_panel.dart';
@@ -318,7 +318,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   void _openClueBoard() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => WritingPage(initialViewMode: WritingViewMode.clueBoard)));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const ClueBoardPage()));
   }
 
   Future<void> _createFolder() async {
@@ -359,16 +359,17 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => FullscreenEditor(
+        builder: (_) => MarkdownEditorPage(
           entry: tempNote,
           isFromCollection: true,
-          onSave: (entry, title, content, mode, tags, inquiryQuestion, exploreTasks) async {
+          shouldPopOnSave: true,
+          onSave: (entry, title, content, editorMode, tags, inquiryQuestion, exploreTasks) async {
             final noteMap = {
               'id': entry.id,
               'title': title,
               'content': content,
               'status': 'active',
-              'editorMode': mode,
+              'editorMode': editorMode,
               'updatedAt': DateTime.now().toIso8601String(),
               'isLocked': 0,
               'inquiryQuestion': inquiryQuestion,
