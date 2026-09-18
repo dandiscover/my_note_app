@@ -11,7 +11,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
-import 'pages/collection_page.dart';
 import 'pages/workbench/editor_kernel.dart';
 import 'models/pet.dart';
 import 'dart:io';
@@ -25,7 +24,6 @@ import 'services/pet_service.dart';
 import 'services/env_service.dart';
 import 'services/sync/sync_manager.dart';
 import 'database_service.dart';
-import 'widgets/fullscreen_editor.dart';
 import 'widgets/adaptive_navigation.dart';
 import 'widgets/floating_pet.dart';  // ✅ 导出 floatingPetKey + PetVisibilityController
 import 'widgets/sync_indicator.dart';
