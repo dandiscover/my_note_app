@@ -44,6 +44,7 @@ import 'workbench/workbench.dart';
 import 'workbench/kernel_markdown.dart';
 import 'workbench/editor_kernel.dart';
 import 'workbench/editor_material_slot.dart';
+import 'workbench/editor_explore_area.dart';
 import '../models/note.dart';
 import '../utils/app_string_utils.dart';
 import '../models/card.dart';
@@ -766,7 +767,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
             if (_entry.exploreTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
-              _buildExploreSummaryTile(),
+              EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
             ],
             const SizedBox(height: 12),
             _buildCraftingSection(),
@@ -827,7 +828,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
             if (_entry.exploreTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
-              _buildExploreSummaryTile(),
+              EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
             ],
             const SizedBox(height: 12),
             _buildCraftingSection(),
@@ -1030,61 +1031,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ],
     );
   }
-
-  Widget _buildExploreSummaryTile() {
-    final total = _entry.exploreTasks.length;
-    final done = _entry.exploreTasks
-        .where((t) => t.status == ExploreTaskStatus.completed)
-        .length;
-    final question = _entry.inquiryQuestion ?? '未设置主问题';
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Colors.purple.shade200, width: 0.5),
-      ),
-      color: Colors.purple.shade50,
-      child: InkWell(
-        onTap: _showExploreSummary,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              const Icon(Icons.explore, color: Colors.purple, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      question,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '共 $total 个行动 · 已完成 $done / $total',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.grey),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
   Widget _buildEditMode() {
     // 防御：richtext 不该走到这里（initState 强制读模式，
     // _toggleMode 走 push）。若真到了，显示占位，不崩。
@@ -1180,7 +1126,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   ),
                 if (_entry.exploreTasks.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  _buildExploreSummaryTile(),
+                  EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
                 ],
                 Expanded(
                   child: DragTarget<MaterialItem>(
