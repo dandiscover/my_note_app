@@ -81,10 +81,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   late NotebookEntry _entry;
 
   // ✅ 笔记加工台最小版：状态字段
-  final TextEditingController _inquiryConclusionCtrl = TextEditingController();
   List<CardModel> _noteCards = [];
-  bool _isSavingCrafting = false;
-  bool _craftingDirty = false;
 
   // ✅ 子笔记嵌套：子笔记数缓存（A 方案，避免每次 build 打库）
   int _subNotesCount = 0;
@@ -104,8 +101,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       _isReadMode = !widget.isFromCollection;
     }
     _entry = widget.entry;
-    _inquiryConclusionCtrl.text = _entry.inquiryConclusion ?? '';
-    _inquiryConclusionCtrl.addListener(_onInquiryConclusionChanged);
     _loadNoteCards();
     _loadSubNotesCount();
     _loadIndexCards();
@@ -113,19 +108,12 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   @override
   void dispose() {
-    _inquiryConclusionCtrl.removeListener(_onInquiryConclusionChanged);
-    _inquiryConclusionCtrl.dispose();
     super.dispose();
   }
 
-  void _onInquiryConclusionChanged() {
-    final current = _inquiryConclusionCtrl.text.trim();
-    final saved = _entry.inquiryConclusion ?? '';
-    final isDirty = current != saved;
-    if (_craftingDirty != isDirty) {
-      setState(() => _craftingDirty = isDirty);
-    }
-  }
+      
+
+
 
   // ─── 加工台：加载本笔记的卡片 ─────────────────────
   Future<void> _loadNoteCards() async {
@@ -163,49 +151,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  // ─── 加工台：保存加工区字段（独立方法，不复用 _saveNote） ─────
-  Future<void> _saveCraftingFields() async {
-    if (_isSavingCrafting) return;
-    setState(() => _isSavingCrafting = true);
-    try {
-      final conclusion = _inquiryConclusionCtrl.text.trim();
-      final updated = NotebookEntry(
-        id: _entry.id,
-        title: _entry.title,
-        content: _entry.content,
-        updatedAt: DateTime.now(),
-        status: _entry.status,
-        editorMode: _entry.editorMode,
-        tags: _entry.tags,
-        isLocked: _entry.isLocked,
-        inquiryQuestion: _entry.inquiryQuestion,
-        inquiryConclusion: conclusion.isEmpty ? null : conclusion,
-        exploreTasks: _entry.exploreTasks,
-        contentFormat: _entry.contentFormat,   // ← T-167：复制点显式带字段
-      );
-      await _db.updateNote(updated.toMap());
-      if (mounted) {
-        setState(() {
-          _entry = updated;
-          _isSavingCrafting = false;
-          final current = _inquiryConclusionCtrl.text.trim();
-          final saved = updated.inquiryConclusion ?? '';
-          _craftingDirty = current != saved;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ 已保存'), duration: Duration(seconds: 1)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSavingCrafting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
   // ─── 保存笔记 ─────────────────────────────
   Future<bool> _saveNote(
     NotebookEntry entry,
@@ -215,7 +160,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     List<String> tags,
     String? inquiryQuestion,
     List<ExploreTask> exploreTasks,
-  ) async {
+  ) 
+  async {
     if (_isSaving) return false;
 
     setState(() {
@@ -750,10 +696,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         setState(() {
           _entry = fresh;
         });
-        // 再设 ctrl.text（在 setState 外）。
-        // 触发 listener → listener 比较 ctrl.text 与 _entry.inquiryConclusion
-        // → 一致 → 不 setState。
-        _inquiryConclusionCtrl.text = fresh.inquiryConclusion ?? '';
       }
     } catch (e) {
       debugPrint('重新加载笔记失败: $e');
@@ -1143,7 +1085,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   Widget _buildCraftingSection() {
-    final hasQuestion = _entry.inquiryQuestion != null && _entry.inquiryQuestion!.isNotEmpty;
+    final hasQuestion = _entry.inquiryQuestion != null && _entry.inquiryQuestion!.trim().isNotEmpty;
+    final hasConclusion = _entry.inquiryConclusion != null && _entry.inquiryConclusion!.trim().isNotEmpty;
+
+    // ✅ B 批：无主问题 + 无结论 → 不显示
+    if (!hasQuestion && !hasConclusion) return const SizedBox.shrink();
 
     return Card(
       elevation: 0,
@@ -1201,48 +1147,22 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               ],
             ),
             const SizedBox(height: 6),
-            TextField(
-              controller: _inquiryConclusionCtrl,
-              maxLines: null,
-              style: const TextStyle(fontSize: 14, height: 1.4),
-              decoration: InputDecoration(
-                hintText: '写下你的联想、类比、触动',
-                hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                (_entry.inquiryConclusion?.trim().isNotEmpty ?? false)
+                    ? _entry.inquiryConclusion!
+                    : '（暂无结论，点右上角编辑）',
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                  color: (_entry.inquiryConclusion?.trim().isNotEmpty ?? false)
+                      ? null
+                      : Colors.grey.shade400,
+                ),
               ),
             ),
 
-            const SizedBox(height: 8),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (_isSavingCrafting)
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  TextButton(
-                    onPressed: _craftingDirty ? _saveCraftingFields : null,
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(
-                      _craftingDirty ? '保存' : '已保存',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: _craftingDirty ? Colors.purple : Colors.grey.shade400,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
           ],
         ),
       ),
