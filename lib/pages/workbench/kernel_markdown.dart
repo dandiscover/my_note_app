@@ -25,6 +25,14 @@ class MarkdownKernel extends EditorKernel {
   final EditorContext _ctx;
   _MarkdownBodyState? _state;
 
+  // ─── 零件化：controller 归 kernel 所有（页面组装时能直接拿）───
+  late final TextEditingController titleController =
+      TextEditingController(text: _ctx.entry.title);
+  late final TextEditingController contentController =
+      TextEditingController(text: _ctx.entry.content);
+  late final TextEditingController tagController = TextEditingController();
+  late final TextEditingController subtaskController = TextEditingController();
+
   MarkdownKernel(this._ctx);
 
   @override
@@ -47,6 +55,29 @@ class MarkdownKernel extends EditorKernel {
     _ctx.entry = entry;
     _state?.updateEntry(entry);
   }
+
+  // ─── 零件化：暴露状态 ───
+  bool get isMarkdown => _state?._isMarkdown ?? false;
+  bool get isSaving => _state?._isSavingLocal ?? false;
+  bool get isGeneratingCard => _state?._isGeneratingCard ?? false;
+  List<String> get tags => _state?._tags ?? const [];
+  int get wordCount => contentController.text.length;
+  int get lineCount => contentController.text.split('\n').length;
+
+  // ─── 零件化：页面调用的方法 ───
+  void toggleMarkdown(bool v) => _state?.toggleMarkdown(v);
+  void addTagExternal(String tag) => _state?.addTagExternal(tag);
+  void removeTagExternal(String tag) => _state?.removeTagExternal(tag);
+  void submitTagInput(String value) => _state?.submitTagInput(value);
+  void createReviewCard() => _state?.createReviewCardExternal();
+
+  // ─── 零件化：dispose（页面须调）───
+  void dispose() {
+    titleController.dispose();
+    contentController.dispose();
+    tagController.dispose();
+    subtaskController.dispose();
+  }
 }
 
 class _MarkdownBody extends StatefulWidget {
@@ -59,10 +90,13 @@ class _MarkdownBody extends StatefulWidget {
 }
 
 class _MarkdownBodyState extends State<_MarkdownBody> {
-  late TextEditingController _titleController;
-  late TextEditingController _contentController;
-  late TextEditingController _tagController;
-  late TextEditingController _subtaskController;
+  // 零件化：controller 归 kernel——本类 getter 转发
+  TextEditingController get _titleController => widget.kernel.titleController;
+  TextEditingController get _contentController =>
+      widget.kernel.contentController;
+  TextEditingController get _tagController => widget.kernel.tagController;
+  TextEditingController get _subtaskController =>
+      widget.kernel.subtaskController;
   bool _isMarkdown = false;
   List<String> _tags = [];
   final CardService _cardService = CardService();
@@ -86,10 +120,6 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   void initState() {
     super.initState();
     _entry = widget.kernel.ctx.entry;
-    _titleController = TextEditingController(text: _entry.title);
-    _contentController = TextEditingController(text: _entry.content);
-    _tagController = TextEditingController();
-    _subtaskController = TextEditingController();
     _isMarkdown = _entry.editorMode == 'markdown';
     _tags = List.from(_entry.tags);
 
@@ -108,10 +138,6 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _contentController.dispose();
-    _tagController.dispose();
-    _subtaskController.dispose();
     _contentFocus.dispose();
     _typingTimer?.cancel();
     _inquiryController.dispose();
@@ -387,6 +413,25 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   /// 对外接口——供 MarkdownKernel.insertText 转发
   void insertText(String text) => _insertTextIntoContent(text);
 
+  // ─── 零件化：对外方法 ───
+  void toggleMarkdown(bool v) => setState(() => _isMarkdown = v);
+  void addTagExternal(String tag) {
+    final t = tag.trim();
+    if (t.isEmpty || _tags.contains(t)) return;
+    setState(() => _tags.add(t));
+  }
+  void removeTagExternal(String tag) => setState(() => _tags.remove(tag));
+  void submitTagInput(String value) {
+    if (value.contains(',')) {
+      for (var tag in value.split(',')) {
+        _addTag(tag);
+      }
+    } else {
+      _addTag(value);
+    }
+  }
+  void createReviewCardExternal() => _createReviewCard();
+
   /// 外部 entry 更新——由 kernel.updateEntry 转发
   void updateEntry(NotebookEntry newEntry) {
     setState(() {
@@ -409,16 +454,6 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // ─── 标题 ──────────────────────────────
-              TextField(
-                controller: _titleController,
-                style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.bold),
-                decoration: const InputDecoration(
-                    labelText: '标题', border: InputBorder.none),
-                onChanged: (_) => setState(() {}),
-              ),
-              const Divider(height: 8),
 
               // ─── 已保存的探究问题 ────────────────────
               if (_inquiryQuestion != null && !_isInquiryEditing)
@@ -657,106 +692,6 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
                 ),
                 const Divider(height: 8),
               ],
-
-              // ─── 底部工具栏 ──────────────────────────
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Text('📝 $wordCount 字',
-                          style: const TextStyle(
-                              color: Colors.grey, fontSize: 12)),
-                      const SizedBox(width: 16),
-                      if (_isMarkdown)
-                        Text('📄 $lineCount 行',
-                            style: const TextStyle(
-                                color: Colors.grey, fontSize: 12)),
-                      const SizedBox(width: 16),
-                      if (_tags.isNotEmpty)
-                        Text('🏷️ ${_tags.length}',
-                            style: const TextStyle(
-                                color: Colors.grey, fontSize: 12)),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Tooltip(
-                        message: '生成复习卡片',
-                        child: IconButton(
-                          icon: _isGeneratingCard
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.purple))
-                              : const Icon(Icons.auto_awesome,
-                                  size: 20, color: Colors.purple),
-                          onPressed:
-                              _isGeneratingCard ? null : _createReviewCard,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('📝', style: TextStyle(fontSize: 14)),
-                            Switch(
-                              value: _isMarkdown,
-                              onChanged: (value) {
-                                setState(() {
-                                  _isMarkdown = value;
-                                });
-                              },
-                              activeThumbColor: Colors.blue,
-                              inactiveTrackColor: Colors.grey.shade300,
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            const Text('📄', style: TextStyle(fontSize: 14)),
-                          ],
-                        ),
-                      ),
-                      TextButton(
-                        onPressed:
-                            isSaving ? null : () => Navigator.pop(context),
-                        child: const Text('取消'),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        height: 40,
-                        child: ElevatedButton(
-                          onPressed: isSaving ? null : save,
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(100, 40),
-                            backgroundColor: isFromCollection
-                                ? Colors.blue.shade700
-                                : null,
-                            foregroundColor: isFromCollection
-                                ? Colors.white
-                                : null,
-                          ),
-                          child: isSaving
-                              ? const SizedBox(
-                                  height: 22,
-                                  width: 22,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                      color: Colors.white))
-                              : Text(
-                                  isFromCollection ? '📥 收入智库' : '💾 保存',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
             ],
           ),
         ),
