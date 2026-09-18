@@ -19,13 +19,13 @@ import '../services/card_service.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
 import '../mixins/state_mixin.dart';
-import '../widgets/fullscreen_editor.dart';
+
 import '../widgets/task/task_toolbar.dart';
 import '../widgets/quick_task_card.dart';
 import '../widgets/writing/material_panel.dart';
 import '../widgets/explore_task_execute_dialog.dart';
 import 'writing_page.dart';
-import '../widgets/floating_pet.dart';
+import 'workbench/markdown_editor_page.dart';
 import '../utils/app_date_utils.dart';
 
 enum ViewMode { list, quadrant }
@@ -649,15 +649,48 @@ class CreationPageState extends State<CreationPage>
           const SizedBox(height: 8),
           const Text('进入全屏写作环境，调用素材库', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => WritingPage(),
-                ),
-              );
-            },
+                      ElevatedButton.icon(
+              onPressed: () {
+                final draft = NotebookEntry(
+                  id: 'creation_draft_${DateTime.now().millisecondsSinceEpoch}',
+                  title: '无标题',
+                  content: '',
+                  tags: [],
+                  updatedAt: DateTime.now(),
+                  editorMode: 'plain',
+                );
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MarkdownEditorPage(
+                      entry: draft,
+                      isFromCollection: false,
+                      shouldPopOnSave: true,
+                      onSave: (entry, title, content, editorMode, tags, inquiryQuestion, exploreTasks) async {
+                        final noteMap = {
+                          'id': entry.id,
+                          'title': title,
+                          'content': content,
+                          'status': 'active',
+                          'editorMode': editorMode,
+                          'updatedAt': DateTime.now().toIso8601String(),
+                          'isLocked': 0,
+                          'inquiryQuestion': inquiryQuestion,
+                          'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
+                        };
+                        await DatabaseService().insertNote(noteMap);
+                        await DatabaseService().attachNoteToNode(
+                          noteId: entry.id,
+                          title: title,
+                          parentId: null,
+                          tags: tags,
+                        );
+                        return true;
+                      },
+                    ),
+                  ),
+                );
+              },
             icon: const Icon(Icons.arrow_forward),
             label: const Text('开始写作'),
             style: ElevatedButton.styleFrom(
