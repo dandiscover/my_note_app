@@ -24,7 +24,6 @@ import '../widgets/task/task_toolbar.dart';
 import '../widgets/quick_task_card.dart';
 import '../widgets/writing/material_panel.dart';
 import '../widgets/explore_task_execute_dialog.dart';
-import 'writing_page.dart';
 import 'workbench/markdown_editor_page.dart';
 import '../utils/app_date_utils.dart';
 
