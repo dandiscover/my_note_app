@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 /// 底栏——工作台零件 · 丁方案
-///
-/// 布局：左（字数/行数/标签数）+ 右（生成卡片 / Markdown 开关 / 取消 / 保存）
 class EditorBottomBar extends StatelessWidget {
   final int wordCount;
   final int lineCount;
@@ -14,7 +12,7 @@ class EditorBottomBar extends StatelessWidget {
   final VoidCallback? onCancel;
   final VoidCallback? onGenerateCard;
   final bool isGeneratingCard;
-  final String saveLabel;  // '💾 保存' / '📥 收入智库'
+  final String saveLabel;
   final bool isFromCollection;
 
   const EditorBottomBar({
@@ -103,9 +101,8 @@ class EditorBottomBar extends StatelessWidget {
                   onPressed: isSaving ? null : onSave,
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size(100, 40),
-                    backgroundColor: isFromCollection
-                        ? Colors.blue.shade700
-                        : null,
+                    backgroundColor:
+                        isFromCollection ? Colors.blue.shade700 : null,
                     foregroundColor:
                         isFromCollection ? Colors.white : null,
                   ),
@@ -116,7 +113,8 @@ class EditorBottomBar extends StatelessWidget {
                           child: CircularProgressIndicator(
                               strokeWidth: 2.5, color: Colors.white))
                       : Text(saveLabel,
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                          style:
+                              const TextStyle(fontWeight: FontWeight.w600)),
                 ),
               ),
             ],

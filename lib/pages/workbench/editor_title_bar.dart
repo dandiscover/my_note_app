@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../models/note.dart';
-import '../../utils/app_string_utils.dart';
 
 /// 标题栏——工作台零件 · 丁方案
 class EditorTitleBar extends StatelessWidget {
