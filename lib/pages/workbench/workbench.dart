@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
+import '../../models/note.dart';
 import 'editor_kernel.dart';
 
-/// 工作台外壳——D 批块 3
+/// 工作台外壳——D 批块 3（块 5a 扩 entry 更新链路）
 ///
-/// 职责三条：
-/// 1. 吃一个 EditorKernel 实例
+/// 职责：
+/// 1. 吃一个 EditorKernel 实例 + 当前 entry
 /// 2. 生命周期内接管焦点（initState → focus / dispose → blur）
-/// 3. build 转发给 kernel——外壳不持编辑器状态，状态在内核里
+/// 3. entry 变化时通知 kernel.updateEntry
+/// 4. build 转发给 kernel
 ///
 /// 设计约束：内核必须 `extends EditorKernel`（静态字段不被 implements 继承）
 class Workbench extends StatefulWidget {
   final EditorKernel kernel;
+  final NotebookEntry entry;
 
   const Workbench({
     super.key,
     required this.kernel,
+    required this.entry,
   });
 
   @override
@@ -33,6 +37,9 @@ class _WorkbenchState extends State<Workbench> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.kernel != widget.kernel) {
       EditorKernel.focus(widget.kernel);
+    }
+    if (oldWidget.entry != widget.entry) {
+      widget.kernel.updateEntry(widget.entry);
     }
   }
 

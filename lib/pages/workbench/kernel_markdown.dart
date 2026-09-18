@@ -41,6 +41,12 @@ class MarkdownKernel extends EditorKernel {
 
   @override
   void insertText(String text) => _state?.insertText(text);
+
+  @override
+  void updateEntry(NotebookEntry entry) {
+    _ctx.entry = entry;
+    _state?.updateEntry(entry);
+  }
 }
 
 class _MarkdownBody extends StatefulWidget {
@@ -62,6 +68,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   final CardService _cardService = CardService();
   final FocusNode _contentFocus = FocusNode();
   bool _isGeneratingCard = false;
+  bool _isSavingLocal = false;
 
   // ─── 深度笔记入口状态 ─────────────────────────────
   String? _inquiryQuestion;
@@ -380,12 +387,19 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   /// 对外接口——供 MarkdownKernel.insertText 转发
   void insertText(String text) => _insertTextIntoContent(text);
 
+  /// 外部 entry 更新——由 kernel.updateEntry 转发
+  void updateEntry(NotebookEntry newEntry) {
+    setState(() {
+      _entry = newEntry;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final wordCount = _contentController.text.length;
     final lineCount = _contentController.text.split('\n').length;
     final isExploreMode = widget.kernel.ctx.exploreTaskId != null;
-    final isSaving = widget.kernel.ctx.isSaving;
+    final isSaving = _isSavingLocal;
     final isFromCollection = widget.kernel.ctx.isFromCollection;
 
     return Material(
@@ -824,32 +838,38 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
 
   /// 保存——原 _handleSave，去 pop，返回 bool 给外壳
   Future<bool> save() async {
-    final title = _titleController.text.trim();
-    final content = _contentController.text.trim();
-    if (title.isEmpty && content.isEmpty) {
-      _showLightToast('标题和内容不能都为空');
-      return false;
+    if (_isSavingLocal) return false;
+    setState(() => _isSavingLocal = true);
+    try {
+      final title = _titleController.text.trim();
+      final content = _contentController.text.trim();
+      if (title.isEmpty && content.isEmpty) {
+        _showLightToast('标题和内容不能都为空');
+        return false;
+      }
+
+      final updatedEntry = _entry.copyWith(
+        title: title,
+        content: content,
+        editorMode: _isMarkdown ? 'markdown' : 'plain',
+        tags: _tags,
+        inquiryQuestion: _inquiryQuestion,
+        exploreTasks: _entry.exploreTasks,
+        updatedAt: DateTime.now(),
+      );
+
+      return await widget.kernel.ctx.onSave(
+        updatedEntry,
+        updatedEntry.title,
+        updatedEntry.content,
+        updatedEntry.editorMode,
+        updatedEntry.tags,
+        updatedEntry.inquiryQuestion,
+        updatedEntry.exploreTasks,
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingLocal = false);
     }
-
-    final updatedEntry = _entry.copyWith(
-      title: title,
-      content: content,
-      editorMode: _isMarkdown ? 'markdown' : 'plain',
-      tags: _tags,
-      inquiryQuestion: _inquiryQuestion,
-      exploreTasks: _entry.exploreTasks,
-      updatedAt: DateTime.now(),
-    );
-
-    return await widget.kernel.ctx.onSave(
-      updatedEntry,
-      updatedEntry.title,
-      updatedEntry.content,
-      updatedEntry.editorMode,
-      updatedEntry.tags,
-      updatedEntry.inquiryQuestion,
-      updatedEntry.exploreTasks,
-    );
   }
 
   Color _getTagColor(String tag) {

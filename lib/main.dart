@@ -11,6 +11,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
+import 'pages/collection_page.dart';
+import 'pages/workbench/editor_kernel.dart';
 import 'models/pet.dart';
 import 'dart:io';
 import 'web_shortcut.dart'
@@ -357,11 +359,11 @@ class _NotebookPageState extends State<NotebookPage> {
   void _executeShortcut(String id) {
     switch (id) {
       case 'save':
-        final editorActive = FullscreenEditor.isActive;
+        final editorActive = EditorKernel.isActive;
         final dialogActive = CollectionPage.isActive;
 
         if (editorActive) {
-          FullscreenEditor.triggerSave();
+          EditorKernel.triggerSave();
           _showShortcutSnackBar('💾 笔记已保存');
         } else if (dialogActive) {
           CollectionPage.triggerSave();
@@ -494,11 +496,11 @@ class _NotebookPageState extends State<NotebookPage> {
           }
 
           if (isCtrl && keyName == 's') {
-            final editorActive = FullscreenEditor.isActive;
+            final editorActive = EditorKernel.isActive;
             final dialogActive = CollectionPage.isActive;
 
             if (editorActive) {
-              FullscreenEditor.triggerSave();
+              EditorKernel.triggerSave();
               _showShortcutSnackBar('💾 笔记已保存');
             } else if (dialogActive) {
               CollectionPage.triggerSave();

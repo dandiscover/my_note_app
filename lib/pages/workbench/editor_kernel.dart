@@ -16,8 +16,9 @@ typedef SaveCallback = Future<bool> Function(
 
 /// 内核上下文——字段对齐 FullscreenEditor 全部 final 字段
 /// （fullscreen_editor.dart:25-40）
+/// D批块5a：entry 去 final（Workbench.didUpdateWidget 可改）
 class EditorContext {
-  final NotebookEntry entry;
+  NotebookEntry entry;
   final bool isFromCollection;
   final SaveCallback onSave;
   final bool isSaving;
@@ -25,7 +26,8 @@ class EditorContext {
   final Function(String)? onAddSubtask;
   final void Function(String question)? onInquiryConfirmed;
 
-  const EditorContext({
+  // D批块5a：去 const（entry 非 final）
+  EditorContext({
     required this.entry,
     this.isFromCollection = false,
     required this.onSave,
@@ -47,6 +49,10 @@ abstract class EditorKernel {
   Widget build(BuildContext context);
   Future<bool> save();
   void insertText(String text);
+
+  /// 上下文 entry 更新通知——Workbench.didUpdateWidget 调用
+  /// 空默认实现：子类可选覆盖。RichtextKernel 暂不覆盖（债，块 5b）
+  void updateEntry(NotebookEntry entry) {}
 
   // ── 静态焦点管理（复用 FullscreenEditor 模式）──
   static EditorKernel? _active;

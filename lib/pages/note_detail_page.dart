@@ -39,6 +39,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database_service.dart';
+import 'workbench/workbench.dart';
+import 'workbench/kernel_markdown.dart';
+import 'workbench/editor_kernel.dart';
 import '../models/note.dart';
 import '../utils/app_string_utils.dart';
 import '../models/card.dart';
@@ -46,7 +49,6 @@ import '../models/explore_task.dart';
 import '../services/card_service.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
-import '../widgets/fullscreen_editor.dart';
 import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
 import '../widgets/explore_task_summary_dialog.dart';
@@ -81,6 +83,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   String? _errorMessage;
   bool _isReadMode = true;
   late NotebookEntry _entry;
+  late MarkdownKernel _kernel;
 
   // ✅ 笔记加工台最小版：状态字段
   List<CardModel> _noteCards = [];
@@ -103,6 +106,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       _isReadMode = !widget.isFromCollection;
     }
     _entry = widget.entry;
+    _kernel = MarkdownKernel(EditorContext(
+      entry: _entry,
+      isFromCollection: widget.isFromCollection,
+      onSave: _saveNote,
+      isSaving: _isSaving,
+      onInquiryConfirmed: _handleInquiryConfirmed,
+    ));
     _loadNoteCards();
     _loadSubNotesCount();
     _loadIndexCards();
@@ -1084,12 +1094,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   _buildExploreSummaryTile(),
                 ],
                 Expanded(
-                  child: FullscreenEditor(
+                  child: Workbench(
+                    kernel: _kernel,
                     entry: _entry,
-                    isFromCollection: widget.isFromCollection,
-                    onSave: _saveNote,
-                    isSaving: _isSaving,
-                    onInquiryConfirmed: _handleInquiryConfirmed,
                   ),
                 ),
               ],
@@ -1103,7 +1110,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             width: 280,
             child: MaterialPanel(
               cards: _indexCards,
-              onInsertText: (text) => FullscreenEditor.insertText(text),
+              onInsertText: (text) => EditorKernel.insertTextGlobal(text),
               onInsertCard: (_) {},
             ),
           ),
