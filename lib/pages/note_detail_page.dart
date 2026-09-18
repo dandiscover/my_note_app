@@ -30,6 +30,7 @@
 // ✅ 第三轮：richtext 路由分派（_toggleMode push 到 RichtextEditorPage）
 // ✅ 第三轮：读模式富文本渲染（只读 QuillEditor）
 // ✅ 路一 v6：读模式自建右键菜单（云脑生成卡片 + 复制）
+// ✅ C 批：卡片按钮合并 —— 右键两项（快捷索引 / 完整制卡）+ AppBar 弹 NoteCardDialog
 
 import 'dart:convert';
 
@@ -50,6 +51,7 @@ import '../widgets/file_tree_panel.dart';
 import '../widgets/floating_pet.dart';
 import '../widgets/explore_task_summary_dialog.dart';
 import '../widgets/writing/material_panel.dart';
+import '../widgets/note_card_dialog.dart';
 import 'book_detail_page.dart';
 import 'inquiry_page.dart';
 import 'richtext_editor_page.dart';
@@ -111,10 +113,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     super.dispose();
   }
 
-      
-
-
-
   // ─── 加工台：加载本笔记的卡片 ─────────────────────
   Future<void> _loadNoteCards() async {
     final cards = await _cardService.getCardsBySource(
@@ -160,8 +158,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     List<String> tags,
     String? inquiryQuestion,
     List<ExploreTask> exploreTasks,
-  ) 
-  async {
+  ) async {
     if (_isSaving) return false;
 
     setState(() {
@@ -230,338 +227,79 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  // ─── 生成卡片（统一入口） ─────────────────────────────
-  Future<void> _generateCard({String? selectedText}) async {
-    final hasSelection = selectedText != null && selectedText.isNotEmpty;
-
-    // ─── 各类型字段独立变量（避免互相污染） ───
-    String reviewFront = _entry.title;
-    String reviewBack = hasSelection
-        ? selectedText
-        : (_entry.content.length > 200
-            ? '${_entry.content.substring(0, 200)}...'
-            : _entry.content);
-
-    String indexTitle = _entry.title;
-    String indexAuthor = '';
-    String indexHighlight = hasSelection ? selectedText : '';
-
-    String qaQuestion = _entry.title;
-    String qaAnswer = hasSelection
-        ? selectedText
-        : (_entry.content.length > 200
-            ? '${_entry.content.substring(0, 200)}...'
-            : _entry.content);
-
-    String fillQuestion = '';
-    String fillAnswer = hasSelection ? selectedText : '';
-
-    String choiceQuestion = '';
-    String choiceA = hasSelection ? selectedText : '';
-    String choiceB = '';
-    String choiceC = '';
-    String choiceD = '';
-
-    // ✅ v2 修复：选择题正确答案索引
-    int choiceCorrectIndex = 0;
-
-    String tfStatement = hasSelection ? selectedText : _entry.title;
-    bool tfIsTrue = true;
-
-    CardType selectedType = hasSelection ? CardType.indexCard : CardType.review;
-    Importance selectedImportance = Importance.medium;
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            title: const Text('生成卡片'),
-            content: SizedBox(
-              width: 450,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('卡片类型', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    // ✅ 修复：chip 列表过滤 CardType.guide（指导卡不提供手动创建入口）
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: CardType.values
-                          .where((type) => type != CardType.guide)
-                          .map((type) {
-                        return FilterChip(
-                          label: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(type.icon, style: const TextStyle(fontSize: 12)),
-                              const SizedBox(width: 2),
-                              Text(type.label, style: const TextStyle(fontSize: 11)),
-                            ],
-                          ),
-                          selected: selectedType == type,
-                          onSelected: (selected) {
-                            setDialogState(() {
-                              selectedType = type;
-                            });
-                          },
-                          visualDensity: VisualDensity.compact,
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 12),
-
-                    if (selectedType == CardType.review) ...[
-                      TextField(
-                        controller: TextEditingController(text: reviewFront),
-                        decoration: const InputDecoration(labelText: '正面', border: OutlineInputBorder()),
-                        maxLines: 2,
-                        onChanged: (v) => reviewFront = v,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: TextEditingController(text: reviewBack),
-                        decoration: const InputDecoration(labelText: '背面', border: OutlineInputBorder()),
-                        maxLines: 4,
-                        onChanged: (v) => reviewBack = v,
-                      ),
-                    ],
-
-                    if (selectedType == CardType.indexCard) ...[
-                      TextField(
-                        controller: TextEditingController(text: indexTitle),
-                        decoration: const InputDecoration(labelText: '标题', border: OutlineInputBorder()),
-                        onChanged: (v) => indexTitle = v,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: TextEditingController(text: indexAuthor),
-                        decoration: const InputDecoration(labelText: '作者（可选）', border: OutlineInputBorder()),
-                        onChanged: (v) => indexAuthor = v,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: TextEditingController(text: indexHighlight),
-                        decoration: const InputDecoration(
-                          labelText: '高光句',
-                          hintText: '请输入高光句',
-                          border: OutlineInputBorder(),
-                        ),
-                        maxLines: 3,
-                        onChanged: (v) => indexHighlight = v,
-                      ),
-                    ],
-
-                    if (selectedType == CardType.qa) ...[
-                      TextField(
-                        controller: TextEditingController(text: qaQuestion),
-                        decoration: const InputDecoration(labelText: '问题', border: OutlineInputBorder()),
-                        maxLines: 2,
-                        onChanged: (v) => qaQuestion = v,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: TextEditingController(text: qaAnswer),
-                        decoration: const InputDecoration(labelText: '答案', border: OutlineInputBorder()),
-                        maxLines: 3,
-                        onChanged: (v) => qaAnswer = v,
-                      ),
-                    ],
-
-                    if (selectedType == CardType.fill) ...[
-                      TextField(
-                        controller: TextEditingController(text: fillQuestion),
-                        decoration: const InputDecoration(labelText: '题目', border: OutlineInputBorder()),
-                        maxLines: 2,
-                        onChanged: (v) => fillQuestion = v,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: TextEditingController(text: fillAnswer),
-                        decoration: const InputDecoration(
-                          labelText: '答案（用 {{答案}} 标记填空位置）',
-                          border: OutlineInputBorder(),
-                        ),
-                        maxLines: 2,
-                        onChanged: (v) => fillAnswer = v,
-                      ),
-                    ],
-
-                    if (selectedType == CardType.choice) ...[
-                      TextField(
-                        controller: TextEditingController(text: choiceQuestion),
-                        decoration: const InputDecoration(labelText: '题目', border: OutlineInputBorder()),
-                        onChanged: (v) => choiceQuestion = v,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: TextEditingController(text: choiceA),
-                        decoration: const InputDecoration(labelText: '选项A', border: OutlineInputBorder()),
-                        onChanged: (v) => choiceA = v,
-                      ),
-                      const SizedBox(height: 4),
-                      TextField(
-                        controller: TextEditingController(text: choiceB),
-                        decoration: const InputDecoration(labelText: '选项B', border: OutlineInputBorder()),
-                        onChanged: (v) => choiceB = v,
-                      ),
-                      const SizedBox(height: 4),
-                      TextField(
-                        controller: TextEditingController(text: choiceC),
-                        decoration: const InputDecoration(labelText: '选项C（可选）', border: OutlineInputBorder()),
-                        onChanged: (v) => choiceC = v,
-                      ),
-                      const SizedBox(height: 4),
-                      TextField(
-                        controller: TextEditingController(text: choiceD),
-                        decoration: const InputDecoration(labelText: '选项D（可选）', border: OutlineInputBorder()),
-                        onChanged: (v) => choiceD = v,
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('正确答案'),
-                      Row(
-                        children: [
-                          _buildOptionChip('A', 0, choiceCorrectIndex, (v) {
-                            setDialogState(() => choiceCorrectIndex = v);
-                          }),
-                          _buildOptionChip('B', 1, choiceCorrectIndex, (v) {
-                            setDialogState(() => choiceCorrectIndex = v);
-                          }),
-                          _buildOptionChip('C', 2, choiceCorrectIndex, (v) {
-                            setDialogState(() => choiceCorrectIndex = v);
-                          }),
-                          _buildOptionChip('D', 3, choiceCorrectIndex, (v) {
-                            setDialogState(() => choiceCorrectIndex = v);
-                          }),
-                        ],
-                      ),
-                    ],
-
-                    if (selectedType == CardType.truefalse) ...[
-                      TextField(
-                        controller: TextEditingController(text: tfStatement),
-                        decoration: const InputDecoration(labelText: '陈述句', border: OutlineInputBorder()),
-                        maxLines: 2,
-                        onChanged: (v) => tfStatement = v,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Text('正确答案：'),
-                          const SizedBox(width: 8),
-                          ChoiceChip(
-                            label: const Text('正确'),
-                            selected: tfIsTrue,
-                            onSelected: (_) => setDialogState(() { tfIsTrue = true; }),
-                          ),
-                          const SizedBox(width: 4),
-                          ChoiceChip(
-                            label: const Text('错误'),
-                            selected: !tfIsTrue,
-                            onSelected: (_) => setDialogState(() { tfIsTrue = false; }),
-                          ),
-                        ],
-                      ),
-                    ],
-
-                    const SizedBox(height: 12),
-
-                    const Text('重要性', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: Importance.values.map((imp) {
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: ChoiceChip(
-                            label: Text(imp.toString().split('.').last),
-                            selected: selectedImportance == imp,
-                            onSelected: (selected) {
-                              setDialogState(() {
-                                selectedImportance = imp;
-                              });
-                            },
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('生成卡片'),
-              ),
-            ],
-          );
-        },
-      ),
+  // ─── 快捷索引 —— 选中文字直接用，生成 CardType.indexCard（C 批） ────
+  Future<void> _quickGenerateIndexCard(String selectedText) async {
+    final text = selectedText.trim();
+    if (text.isEmpty) return;
+    final card = CardModel(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      cardType: CardType.indexCard,
+      sourceType: 'note',
+      sourceId: _entry.id,
+      sourceTitle: _entry.title,
+      tags: List.from(_entry.tags),
+      importance: Importance.medium,
+      stage: 0,
+      nextReviewDate: DateTime.now().add(const Duration(minutes: 20)),
+      indexTitle: text.length > 50 ? '${text.substring(0, 50)}...' : text,
+      highlight: text,
     );
-
-    if (result == true) {
-      final card = CardModel(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        cardType: selectedType,
-        sourceType: 'note',
-        sourceId: _entry.id,
-        sourceTitle: _entry.title,
-        tags: _entry.tags,
-        importance: selectedImportance,
-        stage: 0,
-        nextReviewDate: DateTime.now().add(const Duration(minutes: 20)),
-        front: selectedType == CardType.review ? reviewFront : null,
-        back: selectedType == CardType.review ? reviewBack : null,
-        indexTitle: selectedType == CardType.indexCard ? indexTitle : null,
-        author: selectedType == CardType.indexCard ? indexAuthor : null,
-        highlight: selectedType == CardType.indexCard ? indexHighlight : null,
-        question: selectedType == CardType.qa ? qaQuestion : null,
-        answer: selectedType == CardType.qa ? qaAnswer : null,
-        fillQuestion: selectedType == CardType.fill ? fillQuestion : null,
-        fillAnswer: selectedType == CardType.fill ? fillAnswer : null,
-        choiceQuestion: selectedType == CardType.choice ? choiceQuestion : null,
-        choiceOptions: selectedType == CardType.choice
-            ? [choiceA, choiceB, choiceC, choiceD]
-            : null,
-        choiceCorrectIndex: selectedType == CardType.choice ? choiceCorrectIndex : null,
-        tfStatement: selectedType == CardType.truefalse ? tfStatement : null,
-        tfIsTrue: selectedType == CardType.truefalse ? tfIsTrue : null,
+    await _cardService.addCard(card);
+    await _loadNoteCards();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('📇 索引卡已生成')),
       );
-
-      await _cardService.addCard(card);
-      await _loadNoteCards();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ 卡片已生成，可以去复习了')),
-        );
-      }
     }
   }
 
-  Widget _buildOptionChip(
-    String label,
-    int index,
-    int selectedIndex,
-    ValueChanged<int> onSelected,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: FilterChip(
-        label: Text(label),
-        selected: selectedIndex == index,
-        onSelected: (_) => onSelected(index),
-        visualDensity: VisualDensity.compact,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  // ─── 完整制卡 —— 弹 NoteCardDialog，预填选区（C 批） ────
+  Future<void> _showFullNoteCardDialog({String? selectedText}) async {
+    final text = (selectedText != null && selectedText.trim().isNotEmpty)
+        ? selectedText
+        : _entry.content;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => NoteCardDialog(
+        selectedText: text,
+        comment: '',
+        sourceId: _entry.id,
+        sourceType: 'note',
       ),
     );
+    if (result == null || !mounted) return;
+    final card = CardModel(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      cardType: result['cardType'] as CardType,
+      sourceType: 'note',
+      sourceId: _entry.id,
+      sourceTitle: _entry.title,
+      tags: List.from((result['tags'] as List).cast<String>()),
+      importance: result['importance'] as Importance,
+      stage: 0,
+      nextReviewDate: DateTime.now().add(const Duration(minutes: 20)),
+      front: result['front'] as String?,
+      back: result['back'] as String?,
+      indexTitle: result['indexTitle'] as String?,
+      author: result['author'] as String?,
+      highlight: result['highlight'] as String?,
+      question: result['question'] as String?,
+      answer: result['answer'] as String?,
+      fillQuestion: result['fillQuestion'] as String?,
+      fillAnswer: result['fillAnswer'] as String?,
+      choiceQuestion: result['choiceQuestion'] as String?,
+      choiceOptions: (result['choiceOptions'] as List?)?.cast<String>(),
+      choiceCorrectIndex: result['choiceCorrectIndex'] as int?,
+      tfStatement: result['tfStatement'] as String?,
+      tfIsTrue: result['tfIsTrue'] as bool?,
+    );
+    await _cardService.addCard(card);
+    await _loadNoteCards();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ 卡片已生成，可以去复习了')),
+      );
+    }
   }
 
   // ─── 切换模式 ─────────────────────────────
@@ -887,7 +625,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           IconButton(
             icon: const Icon(Icons.credit_card),
             tooltip: '生成卡片',
-            onPressed: () => _generateCard(),
+            onPressed: () => _showFullNoteCardDialog(),
           ),
           // ✅ B 提交：素材库按钮（仅编辑模式显示，位置：生成卡片和文件树之间）
           if (!_isReadMode)
@@ -947,10 +685,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   anchors: editableTextState.contextMenuAnchors,
                   buttonItems: [
                     ContextMenuButtonItem(
-                      label: '📇 生成卡片',
-                      onPressed: () {
-                        _generateCard(selectedText: selectedText);
-                      },
+                      label: '快捷索引',
+                      onPressed: () => _quickGenerateIndexCard(selectedText),
+                    ),
+                    ContextMenuButtonItem(
+                      label: '完整制卡',
+                      onPressed: () =>
+                          _showFullNoteCardDialog(selectedText: selectedText),
                     ),
                     ...editableTextState.contextMenuButtonItems,
                   ],
@@ -1024,7 +765,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             _RichtextReadView(
               key: ValueKey(_entry.content),
               delta: result.delta,
-              onGenerateCard: (text) => _generateCard(selectedText: text),
+              onQuickIndex: _quickGenerateIndexCard,
+              onFullCard: (text) =>
+                  _showFullNoteCardDialog(selectedText: text),
             ),
             if (_entry.exploreTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -1379,12 +1122,14 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 ///   - _buildReadMode 每次 rebuild 都调用，controller 要复用
 class _RichtextReadView extends StatefulWidget {
   final List<Map<String, dynamic>> delta;
-  final ValueChanged<String> onGenerateCard;
+  final ValueChanged<String> onQuickIndex;
+  final ValueChanged<String> onFullCard;
 
   const _RichtextReadView({
     super.key,
     required this.delta,
-    required this.onGenerateCard,
+    required this.onQuickIndex,
+    required this.onFullCard,
   });
 
   @override
@@ -1416,7 +1161,7 @@ class _RichtextReadViewState extends State<_RichtextReadView> {
       controller: _controller,
       config: quill.QuillEditorConfig(
         embedBuilders: [_DividerEmbedBuilder()],
-        // ✅ 路一 v6：自建菜单（云脑生成卡片 + 复制）
+        // ✅ 路一 v6：自建菜单（C 批改：快捷索引 / 完整制卡 / 复制）
         contextMenuBuilder: _buildContextMenu,
       ),
     );
@@ -1424,15 +1169,12 @@ class _RichtextReadViewState extends State<_RichtextReadView> {
 
   /// 读模式自定义右键菜单。
   ///
-  /// 自建菜单两项：
-  ///   1. 📇 生成卡片（云脑）
-  ///   2. 复制
+  /// 自建菜单三项：
+  ///   1. 快捷索引（云脑）—— 直接生成 CardType.indexCard
+  ///   2. 完整制卡（云脑）—— 弹 NoteCardDialog
+  ///   3. 复制
   ///
   /// 不依赖 flutter_quill 内部默认菜单函数。
-  ///
-  /// 签名匹配 typedef：
-  ///   Widget Function(BuildContext, QuillRawEditorState)
-   /// 读模式自定义右键菜单。
   ///
   /// 用 AdaptiveTextSelectionToolbar——它自带定位，贴在选区附近。
   /// 不自己拼 Column（会被全屏撑开）。
@@ -1452,10 +1194,17 @@ class _RichtextReadViewState extends State<_RichtextReadView> {
       anchors: rawEditorState.contextMenuAnchors,
       buttonItems: [
         ContextMenuButtonItem(
-          label: '📇 生成卡片',
+          label: '快捷索引',
           onPressed: () {
             ContextMenuController.removeAny();
-            widget.onGenerateCard(selectedText);
+            widget.onQuickIndex(selectedText);
+          },
+        ),
+        ContextMenuButtonItem(
+          label: '完整制卡',
+          onPressed: () {
+            ContextMenuController.removeAny();
+            widget.onFullCard(selectedText);
           },
         ),
         ContextMenuButtonItem(
