@@ -19,7 +19,7 @@ import '../services/card_service.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
 import '../mixins/state_mixin.dart';
-
+import 'note_detail_page.dart';
 import '../widgets/task/task_toolbar.dart';
 import '../widgets/quick_task_card.dart';
 import '../widgets/writing/material_panel.dart';
@@ -670,31 +670,10 @@ class CreationPageState extends State<CreationPage>
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => MarkdownEditorPage(
+                    builder: (_) => NoteDetailPage(
                       entry: draft,
-                      isFromCollection: false,
+                      isNew: true,
                       shouldPopOnSave: true,
-                      onSave: (entry, title, content, editorMode, tags, inquiryQuestion, exploreTasks) async {
-                        final noteMap = {
-                          'id': entry.id,
-                          'title': title,
-                          'content': content,
-                          'status': 'active',
-                          'editorMode': editorMode,
-                          'updatedAt': DateTime.now().toIso8601String(),
-                          'isLocked': 0,
-                          'inquiryQuestion': inquiryQuestion,
-                          'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
-                        };
-                        await DatabaseService().insertNote(noteMap);
-                        await DatabaseService().attachNoteToNode(
-                          noteId: entry.id,
-                          title: title,
-                          parentId: null,
-                          tags: tags,
-                        );
-                        return true;
-                      },
                     ),
                   ),
                 );

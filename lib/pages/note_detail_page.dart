@@ -40,6 +40,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database_service.dart';
+import '../services/sync/cloud_sync_service.dart';
+import '../services/sync/sync_manager.dart';
 import 'workbench/workbench.dart';
 import 'workbench/kernel_markdown.dart';
 import 'workbench/editor_kernel.dart';
@@ -74,6 +76,9 @@ class NoteDetailPage extends StatefulWidget {
   final String? nodeId;
   final String? currentNodeId;
   final String initialLayoutMode;
+  final bool isNew;
+  final bool shouldPopOnSave;
+  final bool syncToCloud;
 
   const NoteDetailPage({
     super.key,
@@ -82,6 +87,9 @@ class NoteDetailPage extends StatefulWidget {
     this.nodeId,
     this.currentNodeId,
     this.initialLayoutMode = 'single',
+    this.isNew = false,
+    this.shouldPopOnSave = false,
+    this.syncToCloud = false,
   });
 
   @override
@@ -214,7 +222,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     });
 
     try {
-      final newStatus = widget.isFromCollection ? 'active' : _entry.status;
+      final newStatus = widget.isNew
+          ? 'active'
+          : (widget.isFromCollection ? 'active' : _entry.status);
 
       final updated = NotebookEntry(
         id: _entry.id,
@@ -231,13 +241,29 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         contentFormat: _entry.contentFormat,
       );
 
-      await _db.updateNote(updated.toMap());
-
-      if (!widget.isFromCollection && widget.nodeId != null) {
-        final node = await _db.getNode(widget.nodeId!);
-        if (node != null) {
-          final updatedNode = node.copyWith(tags: tags);
-          await _db.updateNode(updatedNode);
+      if (widget.isNew) {
+        await _db.insertNote(updated.toMap());
+        final node = await _db.attachNoteToNode(
+          noteId: _entry.id,
+          title: title.isEmpty ? '无标题' : title,
+          parentId: widget.currentNodeId,
+          tags: tags,
+        );
+        if (widget.syncToCloud && CloudSyncService().isLoggedIn) {
+          try {
+            await CloudSyncService().syncNote(updated);
+            if (node != null) await CloudSyncService().syncNode(node);
+          } catch (_) {
+            SyncManager().markDirty();
+          }
+        }
+      } else {
+        await _db.updateNote(updated.toMap());
+        if (!widget.isFromCollection && widget.nodeId != null) {
+          final node = await _db.getNode(widget.nodeId!);
+          if (node != null) {
+            await _db.updateNode(node.copyWith(tags: tags));
+          }
         }
       }
 
@@ -253,6 +279,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           ),
         );
       }
+
+      if (widget.shouldPopOnSave && mounted) {
+        Navigator.pop(context, true);
+      }
+
       return true;
     } catch (e) {
       debugPrint('保存失败: $e');

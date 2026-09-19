@@ -369,48 +369,22 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => MarkdownEditorPage(
+        builder: (_) => NoteDetailPage(
           entry: tempNote,
           isFromCollection: true,
+          currentNodeId: _currentFolderId,
+          isNew: true,
           shouldPopOnSave: true,
-          onSave: (entry, title, content, editorMode, tags, inquiryQuestion, exploreTasks) async {
-            final noteMap = {
-              'id': entry.id,
-              'title': title,
-              'content': content,
-              'status': 'active',
-              'editorMode': editorMode,
-              'updatedAt': DateTime.now().toIso8601String(),
-              'isLocked': 0,
-              'inquiryQuestion': inquiryQuestion,
-              'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
-            };
-            await _db.insertNote(noteMap);
-            final node = await _db.attachNoteToNode(
-              noteId: entry.id,
-              title: title,
-              parentId: _currentFolderId,
-              tags: tags,
-            );
-            _cache.invalidate(_cacheKeyNodes);
-            _cache.invalidate(_cacheKeyNotes);
-            _folderStatsCache = null;
-            await _loadData();
-            if (CloudSyncService().isLoggedIn) {
-              try {
-                final note = NotebookEntry.fromMap(noteMap);
-                await CloudSyncService().syncNote(note);
-                if (node != null) await CloudSyncService().syncNode(node);
-              } catch (_) {
-                SyncManager().markDirty();
-              }
-            }
-            return true;
-          },
+          syncToCloud: true,
         ),
       ),
     );
     if (result == true) {
+      _cache.invalidate(_cacheKeyNodes);
+      _cache.invalidate(_cacheKeyNotes);
+      _folderStatsCache = null;
+      await _loadData();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📝 笔记已创建'), duration: Duration(seconds: 1)));
     }
   }

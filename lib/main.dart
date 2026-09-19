@@ -31,6 +31,7 @@ import 'widgets/sync_indicator.dart';
 import 'pages/collection_page.dart';
 import 'services/focus_mode_notifier.dart';
 import 'models/note.dart';
+import 'models/node.dart';
 import 'widgets/quick_switch_dialog.dart';
 import 'pages/note_detail_page.dart';
 import 'pages/wisdom_page.dart';
@@ -421,13 +422,25 @@ class _NotebookPageState extends State<NotebookPage> {
         notes: notes,
         onSelect: (note) {
           Navigator.pop(ctx);
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => NoteDetailPage(entry: note),
-            ),
-          );
+          _openNoteFromQuickSwitch(note);
         },
+      ),
+    );
+  }
+    Future<void> _openNoteFromQuickSwitch(NotebookEntry note) async {
+    final nodes = await DatabaseService().getAllNodes();
+    final targetNode = nodes.firstWhere(
+      (n) => n.nodeType == 'note' && n.targetId == note.id,
+      orElse: () => Node.empty,
+    );
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteDetailPage(
+          entry: note,
+          nodeId: targetNode.id.isEmpty ? null : targetNode.id,
+        ),
       ),
     );
   }

@@ -3,7 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-
+import '../pages/note_detail_page.dart';
 import '../pages/collection_page.dart';
 import '../pages/wisdom_page.dart';
 import '../pages/insight_page.dart';
@@ -86,31 +86,10 @@ class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
       updatedAt: DateTime.now(),
       editorMode: 'plain',
     );
-    return MarkdownEditorPage(
+    return NoteDetailPage(
       entry: _draftNote!,
-      isFromCollection: false,
+      isNew: true,
       shouldPopOnSave: false,
-      onSave: (entry, title, content, editorMode, tags, inquiryQuestion, exploreTasks) async {
-        final noteMap = {
-          'id': entry.id,
-          'title': title,
-          'content': content,
-          'status': 'active',
-          'editorMode': editorMode,
-          'updatedAt': DateTime.now().toIso8601String(),
-          'isLocked': 0,
-          'inquiryQuestion': inquiryQuestion,
-          'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
-        };
-        await DatabaseService().insertNote(noteMap);
-        await DatabaseService().attachNoteToNode(
-          noteId: entry.id,
-          title: title,
-          parentId: null,
-          tags: tags,
-        );
-        return true;
-      },
     );
   }
   @override
