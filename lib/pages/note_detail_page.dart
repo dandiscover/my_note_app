@@ -34,7 +34,6 @@
 // ✅ 功能批1 B+C：布局单/双/三栏 + 专注模式 + 拖拽 + 快速切换
 
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
@@ -50,6 +49,7 @@ import 'workbench/editor_explore_area.dart';
 import 'workbench/editor_app_bar.dart';
 import 'workbench/editor_title_bar.dart';
 import 'workbench/editor_bottom_bar.dart';
+import 'workbench/workbench_body.dart';
 import '../models/note.dart';
 import '../utils/app_string_utils.dart';
 import '../models/card.dart';
@@ -1051,42 +1051,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
 
     // ─── 专注模式：全屏编辑器 ───
+        // ─── 专注模式：全屏编辑器 ───
     if (_focusMode) {
       return Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            EditorTitleBar(
-              controller: _kernel.titleController,
-              onChanged: () => setState(() {}),
-            ),
-            const Divider(height: 8),
-            Expanded(
-              child: Workbench(kernel: _kernel, entry: _entry),
-            ),
-            const Divider(height: 8),
-            EditorBottomBar(
-              wordCount: _kernel.wordCount,
-              lineCount: _kernel.lineCount,
-              tagCount: _kernel.tags.length,
-              isMarkdown: _kernel.isMarkdown,
-              onMarkdownChanged: (v) {
-                _kernel.toggleMarkdown(v);
-                setState(() {});
-              },
-              isSaving: _kernel.isSaving,
-              onSave: () async {
-                await _kernel.save();
-                if (mounted) setState(() {});
-              },
-              onCancel: null,
-              onGenerateCard: _kernel.createReviewCard,
-              isGeneratingCard: _kernel.isGeneratingCard,
-              saveLabel:
-                  widget.isFromCollection ? '📥 收入智库' : '💾 保存',
-              isFromCollection: widget.isFromCollection,
-            ),
-          ],
+        child: WorkbenchBody(
+          kernel: _kernel,
+          entry: _entry,
+          showBottomBar: true,
+          onCancel: null,
+          saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+          isFromCollection: widget.isFromCollection,
+          onDropItem: _handleDropItem,
+          materialItems: null,
         ),
       );
     }
@@ -1145,70 +1122,17 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         ],
         // ─── 中：编辑器 ───
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: _buildTagToggleRow(),
-                ),
-                if (_errorMessage != null)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(8),
-                    margin: const EdgeInsets.only(top: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '⚠️ $_errorMessage',
-                      style: TextStyle(color: Colors.red.shade800, fontSize: 12),
-                    ),
-                  ),
-                if (_entry.exploreTasks.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
-                ],
-                EditorTitleBar(
-                  controller: _kernel.titleController,
-                  onChanged: () => setState(() {}),
-                ),
-                const Divider(height: 8),
-                Expanded(
-                  child: DragTarget<MaterialItem>(
-                    onAcceptWithDetails: _handleDropItem,
-                    builder: (context, candidate, rejected) => Workbench(
-                      kernel: _kernel,
-                      entry: _entry,
-                    ),
-                  ),
-                ),
-                const Divider(height: 8),
-                EditorBottomBar(
-                  wordCount: _kernel.wordCount,
-                  lineCount: _kernel.lineCount,
-                  tagCount: _kernel.tags.length,
-                  isMarkdown: _kernel.isMarkdown,
-                  onMarkdownChanged: (v) {
-                    _kernel.toggleMarkdown(v);
-                    setState(() {});
-                  },
-                  isSaving: _kernel.isSaving,
-                  onSave: () async {
-                    await _kernel.save();
-                    if (mounted) setState(() {});
-                  },
-                  onCancel: () => Navigator.pop(context),
-                  onGenerateCard: _kernel.createReviewCard,
-                  isGeneratingCard: _kernel.isGeneratingCard,
-                  saveLabel:
-                      widget.isFromCollection ? '📥 收入智库' : '💾 保存',
-                  isFromCollection: widget.isFromCollection,
-                ),
-              ],
-            ),
+          child: WorkbenchBody(
+            kernel: _kernel,
+            entry: _entry,
+            header: _buildTagToggleRow(),
+            errorMessage: _errorMessage,
+            onExploreTap: _showExploreSummary,
+            onCancel: () => Navigator.pop(context),
+            saveLabel:
+                widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+            isFromCollection: widget.isFromCollection,
+            onDropItem: _handleDropItem,
           ),
         ),
         // ─── 右侧：素材面板 ───
