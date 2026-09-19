@@ -15,6 +15,7 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback onToggleMode;         // 阅读/编辑切换
   final VoidCallback onCard;               // 生成卡片
   final VoidCallback? onQuickSwitch;       // 快速切换
+  final VoidCallback? onOpenMultiPane;     // 并排打开（新）
   final VoidCallback? onCycleLayout;       // 布局切换
   final IconData? layoutIcon;
   final String? layoutLabel;
@@ -35,6 +36,7 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.onToggleMode,
     required this.onCard,
     this.onQuickSwitch,
+    this.onOpenMultiPane,
     this.onCycleLayout,
     this.layoutIcon,
     this.layoutLabel,
@@ -82,6 +84,12 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
             icon: const Icon(Icons.swap_horiz),
             tooltip: '快速切换笔记',
             onPressed: onQuickSwitch,
+          ),
+                  if (onOpenMultiPane != null)
+          IconButton(
+            icon: const Icon(Icons.view_column_outlined),
+            tooltip: '并排打开',
+            onPressed: onOpenMultiPane,
           ),
         if (onCycleLayout != null && !isReadMode)
           IconButton(

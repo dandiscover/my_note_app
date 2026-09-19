@@ -50,6 +50,7 @@ import 'workbench/editor_app_bar.dart';
 
 
 import 'workbench/workbench_body.dart';
+import 'multi_pane_page.dart';
 import '../models/note.dart';
 import '../utils/app_string_utils.dart';
 import '../models/card.dart';
@@ -75,7 +76,6 @@ class NoteDetailPage extends StatefulWidget {
   final bool isFromCollection;
   final String? nodeId;
   final String? currentNodeId;
-  final String initialLayoutMode;
   final bool isNew;
   final bool shouldPopOnSave;
   final bool syncToCloud;
@@ -86,7 +86,6 @@ class NoteDetailPage extends StatefulWidget {
     this.isFromCollection = false,
     this.nodeId,
     this.currentNodeId,
-    this.initialLayoutMode = 'single',
     this.isNew = false,
     this.shouldPopOnSave = false,
     this.syncToCloud = false,
@@ -116,10 +115,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   List<CardModel> _indexCards = [];
   List<NotebookEntry> _relatedNotes = [];
 
-  // 功能批1 B+C：布局 + 专注 + 侧栏内容
-  String _layoutMode = 'single'; // single / double / triple
+  // 专注模式
   bool _focusMode = false;
-  String _sidebarContent = 'material'; // material / fileTree
 
   @override
   void initState() {
@@ -132,7 +129,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       _isReadMode = !widget.isFromCollection;
     }
     _entry = widget.entry;
-    _layoutMode = widget.initialLayoutMode;
     focusModeNotifier.addListener(_onFocusModeChanged);
     _kernel = MarkdownKernel(EditorContext(
       entry: _entry,
@@ -560,7 +556,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             entry: note,
             isFromCollection: false,
             nodeId: targetNodeId,
-            initialLayoutMode: _layoutMode,
           ),
         ),
       );
@@ -679,28 +674,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               onToggleMode: _toggleMode,
               onCard: () => _showFullNoteCardDialog(),
               onQuickSwitch: _showQuickSwitch,
-              onCycleLayout: _cycleLayout,
-              layoutIcon: _layoutIcon(_layoutMode),
-              layoutLabel: '布局：${_layoutLabel(_layoutMode)}',
-              onToggleSidebar: _layoutMode == 'double'
-                  ? () {
-                      setState(() {
-                        _sidebarContent = _sidebarContent == 'material'
-                            ? 'fileTree'
-                            : 'material';
-                      });
-                    }
-                  : null,
-              sidebarIcon: _sidebarContent == 'material'
-                  ? Icons.library_books
-                  : Icons.folder_open,
-              sidebarLabel:
-                  _sidebarContent == 'material' ? '切换为文件树' : '切换为素材',
+              onOpenMultiPane: _openMultiPane,
               onToggleFocus: _toggleFocusMode,
               isFocusMode: _focusMode,
-              onToggleMaterial: _layoutMode != 'double'
-                  ? _toggleMaterialPanel
-                  : null,
+              onToggleMaterial: _toggleMaterialPanel,
               onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
             ),
       
@@ -1051,7 +1028,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
 
     // ─── 专注模式：全屏编辑器 ───
-        // ─── 专注模式：全屏编辑器 ───
     if (_focusMode) {
       return Padding(
         padding: const EdgeInsets.all(16),
@@ -1068,84 +1044,24 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       );
     }
 
-    final showTree = _layoutMode == 'triple';
-    final showSidebar = _layoutMode == 'double';
-    final showMaterial = _layoutMode == 'triple' ||
-        (_layoutMode == 'single' && _showMaterialPanel);
+    final materialItems = _showMaterialPanel
+        ? <MaterialItem>[
+            ..._indexCards.map(MaterialItem.fromCard),
+            ..._relatedNotes.map(MaterialItem.fromNote),
+          ]
+        : null;
 
-    return Row(
-      children: [
-        // ─── 双栏：左侧侧栏（用户切素材/文件树） ───
-        if (showSidebar) ...[
-          SizedBox(
-            width: 280,
-            child: _sidebarContent == 'fileTree'
-                ? FileTreePanel(
-                    currentNodeId: widget.nodeId,
-                    currentNodeName: _entry.title,
-                    currentFolderId: widget.currentNodeId,
-                    onNodeTap: (targetNodeId, nodeType) {
-                      if (nodeType == 'note') {
-                        _openNote(context, targetNodeId);
-                      } else if (nodeType == 'book') {
-                        _openBook(context, targetNodeId);
-                      }
-                    },
-                  )
-                : EditorMaterialSlot(
-                    items: [
-                      ..._indexCards.map(MaterialItem.fromCard),
-                      ..._relatedNotes.map(MaterialItem.fromNote),
-                    ],
-                  ),
-          ),
-          const VerticalDivider(width: 1, thickness: 1),
-        ],
-        // ─── 三栏：左侧文件树 ───
-        if (showTree) ...[
-          SizedBox(
-            width: 240,
-            child: FileTreePanel(
-              currentNodeId: widget.nodeId,
-              currentNodeName: _entry.title,
-              currentFolderId: widget.currentNodeId,
-              onNodeTap: (targetNodeId, nodeType) {
-                if (nodeType == 'note') {
-                  _openNote(context, targetNodeId);
-                } else if (nodeType == 'book') {
-                  _openBook(context, targetNodeId);
-                }
-              },
-            ),
-          ),
-          const VerticalDivider(width: 1, thickness: 1),
-        ],
-        // ─── 中：编辑器 ───
-        Expanded(
-          child: WorkbenchBody(
-            kernel: _kernel,
-            entry: _entry,
-            header: _buildTagToggleRow(),
-            errorMessage: _errorMessage,
-            onExploreTap: _showExploreSummary,
-            onCancel: () => Navigator.pop(context),
-            saveLabel:
-                widget.isFromCollection ? '📥 收入智库' : '💾 保存',
-            isFromCollection: widget.isFromCollection,
-            onDropItem: _handleDropItem,
-          ),
-        ),
-        // ─── 右侧：素材面板 ───
-        if (showMaterial) ...[
-          const VerticalDivider(width: 1, thickness: 1),
-          EditorMaterialSlot(
-            items: [
-              ..._indexCards.map(MaterialItem.fromCard),
-              ..._relatedNotes.map(MaterialItem.fromNote),
-            ],
-          ),
-        ],
-      ],
+    return WorkbenchBody(
+      kernel: _kernel,
+      entry: _entry,
+      header: _buildTagToggleRow(),
+      errorMessage: _errorMessage,
+      onExploreTap: _showExploreSummary,
+      onCancel: () => Navigator.pop(context),
+      saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+      isFromCollection: widget.isFromCollection,
+      onDropItem: _handleDropItem,
+      materialItems: materialItems,
     );
   }
 
@@ -1166,44 +1082,50 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  void _cycleLayout() {
-    setState(() {
-      if (_layoutMode == 'single') {
-        _layoutMode = 'double';
-      } else if (_layoutMode == 'double') {
-        _layoutMode = 'triple';
-      } else {
-        _layoutMode = 'single';
-      }
-    });
-  }
-
-  IconData _layoutIcon(String mode) {
-    switch (mode) {
-      case 'double':
-        return Icons.view_column_outlined;
-      case 'triple':
-        return Icons.view_sidebar_outlined;
-      default:
-        return Icons.crop_square;
-    }
-  }
-
-  String _layoutLabel(String mode) {
-    switch (mode) {
-      case 'double':
-        return '双栏';
-      case 'triple':
-        return '三栏';
-      default:
-        return '单栏';
-    }
-  }
 
   void _toggleFocusMode() {
     focusModeNotifier.value = !focusModeNotifier.value;
   }
-
+  Future<void> _openMultiPane() async {
+    if (_kernel.isDirty) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('未保存改动'),
+          content: const Text('当前笔记有未保存改动。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'cancel'),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'skip'),
+              child: const Text('不保存直接跳'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'save'),
+              child: const Text('保存后跳'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null || choice == 'cancel') return;
+      if (choice == 'save') {
+        final ok = await _kernel.save();
+        if (!ok) return;
+      }
+    }
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MultiPanePage(
+          initialEntries: [_entry],
+          initialLayout: 2,
+        ),
+      ),
+    );
+  }
   Future<void> _showQuickSwitch() async {
     final maps = await _db.getAllNotes(includeDeleted: false);
     final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
@@ -1233,7 +1155,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         builder: (_) => NoteDetailPage(
           entry: note,
           nodeId: targetNode.id.isEmpty ? null : targetNode.id,
-          initialLayoutMode: _layoutMode,
         ),
       ),
     );

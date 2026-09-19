@@ -69,10 +69,13 @@ class MarkdownKernel extends EditorKernel {
   void removeTagExternal(String tag) => _state?.removeTagExternal(tag);
   void submitTagInput(String value) => _state?.submitTagInput(value);
   void createReviewCard() => _state?.createReviewCardExternal();
-
+  bool get isDirty => _state?.isDirty ?? false;
   // ─── 零件化：dispose ───
   void dispose() {
+    titleController.dispose();
     contentController.dispose();
+    tagController.dispose();
+    subtaskController.dispose();
   }
 }
 
@@ -99,7 +102,8 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   final FocusNode _contentFocus = FocusNode();
   bool _isGeneratingCard = false;
   bool _isSavingLocal = false;
-
+  bool _isDirty = false;
+  bool get isDirty => _isDirty;
   // ─── 深度笔记入口状态 ─────────────────────────────
   String? _inquiryQuestion;
   bool _showInquiryPrompt = false;
@@ -151,6 +155,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
       if (_showInquiryPrompt) {
         _showInquiryPrompt = false;
       }
+      _isDirty = true;
     });
     _resetTypingTimer();
   }
@@ -789,7 +794,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
         updatedAt: DateTime.now(),
       );
 
-      return await widget.kernel.ctx.onSave(
+      final success = await widget.kernel.ctx.onSave(
         updatedEntry,
         updatedEntry.title,
         updatedEntry.content,
@@ -798,6 +803,10 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
         updatedEntry.inquiryQuestion,
         updatedEntry.exploreTasks,
       );
+      if (success && mounted) {
+        setState(() => _isDirty = false);
+      }
+      return success;
     } finally {
       if (mounted) setState(() => _isSavingLocal = false);
     }
