@@ -9,7 +9,6 @@ import '../pages/wisdom_page.dart';
 import '../pages/insight_page.dart';
 import '../pages/creation_page.dart' as creation;
 import '../pages/profile_page.dart';
-import '../pages/workbench/markdown_editor_page.dart';
 import '../database_service.dart';
 import '../models/note.dart';
 /// 设备类型枚举

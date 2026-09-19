@@ -16,7 +16,6 @@
 // ✅ 指导卡：_showCardDetailDialog 里，系统预置卡（system_guide_card）不显示“删除”按钮
 // ✅ 第四轮批 1：搜索数据源改 DatabaseService.searchIndex()，不建新页（老白裁 A）
 import 'dart:convert';
-import 'workbench/markdown_editor_page.dart';
 import 'workbench/clue_board_page.dart';
 import 'richtext_editor_page.dart';
 import 'package:flutter/material.dart';
