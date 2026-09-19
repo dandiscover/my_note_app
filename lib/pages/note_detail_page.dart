@@ -37,18 +37,18 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
-import 'package:shared_preferences/shared_preferences.dart';
+
 import '../database_service.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
-import 'workbench/workbench.dart';
+
 import 'workbench/kernel_markdown.dart';
 import 'workbench/editor_kernel.dart';
 import 'workbench/editor_material_slot.dart';
 import 'workbench/editor_explore_area.dart';
 import 'workbench/editor_app_bar.dart';
-import 'workbench/editor_title_bar.dart';
-import 'workbench/editor_bottom_bar.dart';
+
+
 import 'workbench/workbench_body.dart';
 import '../models/note.dart';
 import '../utils/app_string_utils.dart';
@@ -60,9 +60,9 @@ import '../services/focus_mode_notifier.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
 import '../widgets/file_tree_panel.dart';
-import '../widgets/floating_pet.dart';
+
 import '../widgets/explore_task_summary_dialog.dart';
-import '../widgets/writing/material_panel.dart';
+
 import '../models/material_item.dart';
 import '../widgets/quick_switch_dialog.dart';
 import '../widgets/note_card_dialog.dart';
