@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import '../database_service.dart';
+import '../models/card.dart';
 import '../models/explore_task.dart';
 import '../models/material_item.dart';
 import '../models/note.dart';
+import '../services/card_service.dart';
 import 'workbench/editor_kernel.dart';
+import 'workbench/editor_material_slot.dart';
 import 'workbench/kernel_markdown.dart';
 import 'workbench/workbench_body.dart';
 import '../widgets/quick_switch_dialog.dart';
@@ -41,6 +44,10 @@ class _MultiPanePageState extends State<MultiPanePage> {
   late int _layoutMode;
   int _activePane = 0;
 
+  // ─── 全局素材栏（1c-redo）───
+  bool _showMaterialPanel = false;
+  List<MaterialItem> _materialItems = [];
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +77,38 @@ class _MultiPanePageState extends State<MultiPanePage> {
     } else {
       EditorKernel.blur();
     }
+  }
+
+  // ─── 全局素材栏：按焦点栏拉素材 ───
+  Future<void> _reloadMaterialItems() async {
+    final pane = _panes[_activePane];
+    if (pane is! _NotePane) {
+      if (mounted) setState(() => _materialItems = []);
+      return;
+    }
+    final note = pane.note;
+    final allCards = await CardService().getAllCards();
+    final indexCards = allCards
+        .where((c) => c.cardType == CardType.indexCard)
+        .toList();
+    final noteMaps = await DatabaseService().getAllNotes(includeDeleted: false);
+    final allNotes = noteMaps.map((m) => NotebookEntry.fromMap(m)).toList();
+    final relatedNotes = allNotes
+        .where((n) =>
+            n.id != note.id && n.tags.any((t) => note.tags.contains(t)))
+        .toList();
+    if (!mounted) return;
+    setState(() {
+      _materialItems = [
+        ...indexCards.map(MaterialItem.fromCard),
+        ...relatedNotes.map(MaterialItem.fromNote),
+      ];
+    });
+  }
+
+  void _toggleMaterialPanel() {
+    setState(() => _showMaterialPanel = !_showMaterialPanel);
+    if (_showMaterialPanel) _reloadMaterialItems();
   }
 
   Future<bool> _savePane(
@@ -132,12 +171,14 @@ class _MultiPanePageState extends State<MultiPanePage> {
       if (_activePane >= n) _activePane = n - 1;
     });
     _syncFocus();
+    if (_showMaterialPanel) _reloadMaterialItems();
   }
 
   void _setActivePane(int i) {
     if (i == _activePane) return;
     setState(() => _activePane = i);
     _syncFocus();
+    if (_showMaterialPanel) _reloadMaterialItems();
   }
 
   Future<void> _fillPaneWithNote(int i) async {
@@ -152,16 +193,22 @@ class _MultiPanePageState extends State<MultiPanePage> {
       ),
     );
     if (selected == null || !mounted) return;
-    setState(() => _panes[i] = _buildNotePane(selected));
-    _activePane = i;
+    setState(() {
+      _panes[i] = _buildNotePane(selected);
+      _activePane = i;
+    });
     _syncFocus();
+    if (_showMaterialPanel) _reloadMaterialItems();
   }
 
   void _handleDropOnPane(int i, MaterialItem item) {
     if (item.type != MaterialItemType.note || item.note == null) return;
-    setState(() => _panes[i] = _buildNotePane(item.note!));
-    _activePane = i;
+    setState(() {
+      _panes[i] = _buildNotePane(item.note!);
+      _activePane = i;
+    });
     _syncFocus();
+    if (_showMaterialPanel) _reloadMaterialItems();
   }
 
   @override
@@ -176,6 +223,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
 
   @override
   Widget build(BuildContext context) {
+    final activeHasNote = _panes[_activePane] is _NotePane;
     return Scaffold(
       appBar: AppBar(
         title: const Text('多栏工作台'),
@@ -196,6 +244,15 @@ class _MultiPanePageState extends State<MultiPanePage> {
             onPressed: () => _setLayout(3),
           ),
           const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(_showMaterialPanel
+                ? Icons.view_sidebar
+                : Icons.view_sidebar_outlined),
+            tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
+            isSelected: _showMaterialPanel,
+            onPressed: _toggleMaterialPanel,
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: Row(
@@ -203,6 +260,10 @@ class _MultiPanePageState extends State<MultiPanePage> {
           for (var i = 0; i < _layoutMode; i++) ...[
             if (i > 0) const VerticalDivider(width: 1, thickness: 1),
             Expanded(child: _buildPane(i)),
+          ],
+          if (_showMaterialPanel && activeHasNote) ...[
+            const VerticalDivider(width: 1, thickness: 1),
+            EditorMaterialSlot(items: _materialItems),
           ],
         ],
       ),
