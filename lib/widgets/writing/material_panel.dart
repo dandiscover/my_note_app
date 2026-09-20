@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import '../../models/card.dart';
 import '../../models/note.dart';
 import '../../models/material_item.dart';
+import '../../services/material_service.dart';
+import '../../pages/wisdom_page.dart';
 
 class MaterialPanel extends StatefulWidget {
   final List<MaterialItem> items;
@@ -134,7 +136,7 @@ class _MaterialPanelState extends State<MaterialPanel> {
       case MaterialLayer.structure:
         return '📁 同文件夹';
       case MaterialLayer.library:
-        return '📚 索引卡';
+        return '📚 库';
     }
   }
 
@@ -235,7 +237,7 @@ class _MaterialPanelState extends State<MaterialPanel> {
                         const SizedBox(height: 4),
                         Text(
                           widget.items.isEmpty
-                              ? '在智库中创建索引卡后，可在此调用'
+                              ? '在智库中创建笔记或卡片后，可在此调用'
                               : '试试调整搜索或筛选条件',
                           style: TextStyle(
                               fontSize: 11, color: Colors.grey.shade400),
@@ -253,8 +255,9 @@ class _MaterialPanelState extends State<MaterialPanel> {
                         _PanelDivider() => const Divider(height: 1),
                       };
                     },
-                  ),
+                                    ),
           ),
+          _buildMoreFooter(),
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
@@ -267,6 +270,33 @@ class _MaterialPanelState extends State<MaterialPanel> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 素材数据源扩展——library 段被截时显「还有更多」
+  /// 说明：靠「library 段条数 == quotaLibrary」推断被截——不精确（15==15 会误显）
+  /// 记债：改 record 返回可得精确 N——归后续轮
+  Widget _buildMoreFooter() {
+    final libraryCount = widget.items
+        .where((i) => i.layer == MaterialLayer.library)
+        .length;
+    if (libraryCount < MaterialService.quotaLibrary) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: TextButton.icon(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const WisdomPage()),
+            );
+          },
+          icon: const Icon(Icons.arrow_forward, size: 16),
+          label: const Text('还有更多 → 去智库看全部'),
+        ),
       ),
     );
   }

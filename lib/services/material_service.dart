@@ -37,9 +37,14 @@ class MaterialService {
   /// 优先推荐上限
   static const int quotaPriority = 25;
 
-  /// 库展示上限（structure + library 共享）
+  /// 同文件夹上限（structure）
+  static const int quotaStructure = 10;
+
+  /// 库展示上限（library）
   static const int quotaLibrary = 15;
 
+  /// 三段总数防爆上限
+  static const int quotaTotal = 50;
   /// 拉「当前笔记」的素材（单列表——priority → structure → library）
   ///
   /// [note] 当前笔记（焦点栏）
@@ -105,13 +110,30 @@ class MaterialService {
       }
     }
 
-    // ─── library · 其他索引卡（未命中 tag）───
-    final libraryCards = indexCards
-        .where((c) => !hitsTags(c.tags))
+    // ─── library · 所有卡片 + 所有笔记（去 priority / structure）───
+
+    // 卡片池：排除 guide 卡（系统预置，非素材）
+    final allUsableCards = allCards
+        .where((c) => c.cardType != CardType.guide)
+        .toList();
+
+    // library 卡片候选
+    final libraryCards = allUsableCards
+        .where((c) => !priorityIds.contains(c.id))
         .toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
-    // ─── 组装 ───
+    // library 笔记候选（去 priority / 去 structure）
+    final structureNoteIds = sameFolderNotes.map((n) => n.id).toSet();
+    final libraryNotes = allNotes
+        .where((n) =>
+            n.id != note.id &&
+            !priorityIds.contains(n.id) &&
+            !structureNoteIds.contains(n.id))
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    // ─── 组装三段 ───
     final priority = <MaterialItem>[
       ...priorityNotes.map(
         (n) => MaterialItem.fromNote(n, layer: MaterialLayer.priority),
@@ -121,15 +143,28 @@ class MaterialService {
       ),
     ].take(quotaPriority).toList();
 
-    final library = <MaterialItem>[
+    // structure：同文件夹笔记，独立配额
+    final structure = <MaterialItem>[
       ...sameFolderNotes.map(
         (n) => MaterialItem.fromNote(n, layer: MaterialLayer.structure),
       ),
+    ].take(quotaStructure).toList();
+
+    // library：卡片在前、笔记在后（老白裁 3），独立配额
+    final library = <MaterialItem>[
       ...libraryCards.map(
         (c) => MaterialItem.fromCard(c, layer: MaterialLayer.library),
       ),
+      ...libraryNotes.map(
+        (n) => MaterialItem.fromNote(n, layer: MaterialLayer.library),
+      ),
     ].take(quotaLibrary).toList();
 
-    return [...priority, ...library];
+    // ─── 总数防爆 ───
+    final all = <MaterialItem>[...priority, ...structure, ...library];
+    if (all.length > quotaTotal) {
+      return all.take(quotaTotal).toList();
+    }
+    return all;
   }
 }
