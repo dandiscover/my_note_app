@@ -81,6 +81,7 @@ class NoteDetailPage extends StatefulWidget {
   final bool isNew;
   final bool shouldPopOnSave;
   final bool syncToCloud;
+  final bool initInEditMode;   // 批 1b 修复：从图书侧新建 → 强制进编辑态
 
   const NoteDetailPage({
     super.key,
@@ -91,6 +92,7 @@ class NoteDetailPage extends StatefulWidget {
     this.isNew = false,
     this.shouldPopOnSave = false,
     this.syncToCloud = false,
+    this.initInEditMode = false,
   });
 
   @override
@@ -127,8 +129,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     super.initState();
     // 富文本笔记强制进读模式；编辑走 AppBar 按钮 push 到 RichtextEditorPage。
     // markdown 笔记沿用旧规则：采集页进来编辑，其他进来读。
+    // 批 1b 修复：initInEditMode=true 时——强制进编辑态（图书侧新建笔记场景）。
     if (widget.entry.contentFormat == 'richtext') {
       _isReadMode = true;
+    } else if (widget.initInEditMode) {
+      _isReadMode = false;
     } else {
       _isReadMode = !widget.isFromCollection;
     }
