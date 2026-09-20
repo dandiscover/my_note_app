@@ -3,8 +3,6 @@ import '../database_service.dart';
 import '../models/explore_task.dart';
 import '../models/material_item.dart';
 import '../models/note.dart';
-import '../models/card.dart';
-import '../services/card_service.dart';
 import 'workbench/editor_kernel.dart';
 import 'workbench/kernel_markdown.dart';
 import 'workbench/workbench_body.dart';
@@ -21,12 +19,7 @@ class _EmptyPane extends _PaneState {
 class _NotePane extends _PaneState {
   final NotebookEntry note;
   final MarkdownKernel kernel;
-  final List<MaterialItem>? materialItems;
-  _NotePane({
-    required this.note,
-    required this.kernel,
-    this.materialItems,
-  });
+  _NotePane({required this.note, required this.kernel});
 }
 
 class MultiPanePage extends StatefulWidget {
@@ -67,39 +60,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
       isFromCollection: false,
       onSave: _savePane,
     ));
-    final pane = _NotePane(note: note, kernel: kernel);
-    _hydrateMaterialItems(pane);
-    return pane;
-  }
-
-  Future<void> _hydrateMaterialItems(_NotePane pane) async {
-    final items = await _loadMaterialItems(pane.note);
-    if (!mounted) return;
-    final idx = _panes.indexOf(pane);
-    if (idx < 0) return;
-    setState(() {
-      _panes[idx] = _NotePane(
-        note: pane.note,
-        kernel: pane.kernel,
-        materialItems: items,
-      );
-    });
-  }
-
-  Future<List<MaterialItem>> _loadMaterialItems(NotebookEntry note) async {
-    final allCards = await CardService().getAllCards();
-    final indexCards = allCards
-        .where((c) => c.cardType == CardType.indexCard)
-        .toList();
-    final noteMaps = await DatabaseService().getAllNotes(includeDeleted: false);
-    final allNotes = noteMaps.map((m) => NotebookEntry.fromMap(m)).toList();
-    final relatedNotes = allNotes
-        .where((n) => n.id != note.id && n.tags.any((t) => note.tags.contains(t)))
-        .toList();
-    return [
-      ...indexCards.map(MaterialItem.fromCard),
-      ...relatedNotes.map(MaterialItem.fromNote),
-    ];
+    return _NotePane(note: note, kernel: kernel);
   }
 
   void _syncFocus() {
@@ -265,15 +226,13 @@ class _MultiPanePageState extends State<MultiPanePage> {
   Widget _buildPaneContent(_PaneState pane, int i) {
     return switch (pane) {
       _EmptyPane() => _buildEmptyPane(i),
-      _NotePane(:final note, :final kernel, :final materialItems) =>
-        WorkbenchBody(
+      _NotePane(:final note, :final kernel) => WorkbenchBody(
           kernel: kernel,
           entry: note,
           showBottomBar: true,
           onCancel: null,
           saveLabel: '💾 保存',
           compact: true,
-          materialItems: materialItems,
           appBarHasCardAction: false,
         ),
     };

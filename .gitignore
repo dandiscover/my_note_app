@@ -50,3 +50,5 @@ list.txt
 build_web.txt
 
 analyze_full.txt
+*.bak_*
+*.bak
