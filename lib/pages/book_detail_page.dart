@@ -801,7 +801,6 @@ class _BookDetailPageState extends State<BookDetailPage>
     );
     if (mounted) await _loadLinkedNotes();
   }
-
   Future<void> _onCreateNoteForBook() async {
     if (_book == null) return;
     final now = DateTime.now();
@@ -817,7 +816,7 @@ class _BookDetailPageState extends State<BookDetailPage>
     );
     await _db.insertNote(entry.toMap());
     final folderId = await _db.ensureReviewFolder();
-    await _db.attachNoteToNode(
+    final node = await _db.attachNoteToNode(
       noteId: noteId,
       title: entry.title,
       parentId: folderId,
@@ -844,9 +843,34 @@ class _BookDetailPageState extends State<BookDetailPage>
         builder: (_) => NoteDetailPage(
           entry: entry,
           isFromCollection: false,
+          initInEditMode: true,   // 批 1b 修复：强制进编辑态
         ),
       ),
     );
+    if (!mounted) return;
+
+    // 批 1b 修复：返回时若笔记仍空 → 删 note + link + node
+    final maps = await _db.getAllNotes(includeDeleted: true);
+    Map<String, dynamic>? noteMap;
+    for (final m in maps) {
+      if (m['id'] == noteId) {
+        noteMap = m;
+        break;
+      }
+    }
+    if (noteMap != null &&
+        ((noteMap['content'] as String?)?.trim().isEmpty ?? true)) {
+      await _db.hardDeleteNote(noteId);
+      await NoteBookLinkService().removeLink(
+        noteId: noteId,
+        bookId: widget.bookId,
+        linkType: NoteBookLinkService.linkTypeManual,
+      );
+      // 批 1b 修复：连带删 Node，避免文件树留空壳节点
+      // attachNoteToNode 返回 Future<Node>（非空）——不判 null
+      await _db.deleteNode(node.id);
+    }
+
     if (mounted) {
       await _loadLinkedNotes();
       await _loadData();
