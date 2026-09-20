@@ -1215,11 +1215,14 @@ class DatabaseService {
   // ─── SQLite 核心 ──────────────────────────────────────
   static Database? _database;
 
+  /// 批 1a：暴露 db 连接给服务层（NoteBookLinkService 用）
+  Future<Database> get database => _getDatabase();
+
   Future<Database> _getDatabase() async {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 17, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 18, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1393,6 +1396,60 @@ class DatabaseService {
         debugPrint('tag_index 16→17 迁移失败: $e');
       }
     }
+    // ✅ 批 1a：版本 17 → 18：note_book_links 表（笔记↔书关联）
+    if (oldVersion < 18) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS note_book_links(
+            id TEXT PRIMARY KEY,
+            note_id TEXT NOT NULL,
+            book_id TEXT NOT NULL,
+            link_type TEXT NOT NULL,
+            context TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(note_id, book_id, link_type)
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_nbl_note ON note_book_links(note_id)');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_nbl_book ON note_book_links(book_id)');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_nbl_type ON note_book_links(link_type)');
+
+        // L2 → L3 迁移（老白裁：丙，_onUpgrade 里跑）
+        await _migrateBookReadingNoteIdToLinks(db);
+      } catch (e) {
+        debugPrint('note_book_links 17→18 迁移失败: $e');
+      }
+    }
+  }
+
+  /// 批 1a：L2 → L3 迁移
+  /// 读 SharedPreferences book_reading_note_id_$bookId → 写 note_book_links
+  /// 幂等：ConflictAlgorithm.ignore + UNIQUE 约束
+  /// 旧 key 保留只读（防回滚）
+  Future<void> _migrateBookReadingNoteIdToLinks(Database db) async {
+    final prefs = await SharedPreferences.getInstance();
+    final books = await db.query('books', columns: ['id']);
+    for (final b in books) {
+      final bookId = b['id'] as String;
+      final noteId = prefs.getString('book_reading_note_id_$bookId');
+      if (noteId == null || noteId.isEmpty) continue;
+      await db.insert(
+        'note_book_links',
+        {
+          // 后缀 bookId：同微秒多本循环不撞主键
+          'id': '${DateTime.now().microsecondsSinceEpoch}_$bookId',
+          'note_id': noteId,
+          'book_id': bookId,
+          'link_type': 'reading',
+          'context': null,
+          'created_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   Future<void> _createTables(Database db) async {
@@ -1474,6 +1531,28 @@ class DatabaseService {
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
+
+    // ✅ 批 1a：笔记↔书 关联表
+    // 设计：一笔记 × 一类型 × 一书 → 一条边（UNIQUE 约束）
+    //   同笔记多次 [[同一本书]] 只留首次（context 记第一处示例）
+    // link_type：manual / reading / wikilink / inherited（预留）
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS note_book_links(
+        id TEXT PRIMARY KEY,
+        note_id TEXT NOT NULL,
+        book_id TEXT NOT NULL,
+        link_type TEXT NOT NULL,
+        context TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(note_id, book_id, link_type)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_nbl_note ON note_book_links(note_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_nbl_book ON note_book_links(book_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_nbl_type ON note_book_links(link_type)');
 
     for (final sql in SearchIndexService.getCreateTableSql()) {
       await db.execute(sql);
