@@ -69,6 +69,7 @@ import '../models/material_item.dart';
 import '../widgets/quick_switch_dialog.dart';
 import '../widgets/note_card_dialog.dart';
 import 'book_detail_page.dart';
+import '../services/note_book_link_service.dart';
 import 'inquiry_page.dart';
 import 'richtext_editor_page.dart';
 
@@ -118,6 +119,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   // 专注模式
   bool _focusMode = false;
 
+  // 批 1b：关联的书
+  List<Map<String, dynamic>> _linkedBooks = [];
+
   @override
   void initState() {
     super.initState();
@@ -140,6 +144,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     _loadNoteCards();
     _loadSubNotesCount();
     _loadMaterialItems();
+    _loadLinkedBooks();   // 批 1b
   }
 
   @override
@@ -268,6 +273,16 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
       if (widget.shouldPopOnSave && mounted) {
         Navigator.pop(context, true);
+      }
+
+      // 批 1b：扫描 [[书名]] 写 wikilink 边（静默，不阻塞保存）
+      try {
+        await NoteBookLinkService().rebuildWikiLinks(
+          noteId: updated.id,
+          content: updated.content,
+        );
+      } catch (e) {
+        debugPrint('rebuildWikiLinks 失败: $e');
       }
 
       return true;
@@ -637,6 +652,116 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     await _openInquiryDialog();
   }
 
+  // ─── 批 1b：关联的书 ──────────────────────────────
+  // 入口（关联书目）和显示区相邻（老白裁乙 · 阅读态）
+
+  Future<void> _loadLinkedBooks() async {
+    final rows = await NoteBookLinkService().getLinksByNote(_entry.id);
+    final books = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      final book = await _db.getBook(r['book_id'] as String);
+      if (book != null) books.add(book);
+    }
+    if (!mounted) return;
+    setState(() => _linkedBooks = books);
+  }
+
+  Widget _buildLinkedBooksSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('📚 关联的书 (${_linkedBooks.length})',
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600)),
+            TextButton.icon(
+              onPressed: _onLinkBook,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('关联书目'),
+            ),
+          ],
+        ),
+        if (_linkedBooks.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('还没有关联的书',
+                style: TextStyle(color: Colors.grey.shade500)),
+          )
+        else
+          ..._linkedBooks.map((m) {
+            return ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: Text(m['title'] as String? ?? '未命名'),
+              subtitle: Text(m['author'] as String? ?? ''),
+              onTap: () => _openLinkedBook(m['id'] as String),
+            );
+          }),
+      ],
+    );
+  }
+
+  Future<void> _onLinkBook() async {
+    final allMaps = await _db.getAllBooks();
+    if (!mounted) return;
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('选择书目'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: allMaps.isEmpty
+              ? const Center(child: Text('还没有书'))
+              : ListView.builder(
+                  itemCount: allMaps.length,
+                  itemBuilder: (_, i) {
+                    final m = allMaps[i];
+                    return ListTile(
+                      leading: const Icon(Icons.menu_book_outlined),
+                      title: Text(m['title'] as String? ?? '未命名'),
+                      subtitle: Text(m['author'] as String? ?? ''),
+                      onTap: () => Navigator.pop(ctx, m),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || !mounted) return;
+    try {
+      await NoteBookLinkService().addLink(
+        noteId: _entry.id,
+        bookId: selected['id'] as String,
+        linkType: NoteBookLinkService.linkTypeManual,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('关联失败，请重试')),
+        );
+      }
+      return;
+    }
+    await _loadLinkedBooks();
+  }
+
+  Future<void> _openLinkedBook(String bookId) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BookDetailPage(bookId: bookId),
+      ),
+    );
+  }
+
   void _showExploreSummary() {
     showDialog(
       context: context,
@@ -746,6 +871,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               const SizedBox(height: 12),
               EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
             ],
+            const SizedBox(height: 12),
+            _buildLinkedBooksSection(),
             const SizedBox(height: 12),
             _buildCraftingSection(),
             const SizedBox(height: 12),

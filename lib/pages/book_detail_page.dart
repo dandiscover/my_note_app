@@ -25,6 +25,9 @@ import '../utils/app_date_utils.dart';
 import '../utils/app_string_utils.dart';
 import 'pdf_reader_page.dart';
 import 'epub_reader_page.dart';
+import 'note_detail_page.dart';
+import '../models/note.dart';
+import '../services/note_book_link_service.dart';
 
 class BookDetailPage extends StatefulWidget {
   final String bookId;
@@ -48,6 +51,7 @@ class _BookDetailPageState extends State<BookDetailPage>
   Book? _book;
   Node? _node;
   List<BookNote> _notes = [];
+  List<Map<String, dynamic>> _linkedNotes = [];   // 批 1b：这本书的笔记
   bool _isLoading = true;
   bool _isEditing = false;
   bool _isImporting = false;
@@ -84,6 +88,7 @@ class _BookDetailPageState extends State<BookDetailPage>
       }
 
       _notes = await _bookService.getNotes(widget.bookId);
+      await _loadLinkedNotes();   // 批 1b
     } catch (e) {
       debugPrint('加载书籍详情失败: $e');
     }
@@ -485,6 +490,8 @@ class _BookDetailPageState extends State<BookDetailPage>
             _buildImportSection(),
             const SizedBox(height: 12),
             _buildNotesSection(),
+            const SizedBox(height: 12),
+            _buildLinkedNotesSection(),
           ],
         ),
       ),
@@ -730,6 +737,121 @@ class _BookDetailPageState extends State<BookDetailPage>
     );
   }
 
+  // ─── 批 1b：这本书的笔记 ────────────────────────────
+  // 入口（+ 写笔记）和显示区相邻（老白裁乙）
+
+  Future<void> _loadLinkedNotes() async {
+    final rows = await NoteBookLinkService().getLinksByBook(widget.bookId);
+    final allMaps = await _db.getAllNotes(includeDeleted: false);
+    final byId = {for (final m in allMaps) m['id'] as String: m};
+    _linkedNotes = rows
+        .map((r) => byId[r['note_id'] as String])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildLinkedNotesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('📚 这本书的笔记 (${_linkedNotes.length})',
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600)),
+            TextButton.icon(
+              onPressed: _onCreateNoteForBook,
+              icon: const Icon(Icons.edit_note, size: 16),
+              label: const Text('写笔记'),
+            ),
+          ],
+        ),
+        const Divider(),
+        if (_linkedNotes.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('还没有关联的笔记',
+                style: TextStyle(color: Colors.grey.shade500)),
+          )
+        else
+          ..._linkedNotes.map((m) {
+            final entry = NotebookEntry.fromMap(m);
+            return ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: Text(AppStringUtils.displayNoteTitle(
+                  entry.title, entry.content)),
+              onTap: () => _openLinkedNote(entry),
+            );
+          }),
+      ],
+    );
+  }
+
+  Future<void> _openLinkedNote(NotebookEntry entry) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteDetailPage(
+          entry: entry,
+          isFromCollection: false,
+        ),
+      ),
+    );
+    if (mounted) await _loadLinkedNotes();
+  }
+
+  Future<void> _onCreateNoteForBook() async {
+    if (_book == null) return;
+    final now = DateTime.now();
+    final noteId = now.millisecondsSinceEpoch.toString();
+    final entry = NotebookEntry(
+      id: noteId,
+      title: '《${_book!.title}》笔记',
+      content: '',
+      updatedAt: now,
+      status: 'active',
+      editorMode: 'plain',
+      tags: [_book!.title],
+    );
+    await _db.insertNote(entry.toMap());
+    final folderId = await _db.ensureReviewFolder();
+    await _db.attachNoteToNode(
+      noteId: noteId,
+      title: entry.title,
+      parentId: folderId,
+      tags: entry.tags,
+    );
+    try {
+      await NoteBookLinkService().addLink(
+        noteId: noteId,
+        bookId: widget.bookId,
+        linkType: NoteBookLinkService.linkTypeManual,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('关联写入失败，请重试')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteDetailPage(
+          entry: entry,
+          isFromCollection: false,
+        ),
+      ),
+    );
+    if (mounted) {
+      await _loadLinkedNotes();
+      await _loadData();
+    }
+  }
   Widget _buildNotesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
