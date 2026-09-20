@@ -5,6 +5,7 @@ import '../models/explore_task.dart';
 import '../models/material_item.dart';
 import '../models/note.dart';
 import '../services/card_service.dart';
+import '../services/material_service.dart';
 import 'workbench/editor_kernel.dart';
 import 'workbench/editor_material_slot.dart';
 import 'workbench/kernel_markdown.dart';
@@ -86,24 +87,9 @@ class _MultiPanePageState extends State<MultiPanePage> {
       if (mounted) setState(() => _materialItems = []);
       return;
     }
-    final note = pane.note;
-    final allCards = await CardService().getAllCards();
-    final indexCards = allCards
-        .where((c) => c.cardType == CardType.indexCard)
-        .toList();
-    final noteMaps = await DatabaseService().getAllNotes(includeDeleted: false);
-    final allNotes = noteMaps.map((m) => NotebookEntry.fromMap(m)).toList();
-    final relatedNotes = allNotes
-        .where((n) =>
-            n.id != note.id && n.tags.any((t) => note.tags.contains(t)))
-        .toList();
+    final items = await MaterialService.loadFor(pane.note);
     if (!mounted) return;
-    setState(() {
-      _materialItems = [
-        ...indexCards.map(MaterialItem.fromCard),
-        ...relatedNotes.map(MaterialItem.fromNote),
-      ];
-    });
+    setState(() => _materialItems = items);
   }
 
   void _toggleMaterialPanel() {

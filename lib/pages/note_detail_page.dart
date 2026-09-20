@@ -57,6 +57,7 @@ import '../models/card.dart';
 import '../models/explore_task.dart';
 import '../models/node.dart';
 import '../services/card_service.dart';
+import '../services/material_service.dart';
 import '../services/focus_mode_notifier.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
@@ -112,8 +113,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   // ✅ 骨架：素材面板状态
   bool _showMaterialPanel = false;
-  List<CardModel> _indexCards = [];
-  List<NotebookEntry> _relatedNotes = [];
+  List<MaterialItem> _materialItems = [];
 
   // 专注模式
   bool _focusMode = false;
@@ -139,7 +139,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     ));
     _loadNoteCards();
     _loadSubNotesCount();
-    _loadIndexCards();
+    _loadMaterialItems();
   }
 
   @override
@@ -174,20 +174,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   // ✅ 骨架：加载索引卡（素材面板用）
-  Future<void> _loadIndexCards() async {
-    final allCards = await _cardService.getAllCards();
+  Future<void> _loadMaterialItems() async {
+    final items = await MaterialService.loadFor(_entry, nodeId: widget.nodeId);
     if (!mounted) return;
-    setState(() => _indexCards = allCards.where((c) => c.cardType == CardType.indexCard).toList());
-
-    final noteMaps = await _db.getAllNotes(includeDeleted: false);
-    final allNotes = noteMaps.map((m) => NotebookEntry.fromMap(m)).toList();
-    if (!mounted) return;
-    setState(() {
-      _relatedNotes = allNotes
-          .where((n) =>
-              n.tags.any((t) => _entry.tags.contains(t)) && n.id != _entry.id)
-          .toList();
-    });
+    setState(() => _materialItems = items);
   }
 
   // ✅ 骨架：切换素材面板，展开时重载索引卡
@@ -196,7 +186,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       _showMaterialPanel = !_showMaterialPanel;
     });
     if (_showMaterialPanel) {
-      _loadIndexCards();
+      _loadMaterialItems();
     }
   }
 
@@ -1045,12 +1035,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       );
     }
 
-    final materialItems = _showMaterialPanel
-        ? <MaterialItem>[
-            ..._indexCards.map(MaterialItem.fromCard),
-            ..._relatedNotes.map(MaterialItem.fromNote),
-          ]
-        : null;
+    final materialItems = _showMaterialPanel ? _materialItems : null;
 
     return WorkbenchBody(
       kernel: _kernel,
