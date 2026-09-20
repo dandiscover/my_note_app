@@ -21,17 +21,32 @@ class WorkbenchBody extends StatefulWidget {
   final MarkdownKernel kernel;
   final NotebookEntry entry;
 
+  // ── 顶部自定义区（如 ⭐/❓ 标记行）──
   final Widget? header;
+
+  // ── 错误提示 ──
   final String? errorMessage;
+
+  // ── 探究区 ──
   final bool showExplore;
   final VoidCallback? onExploreTap;
+
+  // ── 底栏 ──
   final bool showBottomBar;
   final VoidCallback? onCancel;
   final String saveLabel;
   final bool isFromCollection;
+
+  // ── 右侧素材槽（null = 不显示）──
   final List<MaterialItem>? materialItems;
+
+  // ── 拖拽接收 ──
   final Function(DragTargetDetails<MaterialItem>)? onDropItem;
+
+  // ── 紧凑模式（缩内边距 + 缩底栏按钮）──
   final bool compact;
+
+  // ── 外层 AppBar 是否已有制卡入口 ──
   final bool appBarHasCardAction;
 
   const WorkbenchBody({
@@ -65,11 +80,13 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
 
     final body = Column(
       children: [
+        // ── header（⭐/❓） ──
         if (widget.header != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: widget.header!,
           ),
+        // ── 错误提示 ──
         if (widget.errorMessage != null)
           Container(
             width: double.infinity,
@@ -84,6 +101,7 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
               style: TextStyle(color: Colors.red.shade800, fontSize: 12),
             ),
           ),
+        // ── 探究区 ──
         if (widget.showExplore && entry.exploreTasks.isNotEmpty) ...[
           const SizedBox(height: 8),
           EditorExploreArea(
@@ -91,11 +109,13 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
             onTap: widget.onExploreTap ?? () {},
           ),
         ],
+        // ── 标题 ──
         EditorTitleBar(
           controller: kernel.titleController,
           onChanged: () => setState(() {}),
         ),
         const Divider(height: 8),
+        // ── 正文 ──
         Expanded(
           child: widget.onDropItem != null
               ? DragTarget<MaterialItem>(
@@ -105,6 +125,7 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
                 )
               : Workbench(kernel: kernel, entry: entry),
         ),
+        // ── 底栏 ──
         if (widget.showBottomBar) ...[
           const Divider(height: 8),
           EditorBottomBar(
@@ -133,6 +154,7 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
       ],
     );
 
+    // 无素材槽——直接返回
     if (widget.materialItems == null) {
       return Padding(
         padding: EdgeInsets.symmetric(horizontal: hPad),
@@ -140,6 +162,7 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
       );
     }
 
+    // 有素材槽——右侧
     return Row(
       children: [
         Expanded(
