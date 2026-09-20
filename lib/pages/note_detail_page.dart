@@ -1040,6 +1040,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           isFromCollection: widget.isFromCollection,
           onDropItem: _handleDropItem,
           materialItems: null,
+          appBarHasCardAction: false,   // 专注模式 AppBar 为 null——底栏制卡必留
         ),
       );
     }
@@ -1062,6 +1063,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       isFromCollection: widget.isFromCollection,
       onDropItem: _handleDropItem,
       materialItems: materialItems,
+      appBarHasCardAction: true,    // 非专注 AppBar 有 onCard——底栏制卡隐
     );
   }
 
