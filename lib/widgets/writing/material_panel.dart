@@ -395,9 +395,10 @@ class _MaterialPanelState extends State<MaterialPanel> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (item.sourceType == 'book')
+                        if (item.sourceType == 'book' &&
+                            item.card?.sourceTitle != null)
                           Text(
-                            '📖',
+                            '📖 《${item.card!.sourceTitle}》',
                             style: TextStyle(
                                 fontSize: 9, color: Colors.grey.shade500),
                           ),
