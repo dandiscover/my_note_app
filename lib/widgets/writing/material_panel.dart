@@ -2,6 +2,7 @@
 // 写作素材面板 — 搜索 + 筛选 + 排序 + 插入 + 拖拽
 // E批：接 MaterialItem（卡片 + 笔记两源）
 // 功能批1 C：加 Draggable
+// 1c-redo-甲：按 layer 分段渲染（priority / structure / library）
 
 import 'package:flutter/material.dart';
 import '../../models/card.dart';
@@ -22,6 +23,25 @@ class MaterialPanel extends StatefulWidget {
 
   @override
   State<MaterialPanel> createState() => _MaterialPanelState();
+}
+
+/// 面板行（sealed——分段渲染用）
+sealed class _PanelRow {
+  const _PanelRow();
+}
+
+class _PanelHeader extends _PanelRow {
+  final String label;
+  const _PanelHeader(this.label);
+}
+
+class _PanelItem extends _PanelRow {
+  final MaterialItem item;
+  const _PanelItem(this.item);
+}
+
+class _PanelDivider extends _PanelRow {
+  const _PanelDivider();
 }
 
 class _MaterialPanelState extends State<MaterialPanel> {
@@ -45,6 +65,11 @@ class _MaterialPanelState extends State<MaterialPanel> {
       ).toList();
     }
 
+    return list;
+  }
+
+  /// 按 _sortKey 段内排序
+  void _sortInPlace(List<MaterialItem> list) {
     switch (_sortKey) {
       case MaterialSortKey.timeDesc:
         list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -59,12 +84,64 @@ class _MaterialPanelState extends State<MaterialPanel> {
         list.sort((a, b) => b.tags.length.compareTo(a.tags.length));
         break;
     }
-    return list;
+  }
+
+  /// 按 layer 分三段，段内排序，摊平成行
+  ///
+  /// 规则：
+  ///  - 段空 → 不显示
+  ///  - 只有一段非空 → 不显示段头 + 不显示分隔线
+  ///  - 段序：priority → structure → library
+  List<_PanelRow> _rows(List<MaterialItem> filtered) {
+    final byLayer = <MaterialLayer, List<MaterialItem>>{
+      MaterialLayer.priority: [],
+      MaterialLayer.structure: [],
+      MaterialLayer.library: [],
+    };
+    for (final item in filtered) {
+      byLayer[item.layer]!.add(item);
+    }
+
+    final nonEmptyLayers = <MaterialLayer>[
+      MaterialLayer.priority,
+      MaterialLayer.structure,
+      MaterialLayer.library,
+    ].where((l) => byLayer[l]!.isNotEmpty).toList();
+
+    // 每段内排序
+    for (final l in nonEmptyLayers) {
+      _sortInPlace(byLayer[l]!);
+    }
+
+    final showLabels = nonEmptyLayers.length > 1;
+
+    final rows = <_PanelRow>[];
+    for (var i = 0; i < nonEmptyLayers.length; i++) {
+      final layer = nonEmptyLayers[i];
+      if (i > 0) rows.add(const _PanelDivider());
+      if (showLabels) rows.add(_PanelHeader(_labelFor(layer)));
+      for (final item in byLayer[layer]!) {
+        rows.add(_PanelItem(item));
+      }
+    }
+    return rows;
+  }
+
+  String _labelFor(MaterialLayer layer) {
+    switch (layer) {
+      case MaterialLayer.priority:
+        return '🔥 相关';
+      case MaterialLayer.structure:
+        return '📁 同文件夹';
+      case MaterialLayer.library:
+        return '📚 索引卡';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered();
+    final rows = _rows(filtered);
 
     return Container(
       color: Colors.white,
@@ -167,9 +244,15 @@ class _MaterialPanelState extends State<MaterialPanel> {
                     ),
                   )
                 : ListView.builder(
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) =>
-                        _buildMaterialItem(filtered[index]),
+                    itemCount: rows.length,
+                    itemBuilder: (context, index) {
+                      final r = rows[index];
+                      return switch (r) {
+                        _PanelHeader(:final label) => _buildHeader(label),
+                        _PanelItem(:final item) => _buildMaterialItem(item),
+                        _PanelDivider() => const Divider(height: 1),
+                      };
+                    },
                   ),
           ),
           Container(
@@ -184,6 +267,20 @@ class _MaterialPanelState extends State<MaterialPanel> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey.shade600,
+        ),
       ),
     );
   }

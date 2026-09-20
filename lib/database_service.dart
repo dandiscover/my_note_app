@@ -391,6 +391,21 @@ class DatabaseService {
     }
   }
 
+  /// 由 note id 反查 node（L5 素材栏用）
+  ///
+  /// note 与 node 分离存储——node.targetId 指向 note.id
+  /// 全表扫描——nodes 表小——可接受
+  Future<Node?> getNodeByNoteId(String noteId) async {
+    final nodes = await getAllNodes();
+    try {
+      return nodes.firstWhere(
+        (n) => n.nodeType == 'note' && n.targetId == noteId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<Node>> getContentNodesInFolder(String folderId) async {
     final children = await getChildren(folderId);
     return children.where((n) => !n.isFolder).toList();
