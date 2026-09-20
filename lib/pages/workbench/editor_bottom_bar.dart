@@ -14,6 +14,8 @@ class EditorBottomBar extends StatelessWidget {
   final bool isGeneratingCard;
   final String saveLabel;
   final bool isFromCollection;
+  final bool compact;
+  final bool appBarHasCardAction;
 
   const EditorBottomBar({
     super.key,
@@ -29,32 +31,39 @@ class EditorBottomBar extends StatelessWidget {
     this.isGeneratingCard = false,
     this.saveLabel = '💾 保存',
     this.isFromCollection = false,
+    this.compact = false,
+    this.appBarHasCardAction = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final saveMin = compact ? const Size(64, 36) : const Size(100, 40);
+    final saveH = compact ? 36.0 : 40.0;
+    final showCard = !appBarHasCardAction && onGenerateCard != null;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          if (!compact)
+            Row(
+              children: [
+                Text('📝 $wordCount 字',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(width: 16),
+                if (isMarkdown)
+                  Text('📄 $lineCount 行',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(width: 16),
+                if (tagCount > 0)
+                  Text('🏷️ $tagCount',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
+            ),
           Row(
             children: [
-              Text('📝 $wordCount 字',
-                  style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              const SizedBox(width: 16),
-              if (isMarkdown)
-                Text('📄 $lineCount 行',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              const SizedBox(width: 16),
-              if (tagCount > 0)
-                Text('🏷️ $tagCount',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-            ],
-          ),
-          Row(
-            children: [
-              if (onGenerateCard != null)
+              if (showCard)
                 Tooltip(
                   message: '生成复习卡片',
                   child: IconButton(
@@ -77,7 +86,8 @@ class EditorBottomBar extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('📝', style: TextStyle(fontSize: 14)),
+                    if (!compact)
+                      const Text('📝', style: TextStyle(fontSize: 14)),
                     Switch(
                       value: isMarkdown,
                       onChanged: onMarkdownChanged,
@@ -85,7 +95,8 @@ class EditorBottomBar extends StatelessWidget {
                       inactiveTrackColor: Colors.grey.shade300,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    const Text('📄', style: TextStyle(fontSize: 14)),
+                    if (!compact)
+                      const Text('📄', style: TextStyle(fontSize: 14)),
                   ],
                 ),
               ),
@@ -96,11 +107,11 @@ class EditorBottomBar extends StatelessWidget {
                 ),
               const SizedBox(width: 8),
               SizedBox(
-                height: 40,
+                height: saveH,
                 child: ElevatedButton(
                   onPressed: isSaving ? null : onSave,
                   style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(100, 40),
+                    minimumSize: saveMin,
                     backgroundColor:
                         isFromCollection ? Colors.blue.shade700 : null,
                     foregroundColor:

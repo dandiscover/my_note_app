@@ -21,27 +21,18 @@ class WorkbenchBody extends StatefulWidget {
   final MarkdownKernel kernel;
   final NotebookEntry entry;
 
-  // ── 顶部自定义区（如 ⭐/❓ 标记行）──
   final Widget? header;
-
-  // ── 错误提示 ──
   final String? errorMessage;
-
-  // ── 探究区 ──
   final bool showExplore;
   final VoidCallback? onExploreTap;
-
-  // ── 底栏 ──
   final bool showBottomBar;
   final VoidCallback? onCancel;
   final String saveLabel;
   final bool isFromCollection;
-
-  // ── 右侧素材槽（null = 不显示）──
   final List<MaterialItem>? materialItems;
-
-  // ── 拖拽接收 ──
   final Function(DragTargetDetails<MaterialItem>)? onDropItem;
+  final bool compact;
+  final bool appBarHasCardAction;
 
   const WorkbenchBody({
     super.key,
@@ -57,6 +48,8 @@ class WorkbenchBody extends StatefulWidget {
     this.isFromCollection = false,
     this.materialItems,
     this.onDropItem,
+    this.compact = false,
+    this.appBarHasCardAction = false,
   });
 
   @override
@@ -68,16 +61,15 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
   Widget build(BuildContext context) {
     final kernel = widget.kernel;
     final entry = widget.entry;
+    final hPad = widget.compact ? 8.0 : 24.0;
 
     final body = Column(
       children: [
-        // ── header（⭐/❓） ──
         if (widget.header != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: widget.header!,
           ),
-        // ── 错误提示 ──
         if (widget.errorMessage != null)
           Container(
             width: double.infinity,
@@ -92,7 +84,6 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
               style: TextStyle(color: Colors.red.shade800, fontSize: 12),
             ),
           ),
-        // ── 探究区 ──
         if (widget.showExplore && entry.exploreTasks.isNotEmpty) ...[
           const SizedBox(height: 8),
           EditorExploreArea(
@@ -100,13 +91,11 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
             onTap: widget.onExploreTap ?? () {},
           ),
         ],
-        // ── 标题 ──
         EditorTitleBar(
           controller: kernel.titleController,
           onChanged: () => setState(() {}),
         ),
         const Divider(height: 8),
-        // ── 正文 ──
         Expanded(
           child: widget.onDropItem != null
               ? DragTarget<MaterialItem>(
@@ -116,7 +105,6 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
                 )
               : Workbench(kernel: kernel, entry: entry),
         ),
-        // ── 底栏 ──
         if (widget.showBottomBar) ...[
           const Divider(height: 8),
           EditorBottomBar(
@@ -138,25 +126,25 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
             isGeneratingCard: kernel.isGeneratingCard,
             saveLabel: widget.saveLabel,
             isFromCollection: widget.isFromCollection,
+            compact: widget.compact,
+            appBarHasCardAction: widget.appBarHasCardAction,
           ),
         ],
       ],
     );
 
-    // 无素材槽——直接返回
     if (widget.materialItems == null) {
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: EdgeInsets.symmetric(horizontal: hPad),
         child: body,
       );
     }
 
-    // 有素材槽——右侧
     return Row(
       children: [
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: EdgeInsets.symmetric(horizontal: hPad),
             child: body,
           ),
         ),
