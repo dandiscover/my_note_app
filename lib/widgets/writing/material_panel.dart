@@ -303,13 +303,20 @@ class _MaterialPanelState extends State<MaterialPanel> {
 
   Widget _buildHeader(String label) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey.shade600,
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade700,
+          ),
         ),
       ),
     );
