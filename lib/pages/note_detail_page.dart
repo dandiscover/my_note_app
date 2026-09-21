@@ -146,6 +146,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       isSaving: _isSaving,
       onInquiryConfirmed: _handleInquiryConfirmed,
     ));
+    // 批：焦点归属——页面 owner set（Workbench 不再抢）
+    EditorKernel.focus(_kernel);
     _loadNoteCards();
     _loadSubNotesCount();
     _loadMaterialItems();
@@ -155,6 +157,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   void dispose() {
     focusModeNotifier.removeListener(_onFocusModeChanged);
+    // 批：焦点归属——条件清（防 pushReplacement 清掉新页）
+    if (EditorKernel.active == _kernel) {
+      EditorKernel.blur();
+    }
     _kernel.dispose();
     super.dispose();
   }
@@ -255,16 +261,25 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         }
       } else {
         await _db.updateNote(updated.toMap());
-        if (!widget.isFromCollection && widget.nodeId != null) {
-          final node = await _db.getNode(widget.nodeId!);
-          if (node != null) {
-            await _db.updateNode(node.copyWith(tags: tags));
-          }
-        }
+      }
+
+      // 批：标题同步——笔记是源，node 是显示副本（单向 note → node）
+      // 统一在 if/else 之外——覆盖两种场景：
+      //   isNew：attachNoteToNode 已建 node → 补 title
+      //   else：node 已存在 → 补 title + tags
+      // 无 node（如未进智库）→ getNodeByNoteId 返 null → 跳过
+      // 注：原「!isFromCollection && nodeId != null」判断删——改为 syncNode != null 反查（改进：采集页笔记若挂了 node——原不更——现更）
+      final syncNode = await _db.getNodeByNoteId(updated.id);
+      if (syncNode != null) {
+        await _db.updateNode(syncNode.copyWith(
+          title: updated.title,
+          tags: tags,
+        ));
       }
 
       setState(() {
         _entry = updated;
+        _isReadMode = true;       // 批：保存后切阅读态
       });
 
       if (mounted) {
@@ -1235,7 +1250,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       }
     }
     if (!mounted) return;
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MultiPanePage(
@@ -1244,6 +1259,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         ),
       ),
     );
+    // 批：多栏 pop 回单栏——重读库最新（多栏内可能改过并保存）
+    if (mounted) await _reloadEntry();
   }
   Future<void> _showQuickSwitch() async {
     final maps = await _db.getAllNotes(includeDeleted: false);

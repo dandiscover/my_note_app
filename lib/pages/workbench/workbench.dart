@@ -29,15 +29,13 @@ class _WorkbenchState extends State<Workbench> {
   @override
   void initState() {
     super.initState();
-    EditorKernel.focus(widget.kernel);
+    // 批：焦点归属——Workbench 不介入焦点（由页面 owner set/clear）
   }
 
   @override
   void didUpdateWidget(Workbench oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.kernel != widget.kernel) {
-      EditorKernel.focus(widget.kernel);
-    }
+    // 批：焦点归属——Workbench 不介入焦点
     if (oldWidget.entry != widget.entry) {
       widget.kernel.updateEntry(widget.entry);
     }
@@ -45,9 +43,7 @@ class _WorkbenchState extends State<Workbench> {
 
   @override
   void dispose() {
-    if (EditorKernel.active == widget.kernel) {
-      EditorKernel.blur();
-    }
+    // 批：焦点归属——条件清移交页面 owner
     super.dispose();
   }
 

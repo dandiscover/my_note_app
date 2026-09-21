@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../models/material_item.dart';
 import '../../models/note.dart';
+import '../../utils/app_string_utils.dart';
 import 'editor_bottom_bar.dart';
 import 'editor_explore_area.dart';
 import 'editor_material_slot.dart';
@@ -49,6 +51,12 @@ class WorkbenchBody extends StatefulWidget {
   // ── 外层 AppBar 是否已有制卡入口 ──
   final bool appBarHasCardAction;
 
+  // ── 批：阅读态（多栏保存后切）──
+  final bool isReadMode;
+
+  // ── 批：阅读态顶部「编辑」按钮回调（null = 不显，单栏用）──
+  final VoidCallback? onEditRequest;
+
   const WorkbenchBody({
     super.key,
     required this.kernel,
@@ -65,6 +73,8 @@ class WorkbenchBody extends StatefulWidget {
     this.onDropItem,
     this.compact = false,
     this.appBarHasCardAction = false,
+    this.isReadMode = false,
+    this.onEditRequest,
   });
 
   @override
@@ -78,9 +88,14 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
     final entry = widget.entry;
     final hPad = widget.compact ? 8.0 : 24.0;
 
+    // 批：阅读态——直接显示 entry，不渲染 kernel，也不显素材槽
+    if (widget.isReadMode) {
+      return _buildReadBody(context, entry);
+    }
+
     final body = Column(
       children: [
-        // ── header（⭐/❓） ──
+        // ── header（⭐/❓）──
         if (widget.header != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -139,8 +154,13 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
             },
             isSaving: kernel.isSaving,
             onSave: () async {
-              await kernel.save();
-              if (mounted) setState(() {});
+              final ok = await kernel.save();
+              if (mounted) {
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(ok ? '✅ 已保存' : '❌ 保存失败')),
+                );
+              }
             },
             onCancel: widget.onCancel,
             onGenerateCard: kernel.createReviewCard,
@@ -173,6 +193,62 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
         ),
         const VerticalDivider(width: 1, thickness: 1),
         EditorMaterialSlot(items: widget.materialItems!),
+      ],
+    );
+  }
+
+  /// 批：阅读态视图——多栏保存后切
+  /// 简化显示（标题 / 标签 / 正文）——不引单栏全功能 read 渲染
+  /// 债：单栏 / 多栏 read 态样式不统一——归后续「read 视图统一」块
+  Widget _buildReadBody(BuildContext context, NotebookEntry entry) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 顶部「编辑」按钮（onEditRequest != null 时显）
+        if (widget.onEditRequest != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: widget.onEditRequest,
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('编辑'),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppStringUtils.displayNoteTitle(entry.title, entry.content),
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                if (entry.tags.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 4,
+                    children: entry.tags
+                        .map((t) => Chip(label: Text(t)))
+                        .toList(),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                entry.editorMode == 'markdown'
+                    ? MarkdownBody(data: entry.content)
+                    : SelectableText(entry.content,
+                        style:
+                            const TextStyle(fontSize: 16, height: 1.6)),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }

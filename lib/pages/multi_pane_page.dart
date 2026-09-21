@@ -23,7 +23,12 @@ class _EmptyPane extends _PaneState {
 class _NotePane extends _PaneState {
   final NotebookEntry note;
   final MarkdownKernel kernel;
-  _NotePane({required this.note, required this.kernel});
+  bool isReadMode;                 // 批：多栏每栏读/编辑态
+  _NotePane({
+    required this.note,
+    required this.kernel,
+    this.isReadMode = false,
+  });
 }
 
 class MultiPanePage extends StatefulWidget {
@@ -59,6 +64,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
       }
       return const _EmptyPane();
     });
+    // 批：焦点归属——Workbench 不抢焦——同步调成立
     _syncFocus();
   }
 
@@ -116,6 +122,27 @@ class _MultiPanePageState extends State<MultiPanePage> {
       updatedAt: DateTime.now(),
     );
     await DatabaseService().insertNote(updated.toMap());
+    // 批：标题同步——笔记是源，node 是显示副本（单向 note → node）
+    final node = await DatabaseService().getNodeByNoteId(updated.id);
+    if (node != null && node.title != updated.title) {
+      await DatabaseService().updateNode(node.copyWith(title: updated.title));
+    }
+    // 批：保存后切阅读态——找对应 pane
+    if (mounted) {
+      setState(() {
+        for (var i = 0; i < _panes.length; i++) {
+          final p = _panes[i];
+          if (p is _NotePane && p.note.id == entry.id) {
+            p.kernel.updateEntry(updated);   // ← 关键：kernel entry 同步
+            _panes[i] = _NotePane(
+              note: updated,
+              kernel: p.kernel,              // 复用 kernel——不重建
+              isReadMode: true,
+            );
+          }
+        }
+      });
+    }
     return true;
   }
 
@@ -199,10 +226,15 @@ class _MultiPanePageState extends State<MultiPanePage> {
 
   @override
   void dispose() {
+    // 批：焦点归属——条件清（防 pushReplacement 清掉新页）
+    EditorKernel? activeKernel;
+    final activePane = _panes[_activePane];
+    if (activePane is _NotePane) activeKernel = activePane.kernel;
     for (final pane in _panes) {
-      if (pane is _NotePane) {
-        pane.kernel.dispose();
-      }
+      if (pane is _NotePane) pane.kernel.dispose();
+    }
+    if (activeKernel != null && EditorKernel.active == activeKernel) {
+      EditorKernel.blur();
     }
     super.dispose();
   }
@@ -260,8 +292,12 @@ class _MultiPanePageState extends State<MultiPanePage> {
   Widget _buildPane(int i) {
     final pane = _panes[i];
     final isActive = i == _activePane;
-    return GestureDetector(
-      onTap: () => _setActivePane(i),
+        return Listener(
+      // 批：多栏焦点修——Listener.onPointerDown 走 pointer 阶段
+      // 不进 Gesture Arena——不被 TextField / QuillEditor 抢
+      // translucent 保留——hit-test 命中层面也需（两层配合，省不得）
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _setActivePane(i),
       child: Container(
         decoration: isActive
             ? BoxDecoration(border: Border.all(color: Colors.blue, width: 2))
@@ -282,6 +318,13 @@ class _MultiPanePageState extends State<MultiPanePage> {
           saveLabel: '💾 保存',
           compact: true,
           appBarHasCardAction: false,
+          // 批：读/编辑态 + 编辑按钮回调
+          isReadMode: (pane as _NotePane).isReadMode,
+          onEditRequest: () {
+            setState(() {
+              (pane as _NotePane).isReadMode = false;
+            });
+          },
         ),
     };
   }
