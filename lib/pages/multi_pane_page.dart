@@ -211,6 +211,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
   Widget build(BuildContext context) {
     final activeHasNote = _panes[_activePane] is _NotePane;
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('多栏工作台'),
         actions: [
