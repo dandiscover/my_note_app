@@ -11,6 +11,7 @@ import 'workbench/editor_material_slot.dart';
 import 'workbench/kernel_markdown.dart';
 import 'workbench/workbench_body.dart';
 import '../widgets/quick_switch_dialog.dart';
+import 'epub_reader_page.dart';
 
 sealed class _PaneState {
   const _PaneState();
@@ -31,14 +32,31 @@ class _NotePane extends _PaneState {
   });
 }
 
+class _ReaderPane extends _PaneState {
+  final String bookId;
+  final String fileName;
+  final String? filePath;
+  const _ReaderPane({
+    required this.bookId,
+    required this.fileName,
+    this.filePath,
+  });
+}
+
 class MultiPanePage extends StatefulWidget {
   final List<NotebookEntry> initialEntries;
   final int initialLayout;
+  final String? initialReaderBookId;      // 批 3
+  final String? initialReaderBookTitle;
+  final String? initialReaderBookPath;
 
   const MultiPanePage({
     super.key,
     this.initialEntries = const [],
     this.initialLayout = 2,
+    this.initialReaderBookId,
+    this.initialReaderBookTitle,
+    this.initialReaderBookPath,
   });
 
   @override
@@ -46,6 +64,8 @@ class MultiPanePage extends StatefulWidget {
 }
 
 class _MultiPanePageState extends State<MultiPanePage> {
+  final CardService _cardService = CardService();   // 批 3：阅读器栏素材区取来源卡
+
   late List<_PaneState> _panes;
   late int _layoutMode;
   int _activePane = 0;
@@ -58,12 +78,26 @@ class _MultiPanePageState extends State<MultiPanePage> {
   void initState() {
     super.initState();
     _layoutMode = widget.initialLayout.clamp(1, 3);
+    final entryOffset = widget.initialReaderBookId != null ? 1 : 0;
     _panes = List.generate(3, (i) {
-      if (i < widget.initialEntries.length) {
-        return _buildNotePane(widget.initialEntries[i]);
+      if (i >= entryOffset && i - entryOffset < widget.initialEntries.length) {
+        return _buildNotePane(widget.initialEntries[i - entryOffset]);
       }
       return const _EmptyPane();
     });
+    // 批 3：笔记数超栏上限——打日志防静默丢
+    final maxNoteSlots = widget.initialReaderBookId != null ? 2 : 3;
+    if (widget.initialEntries.length > maxNoteSlots) {
+      debugPrint('MultiPanePage: 笔记数 ${widget.initialEntries.length} 超栏上限 $maxNoteSlots，已截断');
+    }
+    // 批 3：书详情进——第 1 栏放阅读器
+    if (widget.initialReaderBookId != null) {
+      _panes[0] = _ReaderPane(
+        bookId: widget.initialReaderBookId!,
+        fileName: widget.initialReaderBookTitle ?? '文档',
+        filePath: widget.initialReaderBookPath,
+      );
+    }
     // 批：焦点归属——Workbench 不抢焦——同步调成立
     _syncFocus();
     // 批 2-4：监听卡片库变化——自动刷素材区
@@ -95,17 +129,78 @@ class _MultiPanePageState extends State<MultiPanePage> {
   // ─── 全局素材栏：按焦点栏拉素材 ───
   Future<void> _reloadMaterialItems() async {
     final pane = _panes[_activePane];
-    if (pane is! _NotePane) {
+    if (pane is _NotePane) {
+      final items = await MaterialService.loadFor(pane.note);
+      if (!mounted) return;
+      setState(() => _materialItems = items);
+    } else if (pane is _ReaderPane) {
+      // 批 3：阅读器栏 → 显示该书来源卡
+      final cards = await _cardService.getCardsBySource(
+        sourceType: 'book', sourceId: pane.bookId);
+      final items = cards.map((c) => MaterialItem.fromCard(c)).toList();
+      if (!mounted) return;
+      setState(() => _materialItems = items);
+    } else {
       if (mounted) setState(() => _materialItems = []);
-      return;
     }
-    final items = await MaterialService.loadFor(pane.note);
-    if (!mounted) return;
-    setState(() => _materialItems = items);
   }
 
   void _toggleMaterialPanel() {
     setState(() => _showMaterialPanel = !_showMaterialPanel);
+    if (_showMaterialPanel) _reloadMaterialItems();
+  }
+
+  Future<void> _showAddReaderPicker() async {
+    // 找空栏
+    final emptyIndex = _panes.indexWhere((p) => p is _EmptyPane);
+    if (emptyIndex == -1 || emptyIndex >= _layoutMode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('栏已满，请先关闭一栏再加')),
+      );
+      return;
+    }
+    final books = await DatabaseService().getAllBooks();
+    if (!mounted) return;
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('选择书'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: books.isEmpty
+              ? const Center(child: Text('还没有书'))
+              : ListView.builder(
+                  itemCount: books.length,
+                  itemBuilder: (_, i) {
+                    final b = books[i];
+                    return ListTile(
+                      leading: const Icon(Icons.menu_book),
+                      title: Text(b['title'] as String? ?? '未命名'),
+                      subtitle: Text(b['author'] as String? ?? ''),
+                      onTap: () => Navigator.pop(ctx, b),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _panes[emptyIndex] = _ReaderPane(
+        bookId: selected['id'] as String,
+        fileName: selected['title'] as String? ?? '文档',
+        filePath: selected['filePath'] as String?,
+      );
+      _activePane = emptyIndex;
+    });
+    _syncFocus();
     if (_showMaterialPanel) _reloadMaterialItems();
   }
 
@@ -250,6 +345,8 @@ class _MultiPanePageState extends State<MultiPanePage> {
   @override
   Widget build(BuildContext context) {
     final activeHasNote = _panes[_activePane] is _NotePane;
+    final activeHasContent = _panes[_activePane] is _NotePane ||
+                             _panes[_activePane] is _ReaderPane;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -272,6 +369,12 @@ class _MultiPanePageState extends State<MultiPanePage> {
           ),
           const SizedBox(width: 8),
           IconButton(
+            icon: const Icon(Icons.add_to_queue),
+            tooltip: '加阅读器栏',
+            onPressed: _showAddReaderPicker,
+          ),
+          const SizedBox(width: 8),
+          IconButton(
             icon: Icon(_showMaterialPanel
                 ? Icons.view_sidebar
                 : Icons.view_sidebar_outlined),
@@ -288,9 +391,9 @@ class _MultiPanePageState extends State<MultiPanePage> {
             if (i > 0) const VerticalDivider(width: 1, thickness: 1),
             Expanded(child: _buildPane(i)),
           ],
-          if (_showMaterialPanel && activeHasNote) ...[
+          if (_showMaterialPanel && activeHasContent) ...[
             const VerticalDivider(width: 1, thickness: 1),
-            EditorMaterialSlot(items: _materialItems),
+            EditorMaterialSlot(items: _materialItems, enabled: activeHasNote),
           ],
         ],
       ),
@@ -315,7 +418,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
     );
   }
 
-  Widget _buildPaneContent(_PaneState pane, int i) {
+    Widget _buildPaneContent(_PaneState pane, int i) {
     return switch (pane) {
       _EmptyPane() => _buildEmptyPane(i),
       _NotePane(:final note, :final kernel) => WorkbenchBody(
@@ -326,13 +429,19 @@ class _MultiPanePageState extends State<MultiPanePage> {
           saveLabel: '💾 保存',
           compact: true,
           appBarHasCardAction: false,
-          // 批：读/编辑态 + 编辑按钮回调
           isReadMode: (pane as _NotePane).isReadMode,
           onEditRequest: () {
             setState(() {
               (pane as _NotePane).isReadMode = false;
             });
           },
+        ),
+      _ReaderPane(:final bookId, :final fileName, :final filePath) => EpubReaderPage(
+          bookId: bookId,
+          fileName: fileName,
+          filePath: filePath,
+          embedMode: true,
+          onExit: () => setState(() => _panes[i] = const _EmptyPane()),
         ),
     };
   }

@@ -13,11 +13,13 @@ import 'editor_kernel.dart';
 class EditorMaterialSlot extends StatelessWidget {
   final List<MaterialItem> items;
   final double width;
+  final bool enabled;   // 批 3：透传
 
   const EditorMaterialSlot({
     super.key,
     required this.items,
     this.width = 280,
+    this.enabled = true,
   });
 
   void _handleInsertCard(CardModel card) {
@@ -37,6 +39,7 @@ class EditorMaterialSlot extends StatelessWidget {
       width: width,
       child: MaterialPanel(
         items: items,
+        enabled: enabled,
         onInsertCard: _handleInsertCard,
         onInsertNote: _handleInsertNote,
       ),

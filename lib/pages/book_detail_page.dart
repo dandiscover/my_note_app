@@ -26,6 +26,7 @@ import '../utils/app_string_utils.dart';
 import 'pdf_reader_page.dart';
 import 'epub_reader_page.dart';
 import 'note_detail_page.dart';
+import 'multi_pane_page.dart';
 import '../models/note.dart';
 import '../services/note_book_link_service.dart';
 
@@ -516,7 +517,7 @@ class _BookDetailPageState extends State<BookDetailPage>
           IconButton(icon: const Icon(Icons.save), onPressed: _saveEdit, tooltip: '保存')
         else ...[
           IconButton(icon: const Icon(Icons.edit), onPressed: () => setState(() => _isEditing = true), tooltip: '编辑'),
-          if (_book!.hasEbook)
+          if (_book!.hasEbook) ...[
             IconButton(
               icon: const Icon(Icons.menu_book),
               onPressed: () {
@@ -528,6 +529,25 @@ class _BookDetailPageState extends State<BookDetailPage>
               },
               tooltip: '阅读',
             ),
+            IconButton(
+              icon: const Icon(Icons.view_column),
+              tooltip: '并排打开',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MultiPanePage(
+                      initialEntries: const [],
+                      initialLayout: 2,
+                      initialReaderBookId: widget.bookId,
+                      initialReaderBookTitle: _book!.title,
+                      initialReaderBookPath: _book!.filePath,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
         ],
       ],
     );

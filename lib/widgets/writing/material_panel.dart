@@ -15,12 +15,14 @@ class MaterialPanel extends StatefulWidget {
   final List<MaterialItem> items;
   final Function(CardModel) onInsertCard;
   final Function(NotebookEntry) onInsertNote;
+  final bool enabled;   // 批 3：false = 卡片不可点（多栏无笔记栏时）
 
   const MaterialPanel({
     super.key,
     required this.items,
     required this.onInsertCard,
     required this.onInsertNote,
+    this.enabled = true,
   });
 
   @override
@@ -145,7 +147,7 @@ class _MaterialPanelState extends State<MaterialPanel> {
     final filtered = _filtered();
     final rows = _rows(filtered);
 
-    return Container(
+    return _wrapEnabled(Container(
       color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,9 +273,18 @@ class _MaterialPanelState extends State<MaterialPanel> {
           ),
         ],
       ),
+    ));
+  }
+  /// 批 3：enabled=false → 卡片不可点 + 灰化
+  Widget _wrapEnabled(Widget child) {
+    if (widget.enabled) return child;
+    return IgnorePointer(
+      ignoring: true,
+      child: Opacity(opacity: 0.5, child: child),
     );
   }
 
+  /// 素材数据源扩展——library 段被截时显「还有更多」
   /// 素材数据源扩展——library 段被截时显「还有更多」
   /// 说明：靠「library 段条数 == quotaLibrary」推断被截——不精确（15==15 会误显）
   /// 记债：改 record 返回可得精确 N——归后续轮
