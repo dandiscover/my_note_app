@@ -39,6 +39,7 @@ import '../widgets/wisdom/wisdom_toolbar.dart';
 import '../widgets/wisdom/wisdom_draggable.dart';
 import '../widgets/wisdom/wisdom_search_bar.dart';
 import 'note_detail_page.dart';
+import '../services/card_note_service.dart';
 import 'book_detail_page.dart';
 // ✅ 第四轮批 2a：标记汇总面板
 import '../widgets/mark_summary/mark_summary_item.dart';
@@ -1874,6 +1875,35 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           ),
         ),
         actions: [
+          // 批 2-2：卡片拓展成笔记
+          TextButton.icon(
+            onPressed: () async {
+              Navigator.pop(context);
+              final noteId = await CardNoteService().expandToNote(card);
+              if (!mounted) return;
+              refreshData();
+              final maps = await _db.getAllNotes();
+              if (!mounted) return;
+              final noteMap = maps.firstWhere(
+                (m) => m['id'] == noteId,
+                orElse: () => <String, dynamic>{},
+              );
+              if (noteMap.isEmpty) return;
+              final note = NotebookEntry.fromMap(noteMap);
+              await Navigator.push(
+                this.context,
+                MaterialPageRoute(
+                  builder: (_) => NoteDetailPage(
+                    entry: note,
+                    isFromCollection: false,
+                    initInEditMode: true,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.note_add, size: 16),
+            label: const Text('拓展成笔记'),
+          ),
           // ✅ 指导卡：系统预置卡（system_guide_card）不显示“删除”按钮
           if (card.id != 'system_guide_card')
             TextButton(
