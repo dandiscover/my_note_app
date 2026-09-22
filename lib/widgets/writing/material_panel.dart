@@ -283,8 +283,6 @@ class _MaterialPanelState extends State<MaterialPanel> {
       child: Opacity(opacity: 0.5, child: child),
     );
   }
-
-  /// 素材数据源扩展——library 段被截时显「还有更多」
   /// 素材数据源扩展——library 段被截时显「还有更多」
   /// 说明：靠「library 段条数 == quotaLibrary」推断被截——不精确（15==15 会误显）
   /// 记债：改 record 返回可得精确 N——归后续轮

@@ -429,6 +429,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
           saveLabel: '💾 保存',
           compact: true,
           appBarHasCardAction: false,
+          // 批：读/编辑态 + 编辑按钮回调
           isReadMode: (pane as _NotePane).isReadMode,
           onEditRequest: () {
             setState(() {
