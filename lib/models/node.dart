@@ -1,6 +1,7 @@
 // lib/models/node.dart
 // 树形节点模型 — 标准格式（不处理脏数据）
 // ✅ 子笔记嵌套：加 kMaxSubNoteDepth 常量（集中定义，不散落）
+// ✅ 批 BUG-003：加 systemTag 字段——系统文件夹按字段判定，不靠 title
 
 /// 子笔记嵌套最大深度（含自身）。第 1 层是笔记本身。
 const int kMaxSubNoteDepth = 3;
@@ -14,6 +15,7 @@ class Node {
   final String? targetId;
   final int sortOrder;
   final List<String> tags;
+  final String? systemTag;    // 批 BUG-003：系统标记——null=用户文件夹
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -26,6 +28,7 @@ class Node {
     this.targetId,
     this.sortOrder = 0,
     this.tags = const [],
+    this.systemTag,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -39,6 +42,7 @@ class Node {
     targetId: null,
     sortOrder: 0,
     tags: const [],
+    systemTag: null,
     createdAt: DateTime.fromMillisecondsSinceEpoch(0),
     updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
   );
@@ -54,6 +58,7 @@ class Node {
       targetId: map['targetId'],
       sortOrder: map['sortOrder'] ?? 0,
       tags: (map['tags'] as List?)?.cast<String>() ?? [],
+      systemTag: map['systemTag'] as String?,    // 批 BUG-003
       createdAt: DateTime.parse(map['createdAt']),
       updatedAt: DateTime.parse(map['updatedAt']),
     );
@@ -69,6 +74,7 @@ class Node {
       'targetId': targetId,
       'sortOrder': sortOrder,
       'tags': tags,
+      'systemTag': systemTag,                    // 批 BUG-003
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -83,6 +89,7 @@ class Node {
     String? targetId,
     int? sortOrder,
     List<String>? tags,
+    String? systemTag,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -95,23 +102,29 @@ class Node {
       targetId: targetId ?? this.targetId,
       sortOrder: sortOrder ?? this.sortOrder,
       tags: tags ?? this.tags,
+      systemTag: systemTag ?? this.systemTag,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
   bool get isSystemFolder {
+    // 批 BUG-003：改按字段判定——不靠 title
+    // 例外：'expand' 是半系统——系统建但用户可管
     return isFolder &&
         parentId == null &&
-        ['图书馆', '已归档', '卡片盒', '复盘'].contains(title);
+        systemTag != null &&
+        systemTag != 'expand';
   }
 
   String get iconEmoji {
     if (isFolder) {
-      if (title == '图书馆') return '📚';
-      if (title == '已归档') return '📦';
-      if (title == '卡片盒') return '📇';
-      if (title == '复盘') return '📝';
+      // 批 BUG-003：改按 systemTag 判定——不靠 title
+      if (systemTag == 'library') return '📚';
+      if (systemTag == 'archived') return '📦';
+      if (systemTag == 'cardbox') return '📇';
+      if (systemTag == 'review') return '📝';
+      if (systemTag == 'expand') return '✏️';
       return '📁';
     }
     if (nodeType == 'note') return '📄';

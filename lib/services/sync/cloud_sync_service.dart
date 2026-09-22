@@ -98,6 +98,7 @@ class CloudSyncService {
         'target_id': node.targetId,
         'sort_order': node.sortOrder,
         'tags': node.tags,
+        'system_tag': node.systemTag,           // 批 BUG-003
         'updated_at': node.updatedAt.toIso8601String(),
         'created_at': node.createdAt.toIso8601String(),
       });
@@ -137,6 +138,7 @@ class CloudSyncService {
       targetId: m['target_id'],
       sortOrder: m['sort_order'] ?? 0,
       tags: (m['tags'] as List?)?.cast<String>() ?? [],
+      systemTag: m['system_tag'] as String?,    // 批 BUG-003
       createdAt: DateTime.parse(m['created_at']),
       updatedAt: DateTime.parse(m['updated_at']),
     )).toList();

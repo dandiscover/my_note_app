@@ -173,6 +173,7 @@ class DatabaseService {
     'targetId': row['target_id'],
     'sortOrder': row['sort_order'],
     'tags': row['tags'],
+    'systemTag': row['system_tag'],           // 批 BUG-003
     'createdAt': row['created_at'],
     'updatedAt': row['updated_at'],
   };
@@ -208,6 +209,7 @@ class DatabaseService {
       'target_id': cleanedTargetId,
       'sort_order': map['sortOrder'] ?? 0,
       'tags': tagsStr,
+      'system_tag': map['systemTag'],           // 批 BUG-003
       'created_at': map['createdAt'],
       'updated_at': map['updatedAt'],
     };
@@ -337,11 +339,17 @@ class DatabaseService {
     return results;
   }
 
-  Future<Node> createFolder({required String title, String? parentId, List<String> tags = const []}) async {
+  Future<Node> createFolder({
+    required String title,
+    String? parentId,
+    List<String> tags = const [],
+    String? systemTag,                          // 批 BUG-003
+  }) async {
     final node = Node(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: title, parentId: parentId, isFolder: true, nodeType: 'folder',
-      tags: tags, createdAt: DateTime.now(), updatedAt: DateTime.now(),
+      tags: tags, systemTag: systemTag,
+      createdAt: DateTime.now(), updatedAt: DateTime.now(),
     );
     await insertNode(node.toMap());
     return node;
@@ -1015,11 +1023,23 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getAllAnnotationsForBook(String bookId) async => [];
 
   // ─── 系统文件夹 ────────────────────────────────────────
-  Future<String> _ensureSystemFolder(String title, {List<String>? tags}) async {
+  // 批 BUG-003：系统文件夹改按 systemTag 找——不靠 title
+  Future<String> _ensureSystemFolderByTag(
+    String systemTag,
+    String defaultTitle, {
+    List<String>? tags,
+  }) async {
     final allNodes = await getAllNodes();
-    final matches = allNodes.where((n) => n.title == title && n.isFolder && n.parentId == null).toList();
+    final matches = allNodes
+        .where((n) => n.systemTag == systemTag && n.isFolder && n.parentId == null)
+        .toList();
     if (matches.isEmpty) {
-      final folder = await createFolder(title: title, parentId: null, tags: tags ?? []);
+      final folder = await createFolder(
+        title: defaultTitle,
+        parentId: null,
+        tags: tags ?? [],
+        systemTag: systemTag,
+      );
       return folder.id;
     }
     if (matches.length > 1) {
@@ -1036,10 +1056,11 @@ class DatabaseService {
     return matches.first.id;
   }
 
-  Future<String> ensureArchivedFolder() => _ensureSystemFolder('已归档', tags: ['系统', '归档']);
-  Future<String> ensureLibraryFolder() => _ensureSystemFolder('图书馆', tags: ['系统', '图书']);
-  Future<String> ensureReviewFolder() => _ensureSystemFolder('复盘', tags: ['系统', '复盘']);
-  Future<String> ensureCardBoxFolder() => _ensureSystemFolder('卡片盒', tags: ['系统', '卡片盒']);
+  Future<String> ensureArchivedFolder() => _ensureSystemFolderByTag('archived', '已归档', tags: ['系统', '归档']);
+  Future<String> ensureLibraryFolder() => _ensureSystemFolderByTag('library', '图书馆', tags: ['系统', '图书']);
+  Future<String> ensureReviewFolder() => _ensureSystemFolderByTag('review', '复盘库', tags: ['系统', '复盘']);
+  Future<String> ensureCardBoxFolder() => _ensureSystemFolderByTag('cardbox', '卡片盒', tags: ['系统', '卡片盒']);
+  Future<String> ensureExpandFolder() => _ensureSystemFolderByTag('expand', '拓展笔记', tags: ['系统', '拓展笔记']);
 
   Future<NotebookEntry> createReviewNote({required String title, required String content, List<String> extraTags = const []}) async {
     final folderId = await ensureReviewFolder();
@@ -1222,7 +1243,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 18, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 19, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1423,9 +1444,23 @@ class DatabaseService {
         debugPrint('note_book_links 17→18 迁移失败: $e');
       }
     }
+        if (oldVersion < 18) {
+      try {
+        // 批 1a：note_book_links 表（笔记↔书关联）
+      } catch (e) {
+        debugPrint('note_book_links 17→18 迁移失败: $e');
+      }
+    }
+    // 批 BUG-003：19 —— nodes 加 system_tag（测试数据可删——不回填）
+    if (oldVersion < 19) {
+      try {
+        await db.execute('ALTER TABLE nodes ADD COLUMN system_tag TEXT');
+      } catch (e) {
+        debugPrint('nodes 18→19 迁移失败: $e');
+      }
+    }
   }
-
-  /// 批 1a：L2 → L3 迁移
+    /// 批 1a：L2 → L3 迁移
   /// 读 SharedPreferences book_reading_note_id_$bookId → 写 note_book_links
   /// 幂等：ConflictAlgorithm.ignore + UNIQUE 约束
   /// 旧 key 保留只读（防回滚）
@@ -1449,6 +1484,31 @@ class DatabaseService {
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
+    }
+  }
+
+  /// 批 BUG-003：开发调试用——清空所有本地数据
+  /// 正式版不加调用入口
+  /// 用法：main() 里临时加 `await DatabaseService().dropAllForDebug();` 跑一次 —— 删那行
+  Future<void> dropAllForDebug() async {
+    if (_isWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+    } else {
+      final db = await _getDatabase();
+      await db.delete('nodes');
+      await db.delete('notes');
+      await db.delete('books');
+      await db.delete('book_annotations');
+      await db.delete('pdf_drawings');
+      await db.delete('isbn_cache');
+      await db.delete('board_views');
+      await db.delete('board_nodes');
+      await db.delete('board_edges');
+      await db.delete('board_groups');
+      await db.delete('board_texts');
+      await db.delete('tag_index');
+      try { await db.delete('search_index'); } catch (_) {}
     }
   }
 
@@ -1484,6 +1544,7 @@ class DatabaseService {
         id TEXT PRIMARY KEY, title TEXT, parent_id TEXT,
         is_folder INTEGER DEFAULT 0, node_type TEXT DEFAULT 'folder',
         target_id TEXT, sort_order INTEGER DEFAULT 0, tags TEXT DEFAULT '',
+        system_tag TEXT,
         created_at TEXT, updated_at TEXT
       )
     ''');
