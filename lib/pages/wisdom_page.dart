@@ -233,7 +233,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       orElse: () => Node.empty,
     );
     if (node.id.isEmpty) return false;
-    return node.title == '卡片盒' && node.isFolder && node.parentId == null;
+    return node.systemTag == 'cardbox' && node.isFolder && node.parentId == null;
   }
 
   /// 判断当前文件夹是否为图书馆
@@ -244,7 +244,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       orElse: () => Node.empty,
     );
     if (node.id.isEmpty) return false;
-    return node.title == '图书馆' && node.isFolder && node.parentId == null;
+    return node.systemTag == 'library' && node.isFolder && node.parentId == null;
   }
 
   List<Node> get _children => _nodes.where((n) => n.parentId == _currentFolderId).toList();
@@ -283,41 +283,51 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   List<Node> get _userFolders {
+    // 批 BUG-003：改按字段判定——不靠 title
+    // 'expand'（拓展笔记）半系统——isSystemFolder 返回 false——归用户区
     return _nodes.where((n) =>
       n.isFolder &&
       n.parentId == null &&
-      n.title != '图书馆' &&
-      n.title != '已归档' &&
-      n.title != '卡片盒' &&
-      n.title != '复盘'
+      !n.isSystemFolder
     ).toList();
   }
 
   List<Map<String, dynamic>> get _systemFolders {
+    // 批 BUG-003：改按 systemTag 收集——不靠 title
     final result = <Map<String, dynamic>>[];
     for (var node in _nodes) {
-      if (node.isFolder && node.parentId == null) {
-        if (node.title == '图书馆') {
-          final count = _nodes.where((n) => n.parentId == node.id && n.nodeType == 'book').length;
+      if (!node.isSystemFolder) continue;
+      final tag = node.systemTag;
+      if (tag == null) continue;
+      switch (tag) {
+        case 'library':
           result.add({
             'node': node,
             'type': 'library',
-            'count': count,
+            'count': _nodes.where((n) => n.parentId == node.id && n.nodeType == 'book').length,
           });
-        } else if (node.title == '已归档') {
-          final count = _nodes.where((n) => n.parentId == node.id && !n.isFolder).length;
+          break;
+        case 'archived':
           result.add({
             'node': node,
             'type': 'archived',
-            'count': count,
+            'count': _nodes.where((n) => n.parentId == node.id && !n.isFolder).length,
           });
-        } else if (node.title == '卡片盒') {
+          break;
+        case 'cardbox':
           result.add({
             'node': node,
             'type': 'cardbox',
             'count': _cards.length,
           });
-        }
+          break;
+        case 'review':
+          result.add({
+            'node': node,
+            'type': 'review',
+            'count': _nodes.where((n) => n.parentId == node.id && !n.isFolder).length,
+          });
+          break;
       }
     }
     return result;
@@ -1188,6 +1198,11 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         color = Colors.purple;
         label = '📇 卡片盒 ($count 张)';
         break;
+      case 'review':
+        icon = Icons.rate_review_outlined;
+        color = Colors.orange;
+        label = '📝 复盘库 ($count 条)';
+        break;
       default:
         icon = Icons.folder;
         color = Colors.grey;
@@ -1198,7 +1213,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       dense: true,
       title: Text(label, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
       subtitle: Text(
-        type == 'library' ? '所有导入的电子书' : type == 'archived' ? '所有已归档的笔记' : '所有复习卡片',
+        type == 'library' ? '所有导入的电子书'
+          : type == 'archived' ? '所有已归档的笔记'
+          : type == 'cardbox' ? '所有复习卡片'
+          : '所有复盘笔记',
         style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
       ),
       selected: _currentFolderId == node.id,
@@ -1616,6 +1634,11 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         icon = Icons.grid_view;
         color = Colors.purple;
         label = '📇 卡片盒 ($count 张)';
+        break;
+      case 'review':
+        icon = Icons.rate_review_outlined;
+        color = Colors.orange;
+        label = '📝 复盘库 ($count 条)';
         break;
       default:
         icon = Icons.folder;

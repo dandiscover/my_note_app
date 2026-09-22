@@ -297,7 +297,7 @@ class CreationPageState extends State<CreationPage>
       );
       await _taskService.deleteTask(task.id);
       await _loadTasks();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 任务已完成，已归档到智库 → 复盘文件夹'), duration: Duration(seconds: 2)));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 任务已完成，已归档到智库 → 复盘库'), duration: Duration(seconds: 2)));
     }
   }
 
@@ -778,7 +778,7 @@ class CreationPageState extends State<CreationPage>
           const SizedBox(height: 16),
           const Text('🎉 所有任务已完成！', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('复盘已归档到智库 → 复盘文件夹', style: TextStyle(color: Colors.grey.shade600)),
+          Text('复盘已归档到智库 → 复盘库', style: TextStyle(color: Colors.grey.shade600)),
         ],
       ),
     );
