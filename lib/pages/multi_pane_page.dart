@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../database_service.dart';
 import '../models/card.dart';
 import '../models/explore_task.dart';
@@ -418,7 +418,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
     );
   }
 
-    Widget _buildPaneContent(_PaneState pane, int i) {
+  Widget _buildPaneContent(_PaneState pane, int i) {
     return switch (pane) {
       _EmptyPane() => _buildEmptyPane(i),
       _NotePane(:final note, :final kernel) => WorkbenchBody(
