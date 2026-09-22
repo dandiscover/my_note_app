@@ -50,6 +50,9 @@ class EpubReaderPage extends StatefulWidget {
   //   null = 不定位，用 Book.readingProgress（现状不变）
   //   非 null = 定位到该章节（0 是有效值，表示第一页）
   final int? initialChapterIndex;
+  final bool embedMode;                          // 批 3：嵌入模式——只 body 无 Scaffold
+  final VoidCallback? onExit;                    // 批 3：embed 错误态返回
+  final ValueChanged<bool>? onFocusModeChanged;  // 批 3：专注态变更同步
 
   const EpubReaderPage({
     super.key,
@@ -59,6 +62,9 @@ class EpubReaderPage extends StatefulWidget {
     this.isWeb = false,
     this.fileName = '文档',
     this.initialChapterIndex,
+    this.embedMode = false,
+    this.onExit,
+    this.onFocusModeChanged,
   });
 
   @override
@@ -93,7 +99,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   Color _customTextColor = const Color(0xFF4E342E);
 
   DateTime? _readingStartTime;
-  bool _isFocusMode = true;
+  late bool _isFocusMode;   // 批 3：initState 赋值（依赖 widget.embedMode）
   String _searchQuery = '';
   List<Map<String, dynamic>> _searchResults = [];
   double _dailyGoalMinutes = 0.0;
@@ -129,6 +135,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   @override
   void initState() {
     super.initState();
+    _isFocusMode = !widget.embedMode;   // 批 3：embed 模式禁专注
     _readingStartTime = DateTime.now();
     PetVisibilityController.enterFullscreen();   // ✅ Spike：隐藏全局悬浮宠物
     _loadBook();
@@ -799,7 +806,9 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   }
 
   void _toggleFocusMode() {
+    if (widget.embedMode) return;   // 批 3：embed 禁进专注
     setState(() => _isFocusMode = !_isFocusMode);
+    widget.onFocusModeChanged?.call(_isFocusMode);
   }
 
   void _exportNotes() {
@@ -878,6 +887,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     final moved = (event.position - start).distance;
     if (elapsed < _focusTapMaxDurationMs && moved < kTouchSlop) {
       setState(() => _isFocusMode = false);
+      widget.onFocusModeChanged?.call(false);
     }
   }
 
@@ -1895,6 +1905,17 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 批 3：embed 模式 → 只 body（无 Scaffold + AppBar）
+    if (widget.embedMode) {
+      if (_isLoading) return _buildLoadingBody();
+      if (_errorMessage != null || _chapters == null || _chapters!.isEmpty) {
+        return _buildErrorBody();
+      }
+      // embed 不启专注 → 恒走 Normal
+      return _buildNormalBody();
+    }
+
+    // 非 embed：原态——Scaffold + AppBar
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
@@ -1902,7 +1923,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           backgroundColor: _appBarBgColor,
           foregroundColor: _appBarFgColor,
         ),
-        body: const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('加载EPUB中...', style: TextStyle(color: Colors.grey))])),
+        body: _buildLoadingBody(),
       );
     }
     if (_errorMessage != null || _chapters == null || _chapters!.isEmpty) {
@@ -1912,43 +1933,167 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
           backgroundColor: _appBarBgColor,
           foregroundColor: _appBarFgColor,
         ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.auto_stories, size: 64, color: Colors.orange.shade400),
-                const SizedBox(height: 16),
-                Text(_errorMessage ?? '无法加载EPUB', style: TextStyle(fontSize: 16, color: Colors.grey.shade600), textAlign: TextAlign.center),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('返回'),
-                  style: ElevatedButton.styleFrom(backgroundColor: _appBarBgColor, foregroundColor: _appBarFgColor),
-                ),
-              ],
-            ),
-          ),
-        ),
+        body: _buildErrorBody(),
       );
     }
-    final total = _chapters!.length;
-    final current = _currentChapterIndex;
-
     if (_isFocusMode) {
-      // ✅ v2：Listener 是 Stack 的 parent，不是 child。
-      //   Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断下层 PageView / SelectableText。
-      //   现在 Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
       return Scaffold(
         backgroundColor: _backgroundColor,
-        body: Listener(
-          onPointerDown: _onFocusPointerDown,
-          onPointerUp: _onFocusPointerUp,
-          child: Stack(
-            children: [
-              PageView(
+        body: _buildFocusBody(),
+      );
+    }
+    return Scaffold(
+      backgroundColor: _backgroundColor,
+      appBar: _buildNormalAppBar(context),
+      body: _buildNormalBody(),
+    );
+  }
+
+  // ─── 批 3：body 抽离 ───
+
+  Widget _buildLoadingBody() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('加载EPUB中...', style: TextStyle(color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorBody() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.auto_stories, size: 64, color: Colors.orange.shade400),
+            const SizedBox(height: 16),
+            Text(_errorMessage ?? '无法加载EPUB',
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                if (widget.embedMode) {
+                  widget.onExit?.call();
+                } else {
+                  Navigator.pop(context);
+                }
+              },
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('返回'),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: _appBarBgColor,
+                  foregroundColor: _appBarFgColor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFocusBody() {
+    // ✅ v2：Listener 是 Stack 的 parent，不是 child。
+    //   Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断下层 PageView / SelectableText。
+    //   现在 Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
+    final total = _chapters!.length;
+    return Listener(
+      onPointerDown: _onFocusPointerDown,
+      onPointerUp: _onFocusPointerUp,
+      child: Stack(
+        children: [
+          PageView(
+            controller: _pageController,
+            onPageChanged: (index) {
+              setState(() => _currentChapterIndex = index);
+              if (index > 0 && index < total) _loadChapterContent(index);
+            },
+            children: List.generate(total, (index) => _buildChapterContent(index)),
+          ),
+          _buildCardBoxPeek(),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildNormalAppBar(BuildContext context) {
+    return AppBar(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_bookTitle.isEmpty ? widget.fileName : _bookTitle,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          if (_bookAuthor.isNotEmpty)
+            Text(_bookAuthor, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+        ],
+      ),
+      backgroundColor: _appBarBgColor,
+      foregroundColor: _appBarFgColor,
+      elevation: 0,
+      actions: [
+        IconButton(icon: const Icon(Icons.menu_book), onPressed: _showToc, tooltip: '目录'),
+        IconButton(icon: const Icon(Icons.search), onPressed: _showSearch, tooltip: '搜索'),
+        IconButton(icon: const Icon(Icons.format_list_bulleted), onPressed: _showNotesPanel, tooltip: '标注列表'),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: (value) {
+            switch (value) {
+              case 'focus': _toggleFocusMode(); break;
+              case 'mindmap': _showMindMap(); break;
+              case 'export_mindmap': _exportMindMap(); break;
+              case 'aggregate': _showAggregatedNotes(); break;
+              case 'rating': _showRatingReviewDialog(); break;
+              case 'stats': _showReadingStats(); break;
+              case 'batch_cards': _showBatchCardDialog(); break;
+              case 'export_notes': _exportNotes(); break;
+              case 'save_progress': _saveProgress(); break;
+              case 'settings': _openSettings(); break;
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'focus', child: Text('专注模式')),
+            const PopupMenuItem(value: 'mindmap', child: Text('思维导图')),
+            const PopupMenuItem(value: 'export_mindmap', child: Text('导出思维导图')),
+            const PopupMenuItem(value: 'aggregate', child: Text('关联聚合')),
+            const PopupMenuItem(value: 'rating', child: Text('评分书评')),
+            const PopupMenuItem(value: 'stats', child: Text('阅读统计')),
+            const PopupMenuItem(value: 'batch_cards', child: Text('批量生成卡片')),
+            const PopupMenuItem(value: 'export_notes', child: Text('导出笔记')),
+            const PopupMenuItem(value: 'save_progress', child: Text('保存进度')),
+            const PopupMenuItem(value: 'settings', child: Text('设置')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNormalBody() {
+    final total = _chapters!.length;
+    final current = _currentChapterIndex;
+    return Stack(
+      children: [
+        Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              color: Colors.grey.shade200,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('第 ${current + 1} / $total 章',
+                      style: TextStyle(fontSize: 12, color: _textColor)),
+                  Text('${total > 0 ? ((current + 1) / total * 100).round() : 0}%',
+                      style: TextStyle(fontSize: 12, color: _textColor.withOpacity(0.7))),
+                ],
+              ),
+            ),
+            Expanded(
+              child: PageView(
                 controller: _pageController,
                 onPageChanged: (index) {
                   setState(() => _currentChapterIndex = index);
@@ -1956,110 +2101,30 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                 },
                 children: List.generate(total, (index) => _buildChapterContent(index)),
               ),
-              _buildCardBoxPeek(),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_bookTitle.isEmpty ? widget.fileName : _bookTitle, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            if (_bookAuthor.isNotEmpty) Text(_bookAuthor, style:TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              color: Colors.grey.shade200,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton.icon(
+                    onPressed: current > 0 ? () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
+                    icon: const Icon(Icons.arrow_back, size: 16),
+                    label: const Text('上一章', style: TextStyle(fontSize: 12)),
+                  ),
+                  TextButton.icon(
+                    onPressed: current < total - 1 ? () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
+                    icon: const Icon(Icons.arrow_forward, size: 16),
+                    label: const Text('下一章', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-        backgroundColor: _appBarBgColor,
-        foregroundColor: _appBarFgColor,
-        elevation: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_book), onPressed: _showToc, tooltip: '目录'),
-          IconButton(icon: const Icon(Icons.search), onPressed: _showSearch, tooltip: '搜索'),
-          IconButton(icon: const Icon(Icons.format_list_bulleted), onPressed: _showNotesPanel, tooltip: '标注列表'),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
-              switch (value) {
-                case 'focus': _toggleFocusMode(); break;
-                case 'mindmap': _showMindMap(); break;
-                case 'export_mindmap': _exportMindMap(); break;
-                case 'aggregate': _showAggregatedNotes(); break;
-                case 'rating': _showRatingReviewDialog(); break;
-                case 'stats': _showReadingStats(); break;
-                case 'batch_cards': _showBatchCardDialog(); break;
-                case 'export_notes': _exportNotes(); break;
-                case 'save_progress': _saveProgress(); break;
-                case 'settings': _openSettings(); break;
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'focus', child: Text('专注模式')),
-              const PopupMenuItem(value: 'mindmap', child: Text('思维导图')),
-              const PopupMenuItem(value: 'export_mindmap', child: Text('导出思维导图')),
-              const PopupMenuItem(value: 'aggregate', child: Text('关联聚合')),
-              const PopupMenuItem(value: 'rating', child: Text('评分书评')),
-              const PopupMenuItem(value: 'stats', child: Text('阅读统计')),
-              const PopupMenuItem(value: 'batch_cards', child: Text('批量生成卡片')),
-              const PopupMenuItem(value: 'export_notes', child: Text('导出笔记')),
-              const PopupMenuItem(value: 'save_progress', child: Text('保存进度')),
-              const PopupMenuItem(value: 'settings', child: Text('设置')),
-            ],
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                color: Colors.grey.shade200,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('第 ${current + 1} / $total 章', style: TextStyle(fontSize: 12, color: _textColor)),
-                    Text('${total > 0 ? ((current + 1) / total * 100).round() : 0}%', style: TextStyle(fontSize: 12, color: _textColor.withOpacity(0.7))),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  onPageChanged: (index) {
-                    setState(() => _currentChapterIndex = index);
-                    if (index > 0 && index < total) _loadChapterContent(index);
-                  },
-                  children: List.generate(total, (index) => _buildChapterContent(index)),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                color: Colors.grey.shade200,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton.icon(
-                      onPressed: current > 0 ? () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
-                      icon: const Icon(Icons.arrow_back, size: 16),
-                      label: const Text('上一章', style: TextStyle(fontSize: 12)),
-                    ),
-                    TextButton.icon(
-                      onPressed: current < total - 1 ? () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
-                      icon: const Icon(Icons.arrow_forward, size: 16),
-                      label: const Text('下一章', style: TextStyle(fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          _buildCardBoxPeek(),
-        ],
-      ),
+        _buildCardBoxPeek(),
+      ],
     );
   }
 }
