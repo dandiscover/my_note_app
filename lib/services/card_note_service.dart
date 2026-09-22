@@ -33,7 +33,8 @@ class CardNoteService {
     );
     await _db.insertNote(note.toMap());
 
-    final folderId = await _db.ensureReviewFolder();
+    // 批 BUG-003：拓展笔记归「拓展笔记」文件夹——不进复盘库
+    final folderId = await _db.ensureExpandFolder();
     await _db.attachNoteToNode(
       noteId: noteId,
       title: title,
