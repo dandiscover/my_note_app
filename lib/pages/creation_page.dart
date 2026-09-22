@@ -290,14 +290,28 @@ class CreationPageState extends State<CreationPage>
     );
 
     if (result != null) {
-      await _saveToWisdom(
+      final ok = await _saveToWisdom(
         title: '复盘：${task.title}',
         content: '心情：${result['emoji']}\n总结：${result['content']}\n完成时间：${AppDateUtils.formatFull(DateTime.now())}',
         tags: ['复盘', '速通'],
       );
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('❌ 保存到复盘库失败，请重试'),
+            duration: Duration(seconds: 3),
+          ));
+        }
+        return;
+      }
       await _taskService.deleteTask(task.id);
       await _loadTasks();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 任务已完成，已归档到智库 → 复盘库'), duration: Duration(seconds: 2)));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✅ 任务已完成，已归档到智库 → 复盘库'),
+          duration: Duration(seconds: 2),
+        ));
+      }
     }
   }
 
@@ -423,9 +437,11 @@ class CreationPageState extends State<CreationPage>
     return jsonDecode(data) as Map<String, dynamic>;
   }
 
-  Future<void> _saveToWisdom({required String title, required String content, required List<String> tags}) async {
+  /// 返回 true = 成功；false = 失败（调用方据此弹正确 SnackBar）
+  Future<bool> _saveToWisdom({required String title, required String content, required List<String> tags}) async {
     try {
-      final noteMap = {
+      // ✅ 批 BUG-003 修：加 <String, dynamic> —— 防止推断为 Map<String, String?>
+      final noteMap = <String, dynamic>{
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
         'title': title,
         'content': content,
@@ -446,7 +462,11 @@ class CreationPageState extends State<CreationPage>
           SyncManager().markDirty();
         }
       }
-    } catch (e) { print('保存到智库失败: $e'); }
+      return true;
+    } catch (e, st) {
+      debugPrint('保存到智库失败: $e\n$st');
+      return false;
+    }
   }
 
   Future<void> _setReminder(Task task) async {
