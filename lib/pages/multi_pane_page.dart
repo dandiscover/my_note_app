@@ -66,6 +66,12 @@ class _MultiPanePageState extends State<MultiPanePage> {
     });
     // 批：焦点归属——Workbench 不抢焦——同步调成立
     _syncFocus();
+    // 批 2-4：监听卡片库变化——自动刷素材区
+    CardService.revision.addListener(_onCardsChanged);
+  }
+
+  void _onCardsChanged() {
+    if (mounted && _showMaterialPanel) _reloadMaterialItems();
   }
 
   _NotePane _buildNotePane(NotebookEntry note) {
@@ -236,6 +242,8 @@ class _MultiPanePageState extends State<MultiPanePage> {
     if (activeKernel != null && EditorKernel.active == activeKernel) {
       EditorKernel.blur();
     }
+    // 批 2-4：移除监听
+    CardService.revision.removeListener(_onCardsChanged);
     super.dispose();
   }
 

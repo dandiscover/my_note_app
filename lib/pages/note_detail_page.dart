@@ -152,11 +152,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     _loadSubNotesCount();
     _loadMaterialItems();
     _loadLinkedBooks();   // 批 1b
+    // 批 2-4：监听卡片库变化——自动刷素材区
+    CardService.revision.addListener(_onCardsChanged);
+  }
+
+  void _onCardsChanged() {
+    if (mounted && _showMaterialPanel) _loadMaterialItems();
   }
 
   @override
   void dispose() {
     focusModeNotifier.removeListener(_onFocusModeChanged);
+    CardService.revision.removeListener(_onCardsChanged);   // 批 2-4
     // 批：焦点归属——条件清（防 pushReplacement 清掉新页）
     if (EditorKernel.active == _kernel) {
       EditorKernel.blur();

@@ -7,8 +7,10 @@
 // ✅ 懒加载：getAllCards 前置检查，指导卡不存在则补一张（幂等）
 // ✅ 首次机制：getFirstUsedCards / markCardUsed / isFirstUse / markCardBoxOpened
 // ✅ 读书笔记关联：getBookReadingNoteId / setBookReadingNoteId / clearBookReadingNoteId
+// ✅ 批 2-4：加 revision notifier —— 卡库增删改时递增 —— 素材区监听自动 reload
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/card.dart';
 import 'sync/cloud_sync_service.dart';
@@ -18,6 +20,9 @@ class CardService {
   static const String _cardsKey = 'cards_data';
   static const String _firstUsedCardsKey = 'first_used_cards';
   static const String _systemGuideCardId = 'system_guide_card';
+
+  /// 批 2-4：卡片库版本号——增删改时递增——素材区监听自动 reload
+  static final ValueNotifier<int> revision = ValueNotifier(0);
 
   // ✅ 懒加载：确保系统预置指导卡存在（幂等）
   Future<List<CardModel>> getAllCards() async {
@@ -34,6 +39,7 @@ class CardService {
       );
       cards.add(guideCard);
       await _saveCards(cards);
+      revision.value++;                         // 批 2-4
       // 同步到云端
       if (CloudSyncService().isLoggedIn) {
         try {
@@ -82,6 +88,8 @@ class CardService {
     cards.add(card);
     await _saveCards(cards);
 
+    revision.value++;                           // 批 2-4
+
     // ✅ 同步到云端
     if (CloudSyncService().isLoggedIn) {
       try {
@@ -97,6 +105,8 @@ class CardService {
     final cards = await _loadCards();
     cards.addAll(newCards);
     await _saveCards(cards);
+
+    if (newCards.isNotEmpty) revision.value++;  // 批 2-4（空列表不递增）
 
     // ✅ 同步到云端
     if (CloudSyncService().isLoggedIn) {
@@ -115,6 +125,8 @@ class CardService {
       cards[index] = card;
       await _saveCards(cards);
 
+      revision.value++;                         // 批 2-4
+
       // ✅ 同步到云端
       if (CloudSyncService().isLoggedIn) {
         try {
@@ -128,6 +140,8 @@ class CardService {
     final cards = await _loadCards();
     cards.removeWhere((c) => c.id == id);
     await _saveCards(cards);
+
+    revision.value++;                           // 批 2-4
 
     // ✅ 同步到云端
     if (CloudSyncService().isLoggedIn) {
@@ -208,6 +222,8 @@ class CardService {
       );
       cards[index] = reset;
       await _saveCards(cards);
+
+      revision.value++;                         // 批 2-4
 
       // ✅ 同步到云端
       if (CloudSyncService().isLoggedIn) {
