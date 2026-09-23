@@ -13,7 +13,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
-
+import '../models/book_highlight.dart';
+import '../services/book_highlight_service.dart';
 import '../database_service.dart';
 import '../models/book.dart';
 import '../models/book_note.dart';
@@ -53,6 +54,8 @@ class _BookDetailPageState extends State<BookDetailPage>
   Node? _node;
   List<BookNote> _notes = [];
   List<Map<String, dynamic>> _linkedNotes = [];   // 批 1b：这本书的笔记
+  List<BookHighlight> _highlights = [];           // 导入 A2
+  final BookHighlightService _hlService = BookHighlightService();  // 导入 A2
   bool _isLoading = true;
   bool _isEditing = false;
   bool _isImporting = false;
@@ -90,6 +93,7 @@ class _BookDetailPageState extends State<BookDetailPage>
 
       _notes = await _bookService.getNotes(widget.bookId);
       await _loadLinkedNotes();   // 批 1b
+      await _loadHighlights();    // 导入 A2
     } catch (e) {
       debugPrint('加载书籍详情失败: $e');
     }
@@ -493,6 +497,8 @@ class _BookDetailPageState extends State<BookDetailPage>
             _buildNotesSection(),
             const SizedBox(height: 12),
             _buildLinkedNotesSection(),
+            const SizedBox(height: 12),
+            _buildHighlightsSection(),
           ],
         ),
       ),
@@ -771,6 +777,11 @@ class _BookDetailPageState extends State<BookDetailPage>
     if (mounted) setState(() {});
   }
 
+  Future<void> _loadHighlights() async {
+    final list = await _hlService.getByBook(widget.bookId);
+    if (mounted) setState(() => _highlights = list);
+  }
+
   Widget _buildLinkedNotesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -805,6 +816,40 @@ class _BookDetailPageState extends State<BookDetailPage>
               onTap: () => _openLinkedNote(entry),
             );
           }),
+      ],
+    );
+  }
+
+  Widget _buildHighlightsSection() {
+    if (_highlights.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '📖 高亮划线 (${_highlights.length})',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        const Divider(),
+        ..._highlights.map(
+          (h) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(h.text),
+                if (h.chapter != null && h.chapter!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      h.chapter!,
+                      style:
+                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
