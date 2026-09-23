@@ -13,6 +13,7 @@ class NoteBookLinkService {
   static const String linkTypeReading = 'reading';
   static const String linkTypeWikilink = 'wikilink';
   static const String linkTypeInherited = 'inherited';
+  static const String linkTypeImport = 'import';   // 导入批
 
   /// [[书名]] 前后文截取半径
   static const int _contextRadius = 30;
@@ -30,7 +31,7 @@ class NoteBookLinkService {
     await db.insert(
       'note_book_links',
       {
-        'id': DateTime.now().microsecondsSinceEpoch.toString(),
+        'id': '${DateTime.now().microsecondsSinceEpoch}_${noteId}_${bookId}',
         'note_id': noteId,
         'book_id': bookId,
         'link_type': linkType,

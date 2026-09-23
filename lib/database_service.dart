@@ -15,7 +15,7 @@ import 'models/explore_task.dart';
 import 'models/note_subtask.dart';
 import 'models/pdf_drawing.dart';
 import 'services/search_index_service.dart';
-
+import 'services/weread_key_store.dart';
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
@@ -1243,7 +1243,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 19, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 20, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1459,6 +1459,28 @@ class DatabaseService {
         debugPrint('nodes 18→19 迁移失败: $e');
       }
     }
+    // 导入批：20 —— book_highlights 表
+    if (oldVersion < 20) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS book_highlights(
+            id TEXT PRIMARY KEY,
+            book_id TEXT NOT NULL,
+            chapter TEXT,
+            location TEXT,
+            text TEXT NOT NULL,
+            color TEXT,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            source TEXT NOT NULL
+          )
+        ''');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_bh_book ON book_highlights(book_id)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_bh_source ON book_highlights(source)');
+      } catch (e) {
+        debugPrint('book_highlights 19→20 迁移失败: $e');
+      }
+    }
   }
     /// 批 1a：L2 → L3 迁移
   /// 读 SharedPreferences book_reading_note_id_$bookId → 写 note_book_links
@@ -1491,10 +1513,14 @@ class DatabaseService {
   /// 正式版不加调用入口
   /// 用法：main() 里临时加 `await DatabaseService().dropAllForDebug();` 跑一次 —— 删那行
   Future<void> dropAllForDebug() async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
-    } else {
+    // 统一先清 SharedPreferences（两端都要）
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    // 清微信读书 API Key
+    try { await WereadKeyStore().clear(); } catch (_) {}
+
+    if (!_isWeb) {
       final db = await _getDatabase();
       await db.delete('nodes');
       await db.delete('notes');
@@ -1509,6 +1535,8 @@ class DatabaseService {
       await db.delete('board_texts');
       await db.delete('tag_index');
       try { await db.delete('search_index'); } catch (_) {}
+      try { await db.delete('note_book_links'); } catch (_) {}
+      try { await db.delete('book_highlights'); } catch (_) {}
     }
   }
 
@@ -1612,13 +1640,32 @@ class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_nbl_note ON note_book_links(note_id)');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_nbl_book ON note_book_links(book_id)');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_nbl_type ON note_book_links(link_type)');
+          await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_nbl_type ON note_book_links(link_type)');
 
-    for (final sql in SearchIndexService.getCreateTableSql()) {
-      await db.execute(sql);
+      // 导入批：book_highlights 表
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS book_highlights(
+          id TEXT PRIMARY KEY,
+          book_id TEXT NOT NULL,
+          chapter TEXT,
+          location TEXT,
+          text TEXT NOT NULL,
+          color TEXT,
+          note TEXT,
+          created_at TEXT NOT NULL,
+          source TEXT NOT NULL
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_bh_book ON book_highlights(book_id)');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_bh_source ON book_highlights(source)');
+
+      for (final sql in SearchIndexService.getCreateTableSql()) {
+        await db.execute(sql);
+      }
     }
-  }
 
   Future<Map<String, dynamic>?> getIsbnCache(String isbn) async {
     if (_isWeb) return null;

@@ -117,7 +117,15 @@ class CardService {
       }
     }
   }
-
+/// 导入批：批量导入专用 —— 只写本地 + 打 dirty 标记，不循环推云。
+  Future<void> addCardsSilent(List<CardModel> newCards) async {
+    if (newCards.isEmpty) return;
+    final cards = await _loadCards();
+    cards.addAll(newCards);
+    await _saveCards(cards);
+    revision.value++;
+    SyncManager().markDirty();
+  }
   Future<void> updateCard(CardModel card) async {
     final cards = await _loadCards();
     final index = cards.indexWhere((c) => c.id == card.id);

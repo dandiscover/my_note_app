@@ -489,13 +489,13 @@ packages:
     source: hosted
     version: "1.5.3"
   flutter_secure_storage:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: flutter_secure_storage
-      sha256: "2670c2a81a032080e779c015f4f775373605c4a364643ed371e78dea7781822c"
+      sha256: fe638107c5f69119156ada2db5a57734385fac3f64430bd7252a00d3ead2ca4b
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "10.3.2"
+    version: "10.3.4"
   flutter_secure_storage_darwin:
     dependency: transitive
     description:
@@ -1433,6 +1433,14 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "3.5.2"
+  sqlite3_flutter_libs:
+    dependency: "direct main"
+    description:
+      name: sqlite3_flutter_libs
+      sha256: "3ed7553eee7bb368f8950f58ba29f634e06e813c029aff6a0d60862b96de8454"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "0.6.0+eol"
   stack_trace:
     dependency: transitive
     description:

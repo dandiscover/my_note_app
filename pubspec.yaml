@@ -67,6 +67,8 @@ dependencies:
   # ✅ 第五轮新增：EPUB 导出
   archive: ^3.3.0
   xml: ^5.0.0
+  flutter_secure_storage: ^10.3.4
+  sqlite3_flutter_libs: ^0.6.0+eol
 
 
   # ✅ PDF Spike 验证所需
