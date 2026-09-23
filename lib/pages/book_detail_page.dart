@@ -15,6 +15,8 @@ import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/book_highlight.dart';
 import '../services/book_highlight_service.dart';
+import '../models/card.dart';
+import '../services/card_service.dart';
 import '../database_service.dart';
 import '../models/book.dart';
 import '../models/book_note.dart';
@@ -30,6 +32,28 @@ import 'note_detail_page.dart';
 import 'multi_pane_page.dart';
 import '../models/note.dart';
 import '../services/note_book_link_service.dart';
+
+enum _AnnotationSource { local, weread }
+
+class _AnnotationItem {
+  final String id;
+  final String text;
+  final String? note;
+  final String? chapter;
+  final DateTime createdAt;
+  final _AnnotationSource source;
+  final CardModel? card;
+
+  const _AnnotationItem({
+    required this.id,
+    required this.text,
+    this.note,
+    this.chapter,
+    required this.createdAt,
+    required this.source,
+    this.card,
+  });
+}
 
 class BookDetailPage extends StatefulWidget {
   final String bookId;
@@ -52,10 +76,8 @@ class _BookDetailPageState extends State<BookDetailPage>
 
   Book? _book;
   Node? _node;
-  List<BookNote> _notes = [];
   List<Map<String, dynamic>> _linkedNotes = [];   // 批 1b：这本书的笔记
-  List<BookHighlight> _highlights = [];           // 导入 A2
-  final BookHighlightService _hlService = BookHighlightService();  // 导入 A2
+  List<_AnnotationItem> _annotations = [];        // 统一标注批
   bool _isLoading = true;
   bool _isEditing = false;
   bool _isImporting = false;
@@ -91,9 +113,8 @@ class _BookDetailPageState extends State<BookDetailPage>
         _node = await _db.getNode(widget.nodeId!);
       }
 
-      _notes = await _bookService.getNotes(widget.bookId);
+      await _loadAnnotations();   // 统一标注批
       await _loadLinkedNotes();   // 批 1b
-      await _loadHighlights();    // 导入 A2
     } catch (e) {
       debugPrint('加载书籍详情失败: $e');
     }
@@ -382,22 +403,21 @@ class _BookDetailPageState extends State<BookDetailPage>
         finalPath.startsWith('data:');
 
     if (fileType == 'pdf') {
-  if (isWeb) {
-    _showSnackBar('Web 端暂不支持 PDF 阅读');
-    return;
-  }
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => PdfReaderPage(
-        filePath: finalPath,
-        fileName: _book!.title,
-        bookId: widget.bookId,   // ← 新增这行
-
-      ),
-    ),
-  ).then((_) => _loadData());
-}else if (fileType == 'epub') {
+      if (isWeb) {
+        _showSnackBar('Web 端暂不支持 PDF 阅读');
+        return;
+      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PdfReaderPage(
+            filePath: finalPath,
+            fileName: _book!.title,
+            bookId: widget.bookId,
+          ),
+        ),
+      ).then((_) => _loadData());
+    } else if (fileType == 'epub') {
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -417,8 +437,7 @@ class _BookDetailPageState extends State<BookDetailPage>
 
   Future<void> _saveNote(BookNote note) async {
     await _bookService.saveNote(note);
-    _notes = await _bookService.getNotes(widget.bookId);
-    setState(() {});
+    await _loadAnnotations();
     _showSnackBar('✅ 笔记已保存');
   }
 
@@ -439,8 +458,7 @@ class _BookDetailPageState extends State<BookDetailPage>
     );
     if (confirm == true) {
       await _bookService.deleteNote(widget.bookId, note.id);
-      _notes = await _bookService.getNotes(widget.bookId);
-      setState(() {});
+      await _loadAnnotations();
       _showSnackBar('已删除笔记');
     }
   }
@@ -494,11 +512,9 @@ class _BookDetailPageState extends State<BookDetailPage>
             const SizedBox(height: 12),
             _buildImportSection(),
             const SizedBox(height: 12),
-            _buildNotesSection(),
+            _buildAnnotationsSection(),
             const SizedBox(height: 12),
             _buildLinkedNotesSection(),
-            const SizedBox(height: 12),
-            _buildHighlightsSection(),
           ],
         ),
       ),
@@ -777,9 +793,43 @@ class _BookDetailPageState extends State<BookDetailPage>
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadHighlights() async {
-    final list = await _hlService.getByBook(widget.bookId);
-    if (mounted) setState(() => _highlights = list);
+  Future<void> _loadAnnotations() async {
+    final notes = await _bookService.getNotes(widget.bookId);
+    final highlights = await BookHighlightService().getByBook(widget.bookId);
+    final cards = await CardService().getCardsBySource(
+      sourceType: 'book',
+      sourceId: widget.bookId,
+    );
+
+    CardModel? findCard(String text) {
+      for (final c in cards) {
+        if (c.highlight == text) return c;
+      }
+      return null;
+    }
+
+    final merged = <_AnnotationItem>[
+      ...notes.map((n) => _AnnotationItem(
+            id: 'bn_${n.id}',
+            text: n.selectedText,
+            note: n.comment.isNotEmpty ? n.comment : null,
+            chapter: null,
+            createdAt: n.createdAt,
+            source: _AnnotationSource.local,
+            card: findCard(n.selectedText),
+          )),
+      ...highlights.map((h) => _AnnotationItem(
+            id: 'wh_${h.id}',
+            text: h.text,
+            note: h.note,
+            chapter: h.chapter,
+            createdAt: h.createdAt,
+            source: _AnnotationSource.weread,
+            card: findCard(h.text),
+          )),
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    if (mounted) setState(() => _annotations = merged);
   }
 
   Widget _buildLinkedNotesSection() {
@@ -820,37 +870,156 @@ class _BookDetailPageState extends State<BookDetailPage>
     );
   }
 
-  Widget _buildHighlightsSection() {
-    if (_highlights.isEmpty) return const SizedBox.shrink();
+  Widget _buildAnnotationsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '📖 高亮划线 (${_highlights.length})',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '📌 标注 (${_annotations.length})',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            if (_book!.hasEbook)
+              TextButton.icon(
+                onPressed: () {
+                  _openReader(_book!.filePath, _book!.fileType,
+                      isWeb: _book!.filePath.length > 200);
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('添加笔记'),
+                style: TextButton.styleFrom(foregroundColor: Colors.blue),
+              ),
+          ],
         ),
         const Divider(),
-        ..._highlights.map(
-          (h) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(h.text),
-                if (h.chapter != null && h.chapter!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      h.chapter!,
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
+        if (_annotations.isEmpty)
+          _buildEmptyAnnotations()
+        else
+          ..._annotations.map(_buildAnnotationItem),
+      ],
+    );
+  }
+
+  Widget _buildAnnotationItem(_AnnotationItem item) {
+    final sourceColor = item.source == _AnnotationSource.weread
+        ? Colors.teal
+        : Colors.amber;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(width: 3, height: 40, color: sourceColor),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(item.text, style: const TextStyle(fontSize: 14)),
+                  if (item.note != null) ...[
+                    const SizedBox(height: 4),
+                    Text('💭 ${item.note}',
+                        style: TextStyle(
+                            fontSize: 13, color: Colors.grey.shade700)),
+                  ],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (item.chapter != null && item.chapter!.isNotEmpty) ...[
+                        Text(item.chapter!,
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey.shade600)),
+                        const SizedBox(width: 8),
+                      ],
+                      Text(AppDateUtils.formatShort(item.createdAt),
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade500)),
+                    ],
                   ),
-              ],
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      if (item.source == _AnnotationSource.weread)
+                        _annotationChip('微读', Colors.teal.shade50),
+                      if (item.card != null)
+                        GestureDetector(
+                          onTap: () => _showCardDetail(item.card!),
+                          child: _annotationChip(
+                              '🎴 卡片', Colors.purple.shade50),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _annotationChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 10)),
+    );
+  }
+
+  Widget _buildEmptyAnnotations() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      alignment: Alignment.center,
+      child: Column(
+        children: [
+          Icon(Icons.note_alt_outlined, size: 48, color: Colors.grey.shade400),
+          const SizedBox(height: 8),
+          Text('还没有标注', style: TextStyle(color: Colors.grey.shade500)),
+          const SizedBox(height: 4),
+          Text('在阅读器中选中文字 → 添加标注',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+        ],
+      ),
+    );
+  }
+
+  void _showCardDetail(CardModel card) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('卡片'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (card.front != null && card.front!.isNotEmpty)
+                Text(card.front!, style: const TextStyle(fontSize: 15)),
+              if (card.back != null && card.back!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text('💭 我的想法：',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                Text(card.back!),
+              ],
+            ],
           ),
         ),
-      ],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -866,6 +1035,7 @@ class _BookDetailPageState extends State<BookDetailPage>
     );
     if (mounted) await _loadLinkedNotes();
   }
+
   Future<void> _onCreateNoteForBook() async {
     if (_book == null) return;
     final now = DateTime.now();
@@ -908,13 +1078,12 @@ class _BookDetailPageState extends State<BookDetailPage>
         builder: (_) => NoteDetailPage(
           entry: entry,
           isFromCollection: false,
-          initInEditMode: true,   // 批 1b 修复：强制进编辑态
+          initInEditMode: true,
         ),
       ),
     );
     if (!mounted) return;
 
-    // 批 1b 修复：返回时若笔记仍空 → 删 note + link + node
     final maps = await _db.getAllNotes(includeDeleted: true);
     Map<String, dynamic>? noteMap;
     for (final m in maps) {
@@ -931,8 +1100,6 @@ class _BookDetailPageState extends State<BookDetailPage>
         bookId: widget.bookId,
         linkType: NoteBookLinkService.linkTypeManual,
       );
-      // 批 1b 修复：连带删 Node，避免文件树留空壳节点
-      // attachNoteToNode 返回 Future<Node>（非空）——不判 null
       await _db.deleteNode(node.id);
     }
 
@@ -940,115 +1107,5 @@ class _BookDetailPageState extends State<BookDetailPage>
       await _loadLinkedNotes();
       await _loadData();
     }
-  }
-  Widget _buildNotesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('📝 阅读笔记 (${_notes.length})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            if (_book!.hasEbook)
-              TextButton.icon(
-                onPressed: () {
-                  _openReader(_book!.filePath, _book!.fileType,
-                      isWeb: _book!.filePath.length > 200);
-                },
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('添加笔记'),
-                style: TextButton.styleFrom(foregroundColor: Colors.blue),
-              ),
-          ],
-        ),
-        const Divider(),
-        if (_notes.isEmpty) _buildEmptyNotes() else ..._buildNoteList(),
-      ],
-    );
-  }
-
-  Widget _buildEmptyNotes() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      alignment: Alignment.center,
-      child: Column(
-        children: [
-          Icon(Icons.note_alt_outlined, size: 48, color: Colors.grey.shade400),
-          const SizedBox(height: 8),
-          Text('还没有阅读笔记', style: TextStyle(color: Colors.grey.shade500)),
-          const SizedBox(height: 4),
-          Text('在阅读器中选中文字 → 点击 📝 做笔记 添加笔记',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildNoteList() {
-    final displayNotes = _notes.take(10).toList();
-    return displayNotes.map((note) {
-      return Card(
-        margin: const EdgeInsets.only(bottom: 6),
-        child: ListTile(
-          leading: Container(
-            width: 4,
-            height: 36,
-            color: Color(int.parse(note.color.replaceFirst('#', ''), radix: 16) + 0xFF000000),
-          ),
-          title: Text(
-            AppStringUtils.truncate(note.selectedText, 60),
-            style: const TextStyle(fontWeight: FontWeight.w500),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            '第${note.pageNumber}页 · ${AppDateUtils.formatShort(note.createdAt)}'
-            '${note.comment.isNotEmpty ? ' · ${AppStringUtils.truncate(note.comment, 20)}' : ''}',
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
-            onPressed: () => _deleteNote(note),
-            tooltip: '删除',
-          ),
-          onTap: () {
-            _showNoteDetailDialog(note);
-          },
-        ),
-      );
-    }).toList();
-  }
-
-  void _showNoteDetailDialog(BookNote note) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('📝 第${note.pageNumber}页 笔记'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(6)),
-              child: Text(note.selectedText, style: const TextStyle(fontSize: 15)),
-            ),
-            if (note.comment.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              const Text('💭 我的思考：', style: TextStyle(fontWeight: FontWeight.w600)),
-              Text(note.comment),
-            ],
-            const SizedBox(height: 8),
-            Text(AppDateUtils.formatFull(note.createdAt),
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
-        ],
-      ),
-    );
   }
 }
