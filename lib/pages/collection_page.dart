@@ -8,7 +8,6 @@
 
 import '../models/user_settings.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'dart:io';
@@ -16,7 +15,6 @@ import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
@@ -37,6 +35,13 @@ import 'scan_isbn_page.dart';
 import 'light_mode_page.dart';
 import 'wisdom_page.dart';
 import 'insight_page.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import '../services/weread_service.dart';
+import '../services/weread_key_store.dart';
+import '../services/weread_import_service.dart';
+import '../widgets/weread/weread_key_guide_dialog.dart';
+import '../widgets/weread/weread_shelf_picker_dialog.dart';
+import '../widgets/weread/weread_progress_dialog.dart';
 
 class CollectionPage extends StatefulWidget {
   final GlobalKey<creation.CreationPageState>? creationKey;
@@ -563,7 +568,155 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
       await _importBookWindows();
     }
   }
+bool _importInProgress = false;
 
+Future<void> _importFromWeread() async {
+  if (_importInProgress) return;
+
+  final keyStore = WereadKeyStore();
+  final weread = WereadService(keyStore: keyStore);
+
+  // Key 检查
+  if (!await keyStore.hasKey()) {
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const WereadKeyGuideDialog(),
+    );
+    if (ok != true) return;
+  }
+
+  _importInProgress = true;
+  if (mounted) setState(() {});
+
+  try {
+    // 拉书架
+    List<Map<String, dynamic>> shelf;
+    try {
+      shelf = await weread.fetchShelf();
+    } catch (e) {
+      if (!mounted) return;
+      if (e is WereadException && e.message == 'KEY_INVALID') {
+        final ok = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const WereadKeyGuideDialog(),
+        );
+        if (ok == true) {
+          _importInProgress = false;
+          if (mounted) setState(() {});
+          return _importFromWeread();
+        }
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('拉取书架失败：$e')),
+      );
+      return;
+    }
+    if (shelf.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('书架为空')),
+      );
+      return;
+    }
+
+    // 选书
+    if (!mounted) return;
+    final result = await showDialog<WereadPickResult>(
+      context: context,
+      builder: (_) => WereadShelfPickerDialog(shelf: shelf),
+    );
+    if (result == null) return;
+    if (result.keyChanged) {
+      _importInProgress = false;
+      if (mounted) setState(() {});
+      return _importFromWeread();
+    }
+    if (result.bookIds.isEmpty) return;
+
+    // 进度
+    final progressNotifier = ValueNotifier<WereadProgress>(
+      WereadProgress(
+        phase: 'local',
+        cur: 0,
+        total: result.bookIds.length,
+        label: '准备中',
+      ),
+    );
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => WereadProgressDialog(notifier: progressNotifier),
+    );
+
+    // 导入
+    final service = WereadImportService(
+      weread: weread,
+      onProgress: (phase, cur, total, label) {
+        progressNotifier.value = WereadProgress(
+          phase: phase,
+          cur: cur,
+          total: total,
+          label: label,
+        );
+      },
+    );
+
+    int failed = 0;
+    String? keyInvalidMsg;
+    try {
+      await service.importBooks(
+        result.bookIds,
+        alsoGenerateCards: result.alsoGenerateCards,
+      );
+    } catch (e) {
+      failed = result.bookIds.length;
+      if (e is WereadException && e.message == 'KEY_INVALID') {
+        keyInvalidMsg = '导入中途 Key 失效——请重新配置';
+      }
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pop();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '导入完成：${result.bookIds.length - failed} 成功 / $failed 失败',
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+
+    if (keyInvalidMsg != null && mounted) {
+      await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const WereadKeyGuideDialog(),
+      );
+    }
+
+    if (weread.upgradeNotified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('微信读书接口有新版本，建议升级云脑'),
+          action: SnackBarAction(label: '知道了', onPressed: () {}),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+
+    _cache.invalidate(_cacheKeyRecentBooks);
+    await _loadData();
+  } finally {
+    _importInProgress = false;
+    if (mounted) setState(() {});
+  }
+}
   /// ✅ 扫ISBN — 跳转到扫码页面
   void _scanISBN() {
     Navigator.push(
@@ -621,33 +774,47 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
                   case 'import':
                     _importBook();
                     break;
+                    case 'weread_import':
+                      _importFromWeread();
+                      break;
                   case 'scan':
                     _scanISBN();
                     break;
                 }
               },
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: 'import',
-                  child: Row(
-                    children: [
-                      Icon(Icons.upload_file),
-                      SizedBox(width: 12),
-                      Text('导入电子版'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'scan',
-                  child: Row(
-                    children: [
-                      Icon(Icons.qr_code_scanner),
-                      SizedBox(width: 12),
-                      Text('扫ISBN'),
-                    ],
-                  ),
-                ),
-              ],
+              itemBuilder: (context) => [
+  const PopupMenuItem(
+    value: 'import',
+    child: Row(
+      children: [
+        Icon(Icons.upload_file),
+        SizedBox(width: 12),
+        Text('导入电子版'),
+      ],
+    ),
+  ),
+  if (!kIsWeb)
+    const PopupMenuItem(
+      value: 'weread_import',
+      child: Row(
+        children: [
+          Icon(Icons.cloud_download_outlined),
+          SizedBox(width: 12),
+          Text('导入微信读书'),
+        ],
+      ),
+    ),
+  const PopupMenuItem(
+    value: 'scan',
+    child: Row(
+      children: [
+        Icon(Icons.qr_code_scanner),
+        SizedBox(width: 12),
+        Text('扫ISBN'),
+      ],
+    ),
+  ),
+],
             ),
           ],
         ),
@@ -672,33 +839,47 @@ class _CollectionPageState extends State<CollectionPage> with StateMixin {
                 case 'import':
                   _importBook();
                   break;
+                   case 'weread_import':
+                      _importFromWeread();
+                      break;
                 case 'scan':
                   _scanISBN();
                   break;
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'import',
-                child: Row(
-                  children: [
-                    Icon(Icons.upload_file),
-                    SizedBox(width: 12),
-                    Text('导入电子版'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'scan',
-                child: Row(
-                  children: [
-                    Icon(Icons.qr_code_scanner),
-                    SizedBox(width: 12),
-                    Text('扫ISBN'),
-                  ],
-                ),
-              ),
-            ],
+           itemBuilder: (context) => [
+  const PopupMenuItem(
+    value: 'import',
+    child: Row(
+      children: [
+        Icon(Icons.upload_file),
+        SizedBox(width: 12),
+        Text('导入电子版'),
+      ],
+    ),
+  ),
+  if (!kIsWeb)
+    const PopupMenuItem(
+      value: 'weread_import',
+      child: Row(
+        children: [
+          Icon(Icons.cloud_download_outlined),
+          SizedBox(width: 12),
+          Text('导入微信读书'),
+        ],
+      ),
+    ),
+  const PopupMenuItem(
+    value: 'scan',
+    child: Row(
+      children: [
+        Icon(Icons.qr_code_scanner),
+        SizedBox(width: 12),
+        Text('扫ISBN'),
+      ],
+    ),
+  ),
+],
           ),
         ],
       ),
