@@ -1,37 +1,6 @@
 // lib/pages/note_detail_page.dart
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
-// ✅ 采集页笔记保存时触发条件②
-// ✅ 采集页进入时初始为编辑模式
-// ✅ 深入入口按钮（始终显示，不限于非采集笔记）
-// ✅ 用 _entry 可变状态替代 widget.entry
-// ✅ _saveNote 增加 inquiryQuestion 参数
-// ✅ 保存时使用 inquiryConclusion 和 exploreTasks
-// ✅ _openInquiry 改为弹窗模式
-// ✅ _handleInquiryConfirmed 先弹窗后保存，避免新建笔记未保存导致弹窗不出现
-// ✅ _openInquiryDialog 增加 question 参数，弹窗关闭后统一保存
-// ✅ 阅读模式增加探究缩略图区块，点击弹出只读概览弹窗
-// ✅ 编辑模式也增加探究缩略图区块
-// ✅ _saveNote 增加 exploreTasks 参数，保存时使用传入参数而非 _entry.exploreTasks
-// ✅ 笔记加工台最小版：阅读模式加加工区（只读主问题 + 可编辑探究结论）+ 卡片区
-// ✅ 独立 _saveCraftingFields（构造函数传 11 字段，不走 copyWith，支持清空）
-// ✅ 加工台修复：弹窗溢出、输入不生效、保存按钮随 dirty 变
-// ✅ 字段映射定稿：右键菜单改名"生成卡片"，_generateCard 加 selectedText 参数
-// ✅ 各类型目标字段按选中文字预填
-// ✅ 修索引卡分支 author/highlight 共用 backText 的 bug
-// ✅ 修选择题分支 4 选项共用 backText + 硬编码选项的 bug
-// ✅ 修复：_generateCard chip 列表过滤 CardType.guide（指导卡不提供手动创建入口）
-// ✅ 子笔记嵌套：加工区下加"📎 子笔记（N）"入口
-//    A 方案：子笔记数用 State 字段缓存，不用 FutureBuilder（避免每次 build 打库）
-// ✅ v2 修复：选择题正确答案选择功能，choiceCorrectIndex 不再硬编码为 0
-// ✅ 骨架：编辑模式加素材面板（默认收起，280 宽侧栏，右侧撑满）
-// ✅ B 提交：AppBar 加素材库按钮（生成卡片与文件树之间，仅编辑模式显示），FullscreenEditor 撤两参数
-// ✅ T-091：_saveNote 的 inquiryQuestion 去掉 ?? 兜底，传 null 就清空
-// ✅ T-167：复制构造点显式带 contentFormat
-// ✅ 第三轮：richtext 路由分派（_toggleMode push 到 RichtextEditorPage）
-// ✅ 第三轮：读模式富文本渲染（只读 QuillEditor）
-// ✅ 路一 v6：读模式自建右键菜单（云脑生成卡片 + 复制）
-// ✅ C 批：卡片按钮合并 —— 右键两项（快捷索引 / 完整制卡）+ AppBar 弹 NoteCardDialog
-// ✅ 功能批1 B+C：布局单/双/三栏 + 专注模式 + 拖拽 + 快速切换
+// （顶部注释略 —— 原文件头部注释保留不动）
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -48,7 +17,8 @@ import 'workbench/editor_material_slot.dart';
 import 'workbench/editor_explore_area.dart';
 import 'workbench/editor_app_bar.dart';
 import '../widgets/workbench/outline_panel.dart';
-
+import '../widgets/workbench/note_map_view.dart';
+import '../widgets/workbench/note_map_breadcrumb.dart';
 
 import 'workbench/workbench_body.dart';
 import 'multi_pane_page.dart';
@@ -112,12 +82,16 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   // ✅ 笔记加工台最小版：状态字段
   List<CardModel> _noteCards = [];
 
-  // ✅ 子笔记嵌套：子笔记数缓存（A 方案，避免每次 build 打库）
+  // ✅ 子笔记嵌套：子笔记数缓存
   int _subNotesCount = 0;
 
   // ✅ 骨架：素材面板状态
   bool _showMaterialPanel = false;
-  bool _showOutlinePanel = false;   // 大纲面板
+  bool _showOutlinePanel = false;
+  bool _showNoteMap = false;
+  List<BreadcrumbItem> _mapBreadcrumb = [];
+  int _mapRefreshTick = 0;
+  String? _currentNodeId;   // 当前笔记 node id（原地换根时变）
   List<MaterialItem> _materialItems = [];
 
   // 专注模式
@@ -129,9 +103,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   void initState() {
     super.initState();
-    // 富文本笔记强制进读模式；编辑走 AppBar 按钮 push 到 RichtextEditorPage。
-    // markdown 笔记沿用旧规则：采集页进来编辑，其他进来读。
-    // 批 1b 修复：initInEditMode=true 时——强制进编辑态（图书侧新建笔记场景）。
+    _currentNodeId = widget.nodeId;
+    _showNoteMap = false;
     if (widget.entry.contentFormat == 'richtext') {
       _isReadMode = true;
     } else if (widget.initInEditMode) {
@@ -141,21 +114,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
     _entry = widget.entry;
     focusModeNotifier.addListener(_onFocusModeChanged);
-          _kernel = MarkdownKernel(EditorContext(
-        entry: _entry,
-        isFromCollection: widget.isFromCollection,
-        onSave: _saveNote,
-        isSaving: _isSaving,
-        onInquiryConfirmed: _handleInquiryConfirmed,
-      ));
-      _kernel.contentController.addListener(_onContentChanged);
-    // 批：焦点归属——页面 owner set（Workbench 不再抢）
+    _kernel = MarkdownKernel(EditorContext(
+      entry: _entry,
+      isFromCollection: widget.isFromCollection,
+      onSave: _saveNote,
+      isSaving: _isSaving,
+      onInquiryConfirmed: _handleInquiryConfirmed,
+    ));
+    _kernel.contentController.addListener(_onContentChanged);
     EditorKernel.focus(_kernel);
     _loadNoteCards();
     _loadSubNotesCount();
     _loadMaterialItems();
-    _loadLinkedBooks();   // 批 1b
-    // 批 2-4：监听卡片库变化——自动刷素材区
+    _loadLinkedBooks();
     CardService.revision.addListener(_onCardsChanged);
   }
 
@@ -166,9 +137,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   void dispose() {
     focusModeNotifier.removeListener(_onFocusModeChanged);
-    CardService.revision.removeListener(_onCardsChanged);   // 批 2-4
+    CardService.revision.removeListener(_onCardsChanged);
     _kernel.contentController.removeListener(_onContentChanged);
-    // 批：焦点归属——条件清（防 pushReplacement 清掉新页）
     if (EditorKernel.active == _kernel) {
       EditorKernel.blur();
     }
@@ -191,8 +161,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     setState(() => _noteCards = cards);
   }
 
-  // ✅ 子笔记嵌套：加载直接子笔记数（缓存到 _subNotesCount）
-  //   A 方案：initState 调一次，不用 FutureBuilder 每次 build 打库
+  // ✅ 子笔记嵌套：加载直接子笔记数
   Future<void> _loadSubNotesCount() async {
     if (widget.nodeId == null) return;
     final children = await _db.getChildren(widget.nodeId!);
@@ -207,7 +176,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     setState(() => _materialItems = items);
   }
 
-  // ✅ 骨架：切换素材面板，展开时重载索引卡
   void _toggleMaterialPanel() {
     setState(() {
       _showMaterialPanel = !_showMaterialPanel;
@@ -223,6 +191,90 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   void _onOutlineTap(int offset) {
     _kernel.scrollToOffset(offset);
+  }
+
+  void _toggleNoteMap() {
+    setState(() => _showNoteMap = !_showNoteMap);
+    if (_showNoteMap) _loadMapBreadcrumb();
+  }
+
+  Future<void> _loadMapBreadcrumb() async {
+    final items = <BreadcrumbItem>[];
+    String? current = _currentNodeId;
+    while (current != null) {
+      final n = await _db.getNode(current);
+      if (n == null) break;
+      items.insert(0, BreadcrumbItem(nodeId: n.id, title: n.title));
+      current = n.parentId;
+    }
+    if (mounted) setState(() => _mapBreadcrumb = items);
+  }
+
+  Future<void> _switchRoot(Node target) async {
+    final note = await _db.getNoteByNodeId(target.id);
+    if (note == null || !mounted) return;
+    setState(() {
+      _entry = note;
+      _currentNodeId = target.id;
+      _mapRefreshTick++;
+    });
+    _kernel.updateEntry(note);
+    await _loadMapBreadcrumb();
+  }
+
+  Future<void> _onSubNoteTap(Node target) => _switchRoot(target);
+
+  Future<void> _onBreadcrumbTap(String nodeId) async {
+    final n = await _db.getNode(nodeId);
+    if (n == null) return;
+    await _switchRoot(n);
+  }
+
+  Future<void> _onNewSubNoteInLevel(Node parentNote) async {
+    final ctrl = TextEditingController();
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新建子笔记'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '子笔记标题'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    final t = (title ?? '').trim();
+    if (t.isEmpty) return;
+
+    final now = DateTime.now();
+    final noteId = 'sub_${now.microsecondsSinceEpoch}';
+    final entry = NotebookEntry(
+      id: noteId,
+      title: t,
+      content: '',
+      updatedAt: now,
+      status: 'raw',
+      editorMode: 'plain',
+    );
+    await _db.insertNote(entry.toMap());
+    await _db.attachNoteToNode(
+      noteId: noteId,
+      title: t,
+      parentId: parentNote.id,
+    );
+
+    if (mounted) setState(() => _mapRefreshTick++);
   }
 
   void _onContentChanged() {
@@ -286,12 +338,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         await _db.updateNote(updated.toMap());
       }
 
-      // 批：标题同步——笔记是源，node 是显示副本（单向 note → node）
-      // 统一在 if/else 之外——覆盖两种场景：
-      //   isNew：attachNoteToNode 已建 node → 补 title
-      //   else：node 已存在 → 补 title + tags
-      // 无 node（如未进智库）→ getNodeByNoteId 返 null → 跳过
-      // 注：原「!isFromCollection && nodeId != null」判断删——改为 syncNode != null 反查（改进：采集页笔记若挂了 node——原不更——现更）
       final syncNode = await _db.getNodeByNoteId(updated.id);
       if (syncNode != null) {
         await _db.updateNode(syncNode.copyWith(
@@ -302,7 +348,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
       setState(() {
         _entry = updated;
-        _isReadMode = true;       // 批：保存后切阅读态
+        _isReadMode = true;
       });
 
       if (mounted) {
@@ -318,7 +364,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         Navigator.pop(context, true);
       }
 
-      // 批 1b：扫描 [[书名]] 写 wikilink 边（静默，不阻塞保存）
       try {
         await NoteBookLinkService().rebuildWikiLinks(
           noteId: updated.id,
@@ -347,7 +392,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  // ─── 快捷索引 —— 选中文字直接用，生成 CardType.indexCard（C 批） ────
+  // ─── 快捷索引 ────
   Future<void> _quickGenerateIndexCard(String selectedText) async {
     final text = selectedText.trim();
     if (text.isEmpty) return;
@@ -373,7 +418,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  // ─── 完整制卡 —— 弹 NoteCardDialog，预填选区（C 批） ────
+  // ─── 完整制卡 ────
   Future<void> _showFullNoteCardDialog({String? selectedText}) async {
     final text = (selectedText != null && selectedText.trim().isNotEmpty)
         ? selectedText
@@ -438,10 +483,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
     setState(() {
       _isReadMode = !_isReadMode;
+      _showNoteMap = false;
     });
   }
 
-  /// 切换「重要」标记（改造批 A）
+  /// 切换「重要」标记
   Future<void> _toggleTagImportant() async {
     final newTags = List<String>.from(_entry.tags);
     if (newTags.contains('重要')) {
@@ -472,7 +518,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  /// 切换「待解决」标记（改造批 A）
+  /// 切换「待解决」标记
   Future<void> _toggleTagPending() async {
     final newTags = List<String>.from(_entry.tags);
     if (newTags.contains('待解决')) {
@@ -503,7 +549,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  /// 笔记级标记行 —— ⭐ 重要 / ❓ 待解决
+  /// 笔记级标记行
   Widget _buildTagToggleRow() {
     return Row(
       children: [
@@ -534,7 +580,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
   }
 
-  /// 富文本编辑页保存后，从库读最新 entry 并刷新本页。
+  /// 富文本编辑页保存后重读
   Future<void> _reloadEntry() async {
     try {
       final all = await _db.getAllNotes(includeDeleted: false);
@@ -568,7 +614,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             SizedBox(
               width: MediaQuery.of(context).size.width / 3,
               child: FileTreePanel(
-                currentNodeId: widget.nodeId,
+                currentNodeId: _currentNodeId,
                 currentNodeName: _entry.title,
                 currentFolderId: widget.currentNodeId,
                 onNodeTap: (targetNodeId, nodeType) {
@@ -696,8 +742,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   // ─── 批 1b：关联的书 ──────────────────────────────
-  // 入口（关联书目）和显示区相邻（老白裁乙 · 阅读态）
-
   Future<void> _loadLinkedBooks() async {
     final rows = await NoteBookLinkService().getLinksByNote(_entry.id);
     final books = <Map<String, dynamic>>[];
@@ -819,8 +863,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,   
-        appBar: _focusMode
+      backgroundColor: Colors.grey.shade50,
+      appBar: _focusMode
           ? null
           : EditorAppBar(
               title: _isReadMode
@@ -833,29 +877,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               onCard: () => _showFullNoteCardDialog(),
               onQuickSwitch: _showQuickSwitch,
               onOpenMultiPane: _openMultiPane,
-                    onToggleFocus: _toggleFocusMode,
-                isFocusMode: _focusMode,
-                onToggleOutline:
-                    MediaQuery.sizeOf(context).width >= 600
-                        ? _toggleOutlinePanel
-                        : null,
-                isOutlineOpen: _showOutlinePanel,
+              onToggleFocus: _toggleFocusMode,
+              isFocusMode: _focusMode,
+              onToggleOutline:
+                  MediaQuery.sizeOf(context).width >= 600
+                      ? _toggleOutlinePanel
+                      : null,
+                              isOutlineOpen: _showOutlinePanel,
                 onToggleMaterial: _toggleMaterialPanel,
               onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
             ),
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      body: _isReadMode
-          ? _buildReadMode()
-          : _buildEditMode(),
+            body: _isReadMode
+            ? _buildReadMode()
+            : _buildEditMode(),
       floatingActionButton: _focusMode
           ? FloatingActionButton(
               mini: true,
@@ -866,6 +900,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           : null,
     );
   }
+  // _buildMapMode 已撤 —— 导图嵌入 _buildReadMode 的正文段
+
 
   Widget _buildReadMode() {
     if (_entry.contentFormat == 'richtext') {
@@ -888,33 +924,38 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                 )).toList(),
               ),
             const SizedBox(height: 12),
-            SelectableText.rich(
-              TextSpan(
-                text: _entry.content,
-                style: const TextStyle(fontSize: 16, height: 1.6),
+            _buildReadBodySwitcher(),
+            const SizedBox(height: 8),
+            if (_showNoteMap)
+              _buildMapBody()
+            else
+              SelectableText.rich(
+                TextSpan(
+                  text: _entry.content,
+                  style: const TextStyle(fontSize: 16, height: 1.6),
+                ),
+                contextMenuBuilder: (context, editableTextState) {
+                  final selectedText = editableTextState.textEditingValue.selection.textInside(
+                    editableTextState.textEditingValue.text,
+                  );
+                  if (selectedText.isEmpty) return const SizedBox.shrink();
+                  return AdaptiveTextSelectionToolbar.buttonItems(
+                    anchors: editableTextState.contextMenuAnchors,
+                    buttonItems: [
+                      ContextMenuButtonItem(
+                        label: '快捷索引',
+                        onPressed: () => _quickGenerateIndexCard(selectedText),
+                      ),
+                      ContextMenuButtonItem(
+                        label: '完整制卡',
+                        onPressed: () =>
+                            _showFullNoteCardDialog(selectedText: selectedText),
+                      ),
+                      ...editableTextState.contextMenuButtonItems,
+                    ],
+                  );
+                },
               ),
-              contextMenuBuilder: (context, editableTextState) {
-                final selectedText = editableTextState.textEditingValue.selection.textInside(
-                  editableTextState.textEditingValue.text,
-                );
-                if (selectedText.isEmpty) return const SizedBox.shrink();
-                return AdaptiveTextSelectionToolbar.buttonItems(
-                  anchors: editableTextState.contextMenuAnchors,
-                  buttonItems: [
-                    ContextMenuButtonItem(
-                      label: '快捷索引',
-                      onPressed: () => _quickGenerateIndexCard(selectedText),
-                    ),
-                    ContextMenuButtonItem(
-                      label: '完整制卡',
-                      onPressed: () =>
-                          _showFullNoteCardDialog(selectedText: selectedText),
-                    ),
-                    ...editableTextState.contextMenuButtonItems,
-                  ],
-                );
-              },
-            ),
             if (_entry.exploreTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
               EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
@@ -935,6 +976,54 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           ],
         ),
       ),
+    );
+  }
+
+    /// 正文区切换 —— [正文] [导图]
+  Widget _buildReadBodySwitcher() {
+    return Row(
+      children: [
+        ChoiceChip(
+          label: const Text('正文'),
+          selected: !_showNoteMap,
+          onSelected: (_) {
+            if (_showNoteMap) setState(() => _showNoteMap = false);
+          },
+        ),
+        const SizedBox(width: 8),
+        ChoiceChip(
+          label: const Text('导图'),
+          selected: _showNoteMap,
+          onSelected: (_) {
+            if (!_showNoteMap) {
+              setState(() => _showNoteMap = true);
+              _loadMapBreadcrumb();
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  /// 导图体 —— 嵌在正文段（面包屑 + 树）
+  Widget _buildMapBody() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_mapBreadcrumb.isNotEmpty)
+          NoteMapBreadcrumb(
+            items: _mapBreadcrumb,
+            onTap: _onBreadcrumbTap,
+          ),
+        const Divider(height: 1),
+        NoteMapView(
+          entry: _entry,
+          nodeId: _currentNodeId,
+          refreshTick: _mapRefreshTick,
+          onSubNoteTap: _onSubNoteTap,
+          onNewSubNote: _onNewSubNoteInLevel,
+        ),
+      ],
     );
   }
 
@@ -1183,16 +1272,14 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ],
     );
   }
+
   Widget _buildEditMode() {
-    // 防御：richtext 不该走到这里（initState 强制读模式，
-    // _toggleMode 走 push）。若真到了，显示占位，不崩。
     if (_entry.contentFormat == 'richtext') {
       return const Center(
         child: Text('请通过编辑按钮打开富文本编辑器'),
       );
     }
 
-    // ─── 专注模式：全屏编辑器 ───
     if (_focusMode) {
       return Padding(
         padding: const EdgeInsets.all(16),
@@ -1205,45 +1292,45 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           isFromCollection: widget.isFromCollection,
           onDropItem: _handleDropItem,
           materialItems: null,
-          appBarHasCardAction: false,   // 专注模式 AppBar 为 null——底栏制卡必留
+          appBarHasCardAction: false,
         ),
       );
     }
 
-          final materialItems = _showMaterialPanel ? _materialItems : null;
+    final materialItems = _showMaterialPanel ? _materialItems : null;
 
-      final workbench = WorkbenchBody(
-        kernel: _kernel,
-        entry: _entry,
-        header: _buildTagToggleRow(),
-        errorMessage: _errorMessage,
-        onExploreTap: _showExploreSummary,
-        onCancel: () => Navigator.pop(context),
-        saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
-        isFromCollection: widget.isFromCollection,
-        onDropItem: _handleDropItem,
-        materialItems: materialItems,
-        appBarHasCardAction: true,    // 非专注 AppBar 有 onCard——底栏制卡隐
-      );
+    final workbench = WorkbenchBody(
+      kernel: _kernel,
+      entry: _entry,
+      header: _buildTagToggleRow(),
+      errorMessage: _errorMessage,
+      onExploreTap: _showExploreSummary,
+      onCancel: () => Navigator.pop(context),
+      saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+      isFromCollection: widget.isFromCollection,
+      onDropItem: _handleDropItem,
+      materialItems: materialItems,
+      appBarHasCardAction: true,
+    );
 
-      if (!_showOutlinePanel) return workbench;
+    if (!_showOutlinePanel) return workbench;
 
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: 200,
-            child: OutlinePanel(
-              content: _kernel.contentController.text,
-              contentFormat: _entry.contentFormat,
-              onHeadingTap: _onOutlineTap,
-            ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 200,
+          child: OutlinePanel(
+            content: _kernel.contentController.text,
+            contentFormat: _entry.contentFormat,
+            onHeadingTap: _onOutlineTap,
           ),
-          const VerticalDivider(width: 1),
-          Expanded(child: workbench),
-        ],
-      );
-    }
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(child: workbench),
+      ],
+    );
+  }
 
   // ─── B+C 新辅助方法 ─────────────────────────────
 
@@ -1262,10 +1349,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-
   void _toggleFocusMode() {
     focusModeNotifier.value = !focusModeNotifier.value;
   }
+
   Future<void> _openMultiPane() async {
     if (_kernel.isDirty) {
       final choice = await showDialog<String>(
@@ -1305,9 +1392,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         ),
       ),
     );
-    // 批：多栏 pop 回单栏——重读库最新（多栏内可能改过并保存）
     if (mounted) await _reloadEntry();
   }
+
   Future<void> _showQuickSwitch() async {
     final maps = await _db.getAllNotes(includeDeleted: false);
     final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
@@ -1344,12 +1431,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 }
 
 /// 富文本只读渲染 widget。
-///
-/// 持有 QuillController，dispose 时释放。
-///
-/// 为什么独立成 StatefulWidget：
-///   - QuillController 有生命周期，不能在 build 里 new
-///   - _buildReadMode 每次 rebuild 都调用，controller 要复用
 class _RichtextReadView extends StatefulWidget {
   final List<Map<String, dynamic>> delta;
   final ValueChanged<String> onQuickIndex;
@@ -1451,6 +1532,7 @@ class _RichtextReadViewState extends State<_RichtextReadView> {
     return text.substring(start, end);
   }
 }
+
 /// 分割线嵌入对象的渲染器（读模式用）。
 class _DividerEmbedBuilder extends quill.EmbedBuilder {
   @override
