@@ -78,6 +78,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _isReadMode = true;
   late NotebookEntry _entry;
   late MarkdownKernel _kernel;
+  late bool _isNewLocal;   // 债-6：防保存后重挂 node
 
   // ✅ 笔记加工台最小版：状态字段
   List<CardModel> _noteCards = [];
@@ -103,6 +104,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   @override
   void initState() {
     super.initState();
+    _isNewLocal = widget.isNew;
     _currentNodeId = widget.nodeId;
     _showNoteMap = false;
     if (widget.entry.contentFormat == 'richtext') {
@@ -299,7 +301,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     });
 
     try {
-      final newStatus = widget.isNew
+      final newStatus = _isNewLocal
           ? 'active'
           : (widget.isFromCollection ? 'active' : _entry.status);
 
@@ -318,7 +320,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         contentFormat: _entry.contentFormat,
       );
 
-      if (widget.isNew) {
+      if (_isNewLocal) {
         await _db.insertNote(updated.toMap());
         final node = await _db.attachNoteToNode(
           noteId: _entry.id,
@@ -326,6 +328,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           parentId: widget.currentNodeId,
           tags: tags,
         );
+        _isNewLocal = false;   // 债-6：保存后置 false——防重挂
         if (widget.syncToCloud && CloudSyncService().isLoggedIn) {
           try {
             await CloudSyncService().syncNote(updated);
