@@ -47,6 +47,7 @@ import 'workbench/editor_kernel.dart';
 import 'workbench/editor_material_slot.dart';
 import 'workbench/editor_explore_area.dart';
 import 'workbench/editor_app_bar.dart';
+import '../widgets/workbench/outline_panel.dart';
 
 
 import 'workbench/workbench_body.dart';
@@ -116,6 +117,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   // ✅ 骨架：素材面板状态
   bool _showMaterialPanel = false;
+  bool _showOutlinePanel = false;   // 大纲面板
   List<MaterialItem> _materialItems = [];
 
   // 专注模式
@@ -139,13 +141,14 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
     _entry = widget.entry;
     focusModeNotifier.addListener(_onFocusModeChanged);
-    _kernel = MarkdownKernel(EditorContext(
-      entry: _entry,
-      isFromCollection: widget.isFromCollection,
-      onSave: _saveNote,
-      isSaving: _isSaving,
-      onInquiryConfirmed: _handleInquiryConfirmed,
-    ));
+          _kernel = MarkdownKernel(EditorContext(
+        entry: _entry,
+        isFromCollection: widget.isFromCollection,
+        onSave: _saveNote,
+        isSaving: _isSaving,
+        onInquiryConfirmed: _handleInquiryConfirmed,
+      ));
+      _kernel.contentController.addListener(_onContentChanged);
     // 批：焦点归属——页面 owner set（Workbench 不再抢）
     EditorKernel.focus(_kernel);
     _loadNoteCards();
@@ -164,6 +167,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   void dispose() {
     focusModeNotifier.removeListener(_onFocusModeChanged);
     CardService.revision.removeListener(_onCardsChanged);   // 批 2-4
+    _kernel.contentController.removeListener(_onContentChanged);
     // 批：焦点归属——条件清（防 pushReplacement 清掉新页）
     if (EditorKernel.active == _kernel) {
       EditorKernel.blur();
@@ -211,6 +215,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (_showMaterialPanel) {
       _loadMaterialItems();
     }
+  }
+
+  void _toggleOutlinePanel() {
+    setState(() => _showOutlinePanel = !_showOutlinePanel);
+  }
+
+  void _onOutlineTap(int offset) {
+    _kernel.scrollToOffset(offset);
+  }
+
+  void _onContentChanged() {
+    if (_showOutlinePanel && mounted) setState(() {});
   }
 
   // ─── 保存笔记 ─────────────────────────────
@@ -817,9 +833,14 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               onCard: () => _showFullNoteCardDialog(),
               onQuickSwitch: _showQuickSwitch,
               onOpenMultiPane: _openMultiPane,
-              onToggleFocus: _toggleFocusMode,
-              isFocusMode: _focusMode,
-              onToggleMaterial: _toggleMaterialPanel,
+                    onToggleFocus: _toggleFocusMode,
+                isFocusMode: _focusMode,
+                onToggleOutline:
+                    MediaQuery.sizeOf(context).width >= 600
+                        ? _toggleOutlinePanel
+                        : null,
+                isOutlineOpen: _showOutlinePanel,
+                onToggleMaterial: _toggleMaterialPanel,
               onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
             ),
       
@@ -1189,22 +1210,40 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       );
     }
 
-    final materialItems = _showMaterialPanel ? _materialItems : null;
+          final materialItems = _showMaterialPanel ? _materialItems : null;
 
-    return WorkbenchBody(
-      kernel: _kernel,
-      entry: _entry,
-      header: _buildTagToggleRow(),
-      errorMessage: _errorMessage,
-      onExploreTap: _showExploreSummary,
-      onCancel: () => Navigator.pop(context),
-      saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
-      isFromCollection: widget.isFromCollection,
-      onDropItem: _handleDropItem,
-      materialItems: materialItems,
-      appBarHasCardAction: true,    // 非专注 AppBar 有 onCard——底栏制卡隐
-    );
-  }
+      final workbench = WorkbenchBody(
+        kernel: _kernel,
+        entry: _entry,
+        header: _buildTagToggleRow(),
+        errorMessage: _errorMessage,
+        onExploreTap: _showExploreSummary,
+        onCancel: () => Navigator.pop(context),
+        saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+        isFromCollection: widget.isFromCollection,
+        onDropItem: _handleDropItem,
+        materialItems: materialItems,
+        appBarHasCardAction: true,    // 非专注 AppBar 有 onCard——底栏制卡隐
+      );
+
+      if (!_showOutlinePanel) return workbench;
+
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 200,
+            child: OutlinePanel(
+              content: _kernel.contentController.text,
+              contentFormat: _entry.contentFormat,
+              onHeadingTap: _onOutlineTap,
+            ),
+          ),
+          const VerticalDivider(width: 1),
+          Expanded(child: workbench),
+        ],
+      );
+    }
 
   // ─── B+C 新辅助方法 ─────────────────────────────
 
