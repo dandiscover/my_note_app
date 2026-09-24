@@ -118,6 +118,7 @@ class _BookDetailPageState extends State<BookDetailPage>
     } catch (e) {
       debugPrint('加载书籍详情失败: $e');
     }
+    if (!mounted) return;
     setState(() => _isLoading = false);
   }
 

@@ -72,6 +72,7 @@ class _ProfilePageState extends State<ProfilePage>
     try {
       final settings = await _settings.load();
       await _shortcutManager.load();
+      if (!mounted) return;
       setState(() {
         _settingsData = settings;
         _shortcuts = _shortcutManager.all;
@@ -79,6 +80,7 @@ class _ProfilePageState extends State<ProfilePage>
       });
     } catch (e) {
       debugPrint('加载设置失败: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }

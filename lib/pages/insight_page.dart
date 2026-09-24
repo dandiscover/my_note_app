@@ -176,6 +176,7 @@ class InsightPageState extends State<InsightPage>
         books: books,
       );
 
+      if (!mounted) return;
       setState(() {
         _allNodes = nodes;
         _allNotes = notes;
@@ -191,6 +192,7 @@ class InsightPageState extends State<InsightPage>
       }
     } catch (e) {
       debugPrint('加载洞察数据失败: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }

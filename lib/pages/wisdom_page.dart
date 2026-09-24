@@ -184,6 +184,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         print('   根节点: ${n.title} | id=${n.id} | isFolder=${n.isFolder} | isSystemFolder=${n.isSystemFolder}');
       }
 
+      if (!mounted) return;
       setState(() {
         _nodes = nodes;
         _notes = notes;
@@ -195,6 +196,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     } catch (e) {
       print('加载数据失败: $e');
     }
+    if (!mounted) return;
     isLoading = false;
   }
 
