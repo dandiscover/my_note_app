@@ -364,7 +364,23 @@ class DatabaseService {
     await insertNode(node.toMap());
     return node;
   }
-
+  /// 债-3：笔记 + 节点同事务写（SQLite）
+  Future<void> insertNoteAndNodeTx({
+    required Map<String, dynamic> noteMap,
+    required Map<String, dynamic> nodeMap,
+  }) async {
+    if (_isWeb) {
+      // Web 分支不走 SQLite——顺序写（无事务）——记债
+      await insertNote(noteMap);
+      await insertNode(nodeMap);
+      return;
+    }
+    final db = await _getDatabase();
+    await db.transaction((txn) async {
+      await txn.insert('notes', _prepareNoteForDb(noteMap));
+      await txn.insert('nodes', _prepareNodeForDb(nodeMap));
+    });
+  }
   Future<Node> attachBookToNode({required String bookId, required String title, String? parentId, List<String> tags = const []}) async {
     final node = Node(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -1212,7 +1228,7 @@ class DatabaseService {
 
   Future<int> getArchivedFolderNoteCount() async {
     final nodes = await getAllNodes();
-    final archivedFolder = nodes.firstWhere((n) => n.title == '已归档' && n.isFolder && n.parentId == null, orElse: () => Node.empty);
+    final archivedFolder = nodes.firstWhere((n) => n.systemTag == 'archived' && n.isFolder && n.parentId == null, orElse: () => Node.empty);
     if (archivedFolder.id.isEmpty) return 0;
     final children = await getChildren(archivedFolder.id);
     return children.where((n) => !n.isFolder).length;
@@ -1220,7 +1236,7 @@ class DatabaseService {
 
   Future<List<NotebookEntry>> getArchivedFolderNotes() async {
     final nodes = await getAllNodes();
-    final archivedFolder = nodes.firstWhere((n) => n.title == '已归档' && n.isFolder && n.parentId == null, orElse: () => Node.empty);
+    final archivedFolder = nodes.firstWhere((n) => n.systemTag == 'archived' && n.isFolder && n.parentId == null, orElse: () => Node.empty);
     if (archivedFolder.id.isEmpty) return [];
     final children = await getChildren(archivedFolder.id);
     final noteIds = children.where((n) => n.nodeType == 'note' && n.targetId != null).map((n) => n.targetId!).toList();

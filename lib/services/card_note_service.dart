@@ -1,6 +1,9 @@
 // lib/services/card_note_service.dart
 // 批 2-2：卡片拓展成笔记
 
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:characters/characters.dart';
+
 import '../database_service.dart';
 import '../models/card.dart';
 import '../models/note.dart';
@@ -31,21 +34,37 @@ class CardNoteService {
       editorMode: 'plain',
       tags: List.from(card.tags),
     );
-    await _db.insertNote(note.toMap());
-
-    // 批 BUG-003：拓展笔记归「拓展笔记」文件夹——不进复盘库
     final folderId = await _db.ensureExpandFolder();
-    await _db.attachNoteToNode(
-      noteId: noteId,
-      title: title,
-      parentId: folderId,
-      tags: note.tags,
+
+    // 债-3 甲：事务包「笔记 + 节点」两步（SQLite 同库）
+    final nodeMap = {
+      'id': DateTime.now().millisecondsSinceEpoch.toString(),
+      'title': title,
+      'parentId': folderId,
+      'isFolder': 0,
+      'nodeType': 'note',
+      'targetId': noteId,
+      'sortOrder': 0,
+      'tags': note.tags,
+      'systemTag': null,
+      'createdAt': DateTime.now().toIso8601String(),
+      'updatedAt': DateTime.now().toIso8601String(),
+    };
+    await _db.insertNoteAndNodeTx(
+      noteMap: note.toMap(),
+      nodeMap: nodeMap,
     );
 
+    // 第三步：updateCard 走 prefs —— 事务外
+    // 失败仅丢 relatedIds（卡片查不到笔记）—— 可接受；打日志不静默
     final newRelatedIds = card.relatedIds.contains(noteId)
         ? card.relatedIds
         : [...card.relatedIds, noteId];
-    await _cardService.updateCard(card.copyWith(relatedIds: newRelatedIds));
+    try {
+      await _cardService.updateCard(card.copyWith(relatedIds: newRelatedIds));
+    } catch (e, st) {
+      debugPrint('expandToNote: updateCard 失败——relatedIds 丢失: $e\n$st');
+    }
 
     return noteId;
   }
@@ -71,7 +90,11 @@ class CardNoteService {
       (s) => s != null && s.isNotEmpty,
       orElse: () => '卡片',
     )!;
-    final trimmed = base.length > 20 ? '${base.substring(0, 20)}…' : base;
+    // 债-4：按 grapheme 截断——防 emoji 劈半
+    final chars = base.characters;
+    final trimmed = chars.length > 20
+        ? '${chars.take(20)}…'
+        : base;
     return '拓展：$trimmed';
   }
 
