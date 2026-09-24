@@ -29,6 +29,16 @@ class MarkdownKernel extends EditorKernel {
       TextEditingController(text: _ctx.entry.title);
   late final TextEditingController contentController =
       TextEditingController(text: _ctx.entry.content);
+
+  /// 大纲联动：把光标定位到指定 charOffset
+  void scrollToOffset(int offset) {
+    final ctrl = contentController;
+    final len = ctrl.text.length;
+    var o = offset;
+    if (o < 0) o = 0;
+    if (o > len) o = len;
+    ctrl.selection = TextSelection.collapsed(offset: o);
+  }
   late final TextEditingController tagController = TextEditingController();
   late final TextEditingController subtaskController = TextEditingController();
 

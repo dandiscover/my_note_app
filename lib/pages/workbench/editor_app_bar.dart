@@ -26,6 +26,8 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
   final bool isFocusMode;
   final VoidCallback? onToggleMaterial;    // 素材库（单栏）
   final VoidCallback? onFileTree;          // 文件树
+  final VoidCallback? onToggleOutline;     // 大纲面板
+  final bool isOutlineOpen;
 
   const EditorAppBar({
     super.key,
@@ -47,6 +49,8 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.isFocusMode = false,
     this.onToggleMaterial,
     this.onFileTree,
+    this.onToggleOutline,
+    this.isOutlineOpen = false,
   });
 
   @override
@@ -80,6 +84,15 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
           onPressed: onCard,
         ),
         if (onQuickSwitch != null)
+          if (onToggleOutline != null && !isReadMode)
+            IconButton(
+              icon: Icon(
+                isOutlineOpen ? Icons.list_alt : Icons.list_alt_outlined,
+                color: isOutlineOpen ? Colors.blue : null,
+              ),
+              tooltip: '大纲',
+              onPressed: onToggleOutline,
+            ),
           IconButton(
             icon: const Icon(Icons.swap_horiz),
             tooltip: '快速切换笔记',
