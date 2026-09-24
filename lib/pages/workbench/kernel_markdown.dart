@@ -447,6 +447,8 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   void updateEntry(NotebookEntry newEntry) {
     setState(() {
       _entry = newEntry;
+      _contentController.text = newEntry.content;
+      _titleController.text = newEntry.title;
     });
   }
 

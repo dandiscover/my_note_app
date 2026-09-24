@@ -28,6 +28,7 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onFileTree;          // 文件树
   final VoidCallback? onToggleOutline;     // 大纲面板
   final bool isOutlineOpen;
+  // onToggleMap / isMapOpen 已撤 —— 导图切换在正文区
 
   const EditorAppBar({
     super.key,
@@ -121,7 +122,8 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
             icon: Icon(isFocusMode ? Icons.fullscreen_exit : Icons.fullscreen),
             tooltip: isFocusMode ? '退出专注' : '专注模式',
             onPressed: onToggleFocus,
-          ),
+          ),        
+          if (onToggleFocus != null)
         if (onToggleMaterial != null && !isReadMode)
           IconButton(
             icon: const Icon(Icons.library_books, color: Colors.purple),
