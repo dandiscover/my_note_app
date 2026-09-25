@@ -442,12 +442,18 @@ class _MaterialPanelState extends State<MaterialPanel> {
                           ),
                         ),
                         if (item.sourceType == 'book' &&
-                            item.card?.sourceTitle != null)
-                          Text(
-                            '📖 《${item.card!.sourceTitle}》',
-                            style: TextStyle(
-                                fontSize: 9, color: Colors.grey.shade500),
+                            item.card?.sourceTitle != null) ...[
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              '📖 《${item.card!.sourceTitle}》',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 9, color: Colors.grey.shade500),
+                            ),
                           ),
+                        ],
                       ],
                     ),
                     if (item.summary.isNotEmpty)
@@ -471,20 +477,29 @@ class _MaterialPanelState extends State<MaterialPanel> {
                         padding: const EdgeInsets.only(top: 2),
                         child: Wrap(
                           spacing: 4,
+                          runSpacing: 2,
                           children: item.tags
                               .take(2)
-                              .map((tag) => Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 4, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: _getTagColor(tag)
-                                          .withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(tag,
+                              .map((tag) => ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                        maxWidth: 120),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: _getTagColor(tag)
+                                            .withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        tag,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                             fontSize: 7,
-                                            color: _getTagColor(tag))),
+                                            color: _getTagColor(tag)),
+                                      ),
+                                    ),
                                   ))
                               .toList(),
                         ),

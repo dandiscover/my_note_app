@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show setEquals;
 import '../../database_service.dart';
 import '../../models/card.dart';
+import '../../models/material_item.dart';
+import 'material_panel.dart';
 
 // ─── 节点模型 ──────────────────────────────────────────────
 class ClueNode {
@@ -59,13 +61,13 @@ enum DrawMode { select, line, text }
 
 class ClueBoard extends StatefulWidget {
   final String viewId;
-  final List<CardModel> cards;
+  final List<MaterialItem> items;
   final Function(CardModel) onCardTap;
 
   const ClueBoard({
     super.key,
     required this.viewId,
-    required this.cards,
+    required this.items,
     required this.onCardTap,
   });
 
@@ -85,6 +87,12 @@ class _ClueBoardState extends State<ClueBoard> {
 
   final GlobalKey _boardKey = GlobalKey();
   Timer? _saveDebounce;
+  bool _showMaterialPanel = true;
+
+  Set<String> get _validCardIds => widget.items
+      .where((i) => i.type == MaterialItemType.card)
+      .map((i) => i.id)
+      .toSet();
 
   @override
   void initState() {
@@ -112,15 +120,18 @@ class _ClueBoardState extends State<ClueBoard> {
     final edgeMaps = await _db.getBoardEdges(widget.viewId);
     final textMaps = await _db.getBoardTexts(widget.viewId);
 
-    final validCardIds = widget.cards.map((c) => c.id).toSet();
-    final loadedNodes = <ClueNode>[];
+          final validCardIds = _validCardIds;
+      final loadedNodes = <ClueNode>[];
 
-    for (final m in nodeMaps) {
-      final cardId = m['cardId'] as String?;
-      if (cardId == null) continue;
-      if (!validCardIds.contains(cardId)) continue;
-      final card = widget.cards.firstWhere((c) => c.id == cardId);
-      loadedNodes.add(ClueNode(
+      for (final m in nodeMaps) {
+        final cardId = m['cardId'] as String?;
+        if (cardId == null) continue;
+        if (!validCardIds.contains(cardId)) continue;
+        final item = widget.items.firstWhere(
+          (i) => i.id == cardId && i.type == MaterialItemType.card,
+        );
+        final card = item.card!;
+        loadedNodes.add(ClueNode(
         id: m['id'] as String,
         label: card.indexTitle ?? '未命名',
         type: 'card',
@@ -177,15 +188,21 @@ class _ClueBoardState extends State<ClueBoard> {
   @override
   void didUpdateWidget(covariant ClueBoard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldIds = oldWidget.cards.map((c) => c.id).toSet();
-    final newIds = widget.cards.map((c) => c.id).toSet();
+      final oldIds = oldWidget.items
+        .where((i) => i.type == MaterialItemType.card)
+        .map((i) => i.id)
+        .toSet();
+    final newIds = widget.items
+        .where((i) => i.type == MaterialItemType.card)
+        .map((i) => i.id)
+        .toSet();
     if (!setEquals(oldIds, newIds)) {
       _cleanOrphanNodes();
     }
   }
 
   void _cleanOrphanNodes() {
-    final validCardIds = widget.cards.map((c) => c.id).toSet();
+    final validCardIds = _validCardIds;
     final removed = <String>[];
     final survivors = <ClueNode>[];
     for (final n in _nodes) {
@@ -208,7 +225,7 @@ class _ClueBoardState extends State<ClueBoard> {
   void _scheduleSave() {
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 500), () {
-      _flushToDbWith(widget.viewId, widget.cards.map((c) => c.id).toSet());
+      _flushToDbWith(widget.viewId, _validCardIds);
     });
   }
 
@@ -268,7 +285,7 @@ class _ClueBoardState extends State<ClueBoard> {
   void dispose() {
     _saveDebounce?.cancel();
     final viewId = widget.viewId;
-    final validCardIds = widget.cards.map((c) => c.id).toSet();
+         final validCardIds = _validCardIds;
     // ✅ T-007：dispose 无法 await 异步；触发写入并兜底异常。
     //   注：本方法内已被 try-catch 覆盖，此处再挂 catchError 是双保险
     //   （将来有人重构 _flushToDbWith 去掉 try-catch，这层能兜）。
@@ -370,7 +387,23 @@ class _ClueBoardState extends State<ClueBoard> {
     });
     _scheduleSave();
   }
-
+  void _addCardToBoard(CardModel card) {
+    final newId = DateTime.now().millisecondsSinceEpoch.toString();
+    setState(() {
+      _nodes.add(ClueNode(
+        id: newId,
+        label: card.indexTitle ?? '卡片',
+        type: 'card',
+        position: Offset(
+          100 + Random().nextDouble() * 300,
+          100 + Random().nextDouble() * 200,
+        ),
+        color: Colors.purple,
+        data: card,
+      ));
+    });
+    _scheduleSave();
+  }
   void _onPanStart(DragStartDetails details, String id) {
     setState(() { _selectedNodeId = id; _isDragging = true; });
   }
@@ -400,13 +433,23 @@ class _ClueBoardState extends State<ClueBoard> {
           _buildToolbar(),
           const Divider(height: 1),
           Expanded(
-            child: Row(
-              children: [
-                Expanded(child: _buildBoard()),
-                const VerticalDivider(width: 1),
-                _buildMaterialPanel(),
-              ],
-            ),
+                          child: Row(
+                children: [
+                  Expanded(child: _buildBoard()),
+                  if (_showMaterialPanel) ...[
+                    const VerticalDivider(width: 1),
+                    SizedBox(
+                      width: 280,
+                      child: MaterialPanel(
+                        items: widget.items,
+                        enabled: true,
+                        onInsertCard: _addCardToBoard,
+                        onInsertNote: (_) {},
+                      ),
+                    ),
+                  ],
+                ],
+              ),
           ),
         ],
       ),
@@ -442,20 +485,28 @@ class _ClueBoardState extends State<ClueBoard> {
             onPressed: _deleteSelected,
             tooltip: '删除选中',
           ),
-          IconButton(
-            icon: const Icon(Icons.clear_all),
-            onPressed: () {
-              setState(() {
-                _nodes.clear();
-                _edges.clear();
-                _lineStartId = null;
-                _selectedNodeId = null;
-              });
-              _scheduleSave();
-            },
-            tooltip: '重置',
-          ),
-        ],
+                      IconButton(
+              icon: const Icon(Icons.clear_all),
+              onPressed: () {
+                setState(() {
+                  _nodes.clear();
+                  _edges.clear();
+                  _lineStartId = null;
+                  _selectedNodeId = null;
+                });
+                _scheduleSave();
+              },
+              tooltip: '重置',
+            ),
+            IconButton(
+              icon: Icon(_showMaterialPanel
+                  ? Icons.view_sidebar
+                  : Icons.view_sidebar_outlined),
+              onPressed: () =>
+                  setState(() => _showMaterialPanel = !_showMaterialPanel),
+              tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
+            ),
+          ],
       ),
     );
   }
@@ -568,69 +619,6 @@ class _ClueBoardState extends State<ClueBoard> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMaterialPanel() {
-    return Container(
-      width: 220,
-      color: Colors.white,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
-            child: Row(
-              children: [
-                const Text('📚 素材库', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: widget.cards.length,
-              itemBuilder: (context, index) {
-                final card = widget.cards[index];
-                return ListTile(
-                  leading: const Icon(Icons.credit_card, size: 18, color: Colors.purple),
-                  title: Text(card.indexTitle ?? '未命名', style: const TextStyle(fontSize: 12)),
-                  subtitle: Text(card.author ?? '', style: const TextStyle(fontSize: 10)),
-                  onTap: () {
-                    final newId = DateTime.now().millisecondsSinceEpoch.toString();
-                    setState(() {
-                      _nodes.add(ClueNode(
-                        id: newId,
-                        label: card.indexTitle ?? '卡片',
-                        type: 'card',
-                        position: Offset(100 + Random().nextDouble() * 300, 100 + Random().nextDouble() * 200),
-                        color: Colors.purple,
-                        data: card,
-                      ));
-                    });
-                    _scheduleSave();
-                  },
-                );
-              },
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.shade200))),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('💡 点击卡片添加到画布', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
-                Text('双击编辑文字', style: TextStyle(fontSize: 9, color: Colors.green.shade600)),
-              ],
-            ),
-          ),
         ],
       ),
     );

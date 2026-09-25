@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../database_service.dart';
 import '../../models/card.dart';
+import '../../models/material_item.dart';
+import '../../models/note.dart';
 import '../../services/card_service.dart';
 import '../../widgets/writing/clue_board.dart';
 
-/// 线索墙独立页——D 批块 4
-///
-/// 数据源 / 过滤规则 / viewId / dialog 与 WritingPage 逐字同
-/// （writing_page.dart:68-69,207 / wisdom_page.dart:1550-1611）
-/// 差异：dialog 副作用两处替换（_cache.invalidate 删 / _loadData→_loadCards）
+/// 线索墙独立页
 class ClueBoardPage extends StatefulWidget {
   const ClueBoardPage({super.key});
 
@@ -17,20 +16,35 @@ class ClueBoardPage extends StatefulWidget {
 
 class _ClueBoardPageState extends State<ClueBoardPage> {
   final CardService _cardService = CardService();
+  final DatabaseService _db = DatabaseService();
   List<CardModel> _indexCards = [];
+  List<NotebookEntry> _allNotes = [];
+  List<MaterialItem> _materialItems = [];   // 缓存——防 MaterialPanel 状态重置
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadCards();
+    _loadData();
   }
 
-  Future<void> _loadCards() async {
-    final all = await _cardService.getAllCards();
+  Future<void> _loadData() async {
+    final allCards = await _cardService.getAllCards();
+    final allNotesRaw = await _db.getAllNotes(includeDeleted: false);
+    final allNotes = allNotesRaw.map((m) => NotebookEntry.fromMap(m)).toList();
+    final cards = allCards
+        .where((c) => c.cardType == CardType.indexCard)
+        .toList();
+    final items = <MaterialItem>[
+      ...cards.map((c) => MaterialItem.fromCard(c)),
+      ...allNotes.map((n) => MaterialItem.fromNote(n)),
+    ];
     if (!mounted) return;
     setState(() {
-      _indexCards = all.where((c) => c.cardType == CardType.indexCard).toList();      _isLoading = false;
+      _indexCards = cards;
+      _allNotes = allNotes;
+      _materialItems = items;
+      _isLoading = false;
     });
   }
 
@@ -76,8 +90,7 @@ class _ClueBoardPageState extends State<ClueBoardPage> {
                 if (confirm == true && mounted) {
                   Navigator.pop(context);
                   await _cardService.deleteCard(card.id);
-                  // 块 4 甲 A：删 wisdom_page:1592 的 _cache.invalidate(_cacheKeyCards);
-                  await _loadCards();   // wisdom_page:1593 _loadData() → _loadCards()
+                  await _loadData();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('🗑️ 卡片已删除')),
                   );
@@ -105,7 +118,7 @@ class _ClueBoardPageState extends State<ClueBoardPage> {
           ? const Center(child: CircularProgressIndicator())
           : ClueBoard(
               viewId: 'global',
-              cards: _indexCards,
+              items: _materialItems,
               onCardTap: (card) => _showCardDetailDialog(card),
             ),
     );
