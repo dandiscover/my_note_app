@@ -548,40 +548,53 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
                     ],
                   ),
                   if (_tags.isNotEmpty)
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: _tags
-                          .map((tag) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: _getTagColor(tag)
-                                      .withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final chipMaxW = constraints.maxWidth - 6;
+                        return Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: _tags
+                              .map((tag) => Container(
+                                    constraints:
+                                        BoxConstraints(maxWidth: chipMaxW),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
                                       color: _getTagColor(tag)
-                                          .withValues(alpha: 0.3)),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(tag,
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            color: _getTagColor(tag),
-                                            fontWeight: FontWeight.w500)),
-                                    const SizedBox(width: 4),
-                                    GestureDetector(
-                                      onTap: () => _removeTag(tag),
-                                      child: Icon(Icons.close,
-                                          size: 12,
-                                          color: _getTagColor(tag)),
+                                          .withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                          color: _getTagColor(tag)
+                                              .withValues(alpha: 0.3)),
                                     ),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            tag,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: _getTagColor(tag),
+                                                fontWeight: FontWeight.w500),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        GestureDetector(
+                                          onTap: () => _removeTag(tag),
+                                          child: Icon(Icons.close,
+                                              size: 12,
+                                              color: _getTagColor(tag)),
+                                        ),
+                                      ],
+                                    ),
+                                  ))
+                              .toList(),
+                        );
+                      },
                     ),
                   const SizedBox(height: 8),
                 ],
