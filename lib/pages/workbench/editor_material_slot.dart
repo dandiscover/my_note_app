@@ -18,6 +18,9 @@ class EditorMaterialSlot extends StatelessWidget {
   /// 自定义卡片点击——非 null 时覆盖默认「插正文」行为
   final void Function(CardModel)? onCustomCardTap;
 
+  /// 自定义笔记点击——非 null 时覆盖默认「插正文」行为
+  final void Function(NotebookEntry)? onCustomNoteTap;
+
   /// 焦点提示——素材栏顶部一行小字
   /// 例：「素材将发往：笔记」/「素材将发往：线索墙」
   /// null = 不显
@@ -29,6 +32,7 @@ class EditorMaterialSlot extends StatelessWidget {
     this.width = 280,
     this.enabled = true,
     this.onCustomCardTap,
+    this.onCustomNoteTap,
     this.currentFocusLabel,
   });
 
@@ -44,7 +48,11 @@ class EditorMaterialSlot extends StatelessWidget {
   }
 
   void _handleInsertNote(NotebookEntry note) {
-    // 暂 no-op——与原调用点一致
+    if (onCustomNoteTap != null) {
+      onCustomNoteTap!(note);
+      return;
+    }
+    // 默认仍 no-op——与原调用点一致
   }
 
   @override

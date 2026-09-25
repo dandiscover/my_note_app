@@ -9,13 +9,15 @@ import 'package:flutter/foundation.dart' show setEquals;
 import '../../database_service.dart';
 import '../../models/card.dart';
 import '../../models/material_item.dart';
+import '../../models/note.dart';
+import '../../utils/app_string_utils.dart';
 import 'material_panel.dart';
 
 // ─── 节点模型 ──────────────────────────────────────────────
 class ClueNode {
   final String id;
   String label;
-  final String type; // 'card', 'text'
+  final String type; // 'card', 'text', 'note'
   Offset position;
   final double width;
   final double height;
@@ -97,6 +99,11 @@ class ClueBoardState extends State<ClueBoard> {
       .map((i) => i.id)
       .toSet();
 
+  Set<String> get _validNoteIds => widget.items
+      .where((i) => i.type == MaterialItemType.note)
+      .map((i) => i.id)
+      .toSet();
+
   @override
   void initState() {
     super.initState();
@@ -127,6 +134,7 @@ class ClueBoardState extends State<ClueBoard> {
       final loadedNodes = <ClueNode>[];
 
       for (final m in nodeMaps) {
+        if ((m['type'] as String? ?? 'card') != 'card') continue;
         final cardId = m['cardId'] as String?;
         if (cardId == null) continue;
         if (!validCardIds.contains(cardId)) continue;
@@ -141,6 +149,26 @@ class ClueBoardState extends State<ClueBoard> {
         position: Offset((m['x'] as num).toDouble(), (m['y'] as num).toDouble()),
         color: Colors.purple,
         data: card,
+      ));
+    }
+
+    final validNoteIds = _validNoteIds;
+    for (final m in nodeMaps) {
+      if ((m['type'] as String? ?? 'card') != 'note') continue;
+      final noteId = m['noteId'] as String?;
+      if (noteId == null) continue;
+      if (!validNoteIds.contains(noteId)) continue;
+      final item = widget.items.firstWhere(
+        (i) => i.id == noteId && i.type == MaterialItemType.note,
+      );
+      final note = item.note!;
+      loadedNodes.add(ClueNode(
+        id: m['id'] as String,
+        label: AppStringUtils.displayNoteTitle(note.title, note.content),
+        type: 'note',
+        position: Offset((m['x'] as num).toDouble(), (m['y'] as num).toDouble()),
+        color: Colors.indigo,
+        data: note,
       ));
     }
 
@@ -162,8 +190,10 @@ class ClueBoardState extends State<ClueBoard> {
       targetId: m['targetNodeId'] as String,
     )).toList();
 
-    final loadedCardCount = loadedNodes.where((n) => n.type == 'card').length;
-    final hasOrphan = nodeMaps.length != loadedCardCount;
+    final loadedBoardCount = loadedNodes
+        .where((n) => n.type == 'card' || n.type == 'note')
+        .length;
+    final hasOrphan = nodeMaps.length != loadedBoardCount;
 
     if (hasOrphan) {
       final validNodeIds = loadedNodes.map((n) => n.id).toSet();
@@ -172,7 +202,10 @@ class ClueBoardState extends State<ClueBoard> {
           .toList();
       await _db.replaceBoardNodes(
         widget.viewId,
-        loadedNodes.where((n) => n.type == 'card').map((n) => _nodeToMap(n, widget.viewId)).toList(),
+        loadedNodes
+            .where((n) => n.type == 'card' || n.type == 'note')
+            .map((n) => _nodeToMap(n, widget.viewId))
+            .toList(),
       );
       await _db.replaceBoardEdges(
         widget.viewId,
@@ -215,6 +248,12 @@ class ClueBoardState extends State<ClueBoard> {
           continue;
         }
       }
+      if (n.type == 'note' && n.data is NotebookEntry) {
+        if (!_validNoteIds.contains((n.data as NotebookEntry).id)) {
+          removed.add(n.id);
+          continue;
+        }
+      }
       survivors.add(n);
     }
     if (removed.isEmpty) return;
@@ -242,14 +281,17 @@ class ClueBoardState extends State<ClueBoard> {
         return true;
       }).toList();
 
-      final cardNodes = validNodes.where((n) => n.type == 'card').toList();
+      // ⚠️ 必补：原为 (n) => n.type == 'card' —— note 节点会被丢，不写库 —— 已改
+      final boardNodes = validNodes
+          .where((n) => n.type == 'card' || n.type == 'note')
+          .toList();
       final textNodes = validNodes.where((n) => n.type == 'text').toList();
       final validNodeIds = validNodes.map((n) => n.id).toSet();
       final validEdges = _edges
           .where((e) => validNodeIds.contains(e.sourceId) && validNodeIds.contains(e.targetId))
           .toList();
 
-      await _db.replaceBoardNodes(viewId, cardNodes.map((n) => _nodeToMap(n, viewId)).toList());
+      await _db.replaceBoardNodes(viewId, boardNodes.map((n) => _nodeToMap(n, viewId)).toList());
       await _db.replaceBoardEdges(viewId, validEdges.map((e) => _edgeToMap(e, viewId)).toList());
       await _db.replaceBoardTexts(viewId, textNodes.map((n) => _nodeToMap(n, viewId)).toList());
     } catch (e, st) {
@@ -267,10 +309,24 @@ class ClueBoardState extends State<ClueBoard> {
         'content': n.textContent ?? n.label,
       };
     }
+    if (n.type == 'note') {
+      return {
+        'id': n.id,
+        'viewId': viewId,
+        'cardId': null,
+        'type': 'note',
+        'noteId': n.data is NotebookEntry ? (n.data as NotebookEntry).id : null,
+        'x': n.position.dx,
+        'y': n.position.dy,
+        'zIndex': 0,
+      };
+    }
     return {
       'id': n.id,
       'viewId': viewId,
       'cardId': n.data is CardModel ? (n.data as CardModel).id : null,
+      'type': 'card',
+      'noteId': null,
       'x': n.position.dx,
       'y': n.position.dy,
       'zIndex': 0,
@@ -407,6 +463,25 @@ class ClueBoardState extends State<ClueBoard> {
     });
     _scheduleSave();
   }
+
+  void addNoteToBoard(NotebookEntry note) {
+    final newId = DateTime.now().millisecondsSinceEpoch.toString();
+    setState(() {
+      _nodes.add(ClueNode(
+        id: newId,
+        label: AppStringUtils.displayNoteTitle(note.title, note.content),
+        type: 'note',
+        position: Offset(
+          100 + Random().nextDouble() * 300,
+          100 + Random().nextDouble() * 200,
+        ),
+        color: Colors.indigo,
+        data: note,
+      ));
+    });
+    _scheduleSave();
+  }
+
   void _onPanStart(DragStartDetails details, String id) {
     setState(() { _selectedNodeId = id; _isDragging = true; });
   }
@@ -447,7 +522,7 @@ class ClueBoardState extends State<ClueBoard> {
                         items: widget.items,
                         enabled: true,
                         onInsertCard: addCardToBoard,
-                        onInsertNote: (_) {},
+                        onInsertNote: addNoteToBoard,
                       ),
                     ),
                   ],
@@ -589,6 +664,62 @@ class ClueBoardState extends State<ClueBoard> {
             color: isSelected ? Colors.green.shade700 : Colors.black87,
           ),
           textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    if (node.type == 'note') {
+      final color = Colors.indigo;
+      final note = node.data is NotebookEntry ? node.data as NotebookEntry : null;
+      final title = note != null
+          ? AppStringUtils.displayNoteTitle(note.title, note.content)
+          : node.label;
+      final summary = note?.content ?? '';
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? color : (isLineStart ? Colors.green : Colors.transparent),
+            width: isSelected ? 2 : 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 8, offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: node.width - 24,
+              child: Row(
+                children: [
+                  const Text('📝', style: TextStyle(fontSize: 11)),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color.shade700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (summary.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  summary,
+                  style: TextStyle(fontSize: 9, color: Colors.grey.shade700),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
         ),
       );
     }

@@ -551,6 +551,11 @@ class _MultiPanePageState extends State<MultiPanePage> {
                             ? (card) => _clueBoardKey.currentState
                                 ?.addCardToBoard(card)
                             : null,
+                    onCustomNoteTap:
+                        _panes[_activePane] is _ClueBoardPane
+                            ? (note) => _clueBoardKey.currentState
+                                ?.addNoteToBoard(note)
+                            : null,
                     currentFocusLabel:
                         _panes[_activePane] is _ClueBoardPane
                             ? '素材将发往：线索墙'

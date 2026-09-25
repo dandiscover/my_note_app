@@ -1259,7 +1259,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 20, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 21, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1475,26 +1475,31 @@ class DatabaseService {
         debugPrint('nodes 18→19 迁移失败: $e');
       }
     }
-    // 导入批：20 —— book_highlights 表
+        // 导入批：20 —— book_highlights 表
     if (oldVersion < 20) {
       try {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS book_highlights(
-            id TEXT PRIMARY KEY,
-            book_id TEXT NOT NULL,
-            chapter TEXT,
-            location TEXT,
-            text TEXT NOT NULL,
-            color TEXT,
-            note TEXT,
-            created_at TEXT NOT NULL,
-            source TEXT NOT NULL
+            ...
           )
         ''');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_bh_book ON book_highlights(book_id)');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_bh_source ON book_highlights(source)');
       } catch (e) {
         debugPrint('book_highlights 19→20 迁移失败: $e');
+      }
+    }
+    // A5-2：21 —— board_nodes 加 type / note_id
+    if (oldVersion < 21) {
+      try {
+        await db.execute(
+          "ALTER TABLE board_nodes ADD COLUMN type TEXT DEFAULT 'card'",
+        );
+        await db.execute(
+          "ALTER TABLE board_nodes ADD COLUMN note_id TEXT",
+        );
+      } catch (e) {
+        debugPrint('board_nodes 20→21 迁移失败: $e');
       }
     }
   }
@@ -1613,6 +1618,7 @@ class DatabaseService {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS board_nodes(
         id TEXT PRIMARY KEY, view_id TEXT, card_id TEXT,
+        type TEXT DEFAULT 'card', note_id TEXT,
         x REAL, y REAL, z_index INTEGER
       )
     ''');
@@ -1758,6 +1764,7 @@ class DatabaseService {
     final rows = await db.query('board_nodes', where: 'view_id = ?', whereArgs: [viewId], orderBy: 'z_index ASC');
     return rows.map((row) => {
       'id': row['id'], 'viewId': row['view_id'], 'cardId': row['card_id'],
+      'type': row['type'] ?? 'card', 'noteId': row['note_id'],
       'x': row['x'], 'y': row['y'], 'zIndex': row['z_index'],
     }).toList();
   }
@@ -1770,6 +1777,7 @@ class DatabaseService {
       for (final node in nodes) {
         await txn.insert('board_nodes', {
           'id': node['id'], 'view_id': node['viewId'], 'card_id': node['cardId'],
+          'type': node['type'] ?? 'card', 'note_id': node['noteId'],
           'x': node['x'], 'y': node['y'], 'z_index': node['zIndex'],
         });
       }
