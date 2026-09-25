@@ -17,6 +17,9 @@ class EditorBottomBar extends StatelessWidget {
   final bool compact;
   final bool appBarHasCardAction;
 
+  /// pane 实宽——null = 无上下文（单栏 / 老调用）——markdown 全显
+  final double? paneWidth;
+
   const EditorBottomBar({
     super.key,
     required this.wordCount,
@@ -33,12 +36,29 @@ class EditorBottomBar extends StatelessWidget {
     this.isFromCollection = false,
     this.compact = false,
     this.appBarHasCardAction = false,
+    this.paneWidth,
   });
+
+  /// markdown 容器满宽——Switch 50 + right padding 8
+  static const double _mdFullW = 60.0;
+
+  /// pane 实宽 → markdown 容器宽
+  /// null → 全显 / ≤ 180 → 0 / ≥ 260 → 满 / 中间线性
+  double _markdownContainerWidth() {
+    final w = paneWidth;
+    if (w == null) return _mdFullW;
+    const shrinkEnd = 180.0;
+    const shrinkStart = 260.0;
+    if (w <= shrinkEnd) return 0;
+    if (w >= shrinkStart) return _mdFullW;
+    return _mdFullW * (w - shrinkEnd) / (shrinkStart - shrinkEnd);
+  }
 
   @override
   Widget build(BuildContext context) {
     final saveMin = compact ? const Size(64, 36) : const Size(100, 40);
     final saveH = compact ? 36.0 : 40.0;
+    final mdW = _markdownContainerWidth();
     final showCard = !appBarHasCardAction && onGenerateCard != null;
 
     return Padding(
@@ -77,29 +97,41 @@ class EditorBottomBar extends StatelessWidget {
                             size: 20, color: Colors.purple),
                     onPressed: isGeneratingCard ? null : onGenerateCard,
                     padding: const EdgeInsets.all(8),
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    constraints:
+                        const BoxConstraints(minWidth: 36, minHeight: 36),
                   ),
                 ),
               const SizedBox(width: 4),
-              Container(
-                margin: const EdgeInsets.only(right: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (!compact)
-                      const Text('📝', style: TextStyle(fontSize: 14)),
-                    Switch(
-                      value: isMarkdown,
-                      onChanged: onMarkdownChanged,
-                      activeThumbColor: Colors.blue,
-                      inactiveTrackColor: Colors.grey.shade300,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              if (mdW > 0)
+                SizedBox(
+                  width: mdW,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!compact)
+                            const Text('📝',
+                                style: TextStyle(fontSize: 14)),
+                          Switch(
+                            value: isMarkdown,
+                            onChanged: onMarkdownChanged,
+                            activeThumbColor: Colors.blue,
+                            inactiveTrackColor: Colors.grey.shade300,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          if (!compact)
+                            const Text('📄',
+                                style: TextStyle(fontSize: 14)),
+                        ],
+                      ),
                     ),
-                    if (!compact)
-                      const Text('📄', style: TextStyle(fontSize: 14)),
-                  ],
+                  ),
                 ),
-              ),
               if (onCancel != null)
                 TextButton(
                   onPressed: isSaving ? null : onCancel,
