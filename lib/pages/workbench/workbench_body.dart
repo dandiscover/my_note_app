@@ -53,6 +53,7 @@ class WorkbenchBody extends StatefulWidget {
 
   // ── 批：阅读态（多栏保存后切）──
   final bool isReadMode;
+  final double? paneWidth;
 
   // ── 批：阅读态顶部「编辑」按钮回调（null = 不显，单栏用）──
   final VoidCallback? onEditRequest;
@@ -74,6 +75,7 @@ class WorkbenchBody extends StatefulWidget {
     this.compact = false,
     this.appBarHasCardAction = false,
     this.isReadMode = false,
+    this.paneWidth,
     this.onEditRequest,
   });
 
@@ -144,6 +146,7 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
         if (widget.showBottomBar) ...[
           const Divider(height: 8),
           EditorBottomBar(
+            paneWidth: widget.paneWidth,
             wordCount: kernel.wordCount,
             lineCount: kernel.lineCount,
             tagCount: kernel.tags.length,
