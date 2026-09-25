@@ -12,6 +12,7 @@ import 'workbench/kernel_markdown.dart';
 import 'workbench/workbench_body.dart';
 import '../widgets/quick_switch_dialog.dart';
 import 'epub_reader_page.dart';
+import '../widgets/writing/clue_board.dart';
 
 sealed class _PaneState {
   const _PaneState();
@@ -19,6 +20,11 @@ sealed class _PaneState {
 
 class _EmptyPane extends _PaneState {
   const _EmptyPane();
+}
+
+class _ClueBoardPane extends _PaneState {
+  final String viewId;
+  const _ClueBoardPane({required this.viewId});
 }
 
 class _NotePane extends _PaneState {
@@ -73,6 +79,9 @@ class _MultiPanePageState extends State<MultiPanePage> {
   // ─── 全局素材栏（1c-redo）───
   bool _showMaterialPanel = false;
   List<MaterialItem> _materialItems = [];
+
+  // 线索墙 pane 的 GlobalKey —— 供分派上墙调用
+  final _clueBoardKey = GlobalKey<ClueBoardState>();
 
   // ─── 拖拽分隔线 ───
   // 三个 pane 的比例——和恒 1——只前 _layoutMode 有效
@@ -146,6 +155,20 @@ class _MultiPanePageState extends State<MultiPanePage> {
       final cards = await _cardService.getCardsBySource(
         sourceType: 'book', sourceId: pane.bookId);
       final items = cards.map((c) => MaterialItem.fromCard(c)).toList();
+      if (!mounted) return;
+      setState(() => _materialItems = items);
+    } else if (pane is _ClueBoardPane) {
+      final allCards = await _cardService.getAllCards();
+      final cards = allCards
+          .where((c) => c.cardType == CardType.indexCard)
+          .toList();
+      final notesRaw =
+          await DatabaseService().getAllNotes(includeDeleted: false);
+      final notes = notesRaw.map((m) => NotebookEntry.fromMap(m)).toList();
+      final items = <MaterialItem>[
+        ...cards.map((c) => MaterialItem.fromCard(c)),
+        ...notes.map((n) => MaterialItem.fromNote(n)),
+      ];
       if (!mounted) return;
       setState(() => _materialItems = items);
     } else {
@@ -242,9 +265,9 @@ class _MultiPanePageState extends State<MultiPanePage> {
     return widths;
   }
 
-  Future<void> _showAddReaderPicker() async {
-    // 找空栏
-    final emptyIndex = _panes.indexWhere((p) => p is _EmptyPane);
+  Future<void> _showAddReaderPicker({int? targetIndex}) async {
+    final emptyIndex =
+        targetIndex ?? _panes.indexWhere((p) => p is _EmptyPane);
     if (emptyIndex == -1 || emptyIndex >= _layoutMode) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('栏已满，请先关闭一栏再加')),
@@ -295,7 +318,20 @@ class _MultiPanePageState extends State<MultiPanePage> {
     _syncFocus();
     if (_showMaterialPanel) _reloadMaterialItems();
   }
-
+  void _addClueBoardPane(int i) {
+    if (_panes.any((p) => p is _ClueBoardPane)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('线索墙已存在')),
+      );
+      return;
+    }
+    setState(() {
+      _panes[i] = const _ClueBoardPane(viewId: 'global');
+      _activePane = i;
+    });
+    _syncFocus();
+    if (_showMaterialPanel) _reloadMaterialItems();
+  }
   Future<bool> _savePane(
     NotebookEntry entry,
     String title,
@@ -439,7 +475,8 @@ class _MultiPanePageState extends State<MultiPanePage> {
   Widget build(BuildContext context) {
     final activeHasNote = _panes[_activePane] is _NotePane;
     final activeHasContent = _panes[_activePane] is _NotePane ||
-                             _panes[_activePane] is _ReaderPane;
+                             _panes[_activePane] is _ReaderPane ||
+                             _panes[_activePane] is _ClueBoardPane;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -460,13 +497,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
             tooltip: '三栏',
             onPressed: () => _setLayout(3),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.add_to_queue),
-            tooltip: '加阅读器栏',
-            onPressed: _showAddReaderPicker,
-          ),
-          const SizedBox(width: 8),
+                      const SizedBox(width: 8),
           IconButton(
             icon: Icon(_showMaterialPanel
                 ? Icons.view_sidebar
@@ -509,13 +540,25 @@ class _MultiPanePageState extends State<MultiPanePage> {
                   child: _buildPane(i,paneWidths[i]),
                 ),
               ],
-              if (showMaterial) ...[
-                const SizedBox(width: dividerW),
-                EditorMaterialSlot(
-                  items: _materialItems,
-                  enabled: activeHasNote,
-                ),
-              ],
+                              if (showMaterial) ...[
+                  const SizedBox(width: dividerW),
+                  EditorMaterialSlot(
+                    items: _materialItems,
+                    enabled: activeHasNote ||
+                        _panes[_activePane] is _ClueBoardPane,
+                    onCustomCardTap:
+                        _panes[_activePane] is _ClueBoardPane
+                            ? (card) => _clueBoardKey.currentState
+                                ?.addCardToBoard(card)
+                            : null,
+                    currentFocusLabel:
+                        _panes[_activePane] is _ClueBoardPane
+                            ? '素材将发往：线索墙'
+                            : (_panes[_activePane] is _NotePane
+                                ? '素材将发往：笔记'
+                                : null),
+                  ),
+                ],
             ],
           );
         },
@@ -568,6 +611,13 @@ class _MultiPanePageState extends State<MultiPanePage> {
           embedMode: true,
           onExit: () => setState(() => _panes[i] = const _EmptyPane()),
         ),
+      _ClueBoardPane(:final viewId) => ClueBoard(
+          key: _clueBoardKey,
+          viewId: viewId,
+          items: _materialItems,
+          onCardTap: (card) {},
+          embedded: true,
+        ),
     };
   }
 
@@ -583,16 +633,33 @@ class _MultiPanePageState extends State<MultiPanePage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.open_in_new, size: 48, color: Colors.grey.shade400),
-                const SizedBox(height: 12),
-                Text('拖拽笔记到这里',
-                    style: TextStyle(color: Colors.grey.shade600)),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () => _fillPaneWithNote(i),
-                  icon: const Icon(Icons.add),
-                  label: const Text('选笔记'),
-                ),
+                                  Icon(Icons.open_in_new, size: 48, color: Colors.grey.shade400),
+                  const SizedBox(height: 12),
+                  Text('或拖入素材 / 选一个类型',
+                      style: TextStyle(color: Colors.grey.shade600)),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => _fillPaneWithNote(i),
+                        icon: const Icon(Icons.edit_note),
+                        label: const Text('笔记'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: () => _showAddReaderPicker(targetIndex: i),
+                        icon: const Icon(Icons.menu_book),
+                        label: const Text('阅读器'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: () => _addClueBoardPane(i),
+                        icon: const Icon(Icons.account_tree),
+                        label: const Text('线索墙'),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),

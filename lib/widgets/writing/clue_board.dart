@@ -63,19 +63,22 @@ class ClueBoard extends StatefulWidget {
   final String viewId;
   final List<MaterialItem> items;
   final Function(CardModel) onCardTap;
+  /// 多栏嵌入模式——true 时隐内部素材面板 + 工具栏素材图标
+  final bool embedded;
 
   const ClueBoard({
     super.key,
     required this.viewId,
     required this.items,
     required this.onCardTap,
+    this.embedded = false,
   });
 
   @override
-  State<ClueBoard> createState() => _ClueBoardState();
+  State<ClueBoard> createState() => ClueBoardState();
 }
 
-class _ClueBoardState extends State<ClueBoard> {
+class ClueBoardState extends State<ClueBoard> {
   final DatabaseService _db = DatabaseService();
 
   List<ClueNode> _nodes = [];
@@ -387,7 +390,7 @@ class _ClueBoardState extends State<ClueBoard> {
     });
     _scheduleSave();
   }
-  void _addCardToBoard(CardModel card) {
+  void addCardToBoard(CardModel card) {
     final newId = DateTime.now().millisecondsSinceEpoch.toString();
     setState(() {
       _nodes.add(ClueNode(
@@ -436,14 +439,14 @@ class _ClueBoardState extends State<ClueBoard> {
                           child: Row(
                 children: [
                   Expanded(child: _buildBoard()),
-                  if (_showMaterialPanel) ...[
+                  if (!widget.embedded && _showMaterialPanel) ...[
                     const VerticalDivider(width: 1),
                     SizedBox(
                       width: 280,
                       child: MaterialPanel(
                         items: widget.items,
                         enabled: true,
-                        onInsertCard: _addCardToBoard,
+                        onInsertCard: addCardToBoard,
                         onInsertNote: (_) {},
                       ),
                     ),
@@ -498,14 +501,15 @@ class _ClueBoardState extends State<ClueBoard> {
               },
               tooltip: '重置',
             ),
-            IconButton(
-              icon: Icon(_showMaterialPanel
-                  ? Icons.view_sidebar
-                  : Icons.view_sidebar_outlined),
-              onPressed: () =>
-                  setState(() => _showMaterialPanel = !_showMaterialPanel),
-              tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
-            ),
+            if (!widget.embedded)
+              IconButton(
+                icon: Icon(_showMaterialPanel
+                    ? Icons.view_sidebar
+                    : Icons.view_sidebar_outlined),
+                onPressed: () =>
+                    setState(() => _showMaterialPanel = !_showMaterialPanel),
+                tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
+              ),
           ],
       ),
     );

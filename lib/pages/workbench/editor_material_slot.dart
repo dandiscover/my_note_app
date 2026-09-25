@@ -9,20 +9,34 @@ import 'editor_kernel.dart';
 ///
 /// 布局：宽 280（默认）侧栏，内含 MaterialPanel
 /// 行为：点卡片 → 拼引用文本 → 插入当前焦点内核
-///      （原 MaterialPanel 在 note_detail_page 出现两处——本次合一）
+///      （可由 onCustomCardTap 覆盖——如线索墙 pane 焦点时改为上墙）
 class EditorMaterialSlot extends StatelessWidget {
   final List<MaterialItem> items;
   final double width;
-  final bool enabled;   // 批 3：透传
+  final bool enabled;
+
+  /// 自定义卡片点击——非 null 时覆盖默认「插正文」行为
+  final void Function(CardModel)? onCustomCardTap;
+
+  /// 焦点提示——素材栏顶部一行小字
+  /// 例：「素材将发往：笔记」/「素材将发往：线索墙」
+  /// null = 不显
+  final String? currentFocusLabel;
 
   const EditorMaterialSlot({
     super.key,
     required this.items,
     this.width = 280,
     this.enabled = true,
+    this.onCustomCardTap,
+    this.currentFocusLabel,
   });
 
   void _handleInsertCard(CardModel card) {
+    if (onCustomCardTap != null) {
+      onCustomCardTap!(card);
+      return;
+    }
     final quote = card.highlight ?? card.indexTitle ?? card.displayFront;
     final citation =
         '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}';
@@ -30,18 +44,35 @@ class EditorMaterialSlot extends StatelessWidget {
   }
 
   void _handleInsertNote(NotebookEntry note) {
-    // 暂 no-op——与原调用点一致；「笔记插入」格式归债
+    // 暂 no-op——与原调用点一致
   }
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      child: MaterialPanel(
-        items: items,
-        enabled: enabled,
-        onInsertCard: _handleInsertCard,
-        onInsertNote: _handleInsertNote,
+      child: Column(
+        children: [
+          if (currentFocusLabel != null)
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              color: Colors.blue.shade50,
+              child: Text(
+                currentFocusLabel!,
+                style: TextStyle(fontSize: 11, color: Colors.blue.shade800),
+              ),
+            ),
+          Expanded(
+            child: MaterialPanel(
+              items: items,
+              enabled: enabled,
+              onInsertCard: _handleInsertCard,
+              onInsertNote: _handleInsertNote,
+            ),
+          ),
+        ],
       ),
     );
   }
