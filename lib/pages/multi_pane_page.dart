@@ -80,7 +80,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
 
   // 每 pane 最低宽——(甲) 技术门槛 + (乙) 产品门槛——取 max
   // ⚠️ 待真机实测后定——现用占位 180
-  static const double _minPaneW = 180.0;
+  static const double _minPaneW = 240.0;
 
   @override
   void initState() {
@@ -506,7 +506,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
                   ),
                 SizedBox(
                   width: paneWidths[i],
-                  child: _buildPane(i),
+                  child: _buildPane(i,paneWidths[i]),
                 ),
               ],
               if (showMaterial) ...[
@@ -523,7 +523,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
     );
   }
 
-  Widget _buildPane(int i) {
+  Widget _buildPane(int i, double paneWidth) {
     final pane = _panes[i];
     final isActive = i == _activePane;
     return Listener(
@@ -536,12 +536,12 @@ class _MultiPanePageState extends State<MultiPanePage> {
         decoration: isActive
             ? BoxDecoration(border: Border.all(color: Colors.blue, width: 2))
             : null,
-        child: _buildPaneContent(pane, i),
+        child: _buildPaneContent(pane, i, paneWidth),
       ),
     );
   }
 
-  Widget _buildPaneContent(_PaneState pane, int i) {
+  Widget _buildPaneContent(_PaneState pane, int i, double paneWidth) {
     return switch (pane) {
       _EmptyPane() => _buildEmptyPane(i),
       _NotePane(:final note, :final kernel) => WorkbenchBody(
@@ -552,6 +552,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
           saveLabel: '💾 保存',
           compact: true,
           appBarHasCardAction: false,
+          paneWidth: paneWidth,
           // 批：读/编辑态 + 编辑按钮回调
           isReadMode: (pane as _NotePane).isReadMode,
           onEditRequest: () {
