@@ -74,6 +74,14 @@ class _MultiPanePageState extends State<MultiPanePage> {
   bool _showMaterialPanel = false;
   List<MaterialItem> _materialItems = [];
 
+  // ─── 拖拽分隔线 ───
+  // 三个 pane 的比例——和恒 1——只前 _layoutMode 有效
+  List<double> _paneRatios = [1 / 3, 1 / 3, 1 / 3];
+
+  // 每 pane 最低宽——(甲) 技术门槛 + (乙) 产品门槛——取 max
+  // ⚠️ 待真机实测后定——现用占位 180
+  static const double _minPaneW = 180.0;
+
   @override
   void initState() {
     super.initState();
@@ -148,6 +156,90 @@ class _MultiPanePageState extends State<MultiPanePage> {
   void _toggleMaterialPanel() {
     setState(() => _showMaterialPanel = !_showMaterialPanel);
     if (_showMaterialPanel) _reloadMaterialItems();
+  }
+
+  // ─── 拖拽分隔线 ───
+
+  /// 拖第 [dividerIndex] 条分隔线（1..N-1）—— 改相邻两栏比例
+  /// 钳制式——拖到边界贴边停——不卡
+  void _onDividerDrag(int dividerIndex, double dx, double perRatio) {
+    if (perRatio <= 0) return;
+
+    final leftIdx = dividerIndex - 1;
+    final rightIdx = dividerIndex;
+    final sum = _paneRatios[leftIdx] + _paneRatios[rightIdx];
+    final minRatio = _minPaneW / perRatio;
+    if (sum < 2 * minRatio) return;   // 无空间可拖
+
+    final delta = dx / perRatio;
+    var leftNew = _paneRatios[leftIdx] + delta;
+    // 钳制——不是拒绝
+    leftNew = leftNew.clamp(minRatio, sum - minRatio);
+    final rightNew = sum - leftNew;
+
+    setState(() {
+      _paneRatios[leftIdx] = leftNew;
+      _paneRatios[rightIdx] = rightNew;
+    });
+  }
+
+  void _resetPaneRatios() {
+    setState(() {
+      _paneRatios = [1 / 3, 1 / 3, 1 / 3];
+    });
+  }
+
+  /// 按比例 + 留最小——旋转/resize 后仍保每栏 ≥ _minPaneW
+  /// 空间不足 n×min —— 均分（接受拥挤——不崩）
+  List<double> _computePaneWidths(
+    List<double> ratios,
+    double area,
+  ) {
+    final n = ratios.length;
+    if (n == 0) return [];
+
+    // 空间不足——均分
+    if (area <= n * _minPaneW) {
+      return List.filled(n, area / n);
+    }
+
+    final ratioSum = ratios.reduce((a, b) => a + b);
+    if (ratioSum <= 0) return List.filled(n, area / n);
+
+    final widths = List<double>.filled(n, 0);
+    final fixed = List<bool>.filled(n, false);
+    var freeArea = area;
+    var freeRatioSum = ratioSum;
+
+    // 迭代——找 < min 的固定——剩余再分
+    for (var iter = 0; iter < n; iter++) {
+      var changed = false;
+      for (var i = 0; i < n; i++) {
+        if (fixed[i]) continue;
+        final w = ratios[i] * freeArea / freeRatioSum;
+        if (w < _minPaneW) {
+          fixed[i] = true;
+          widths[i] = _minPaneW;
+          freeArea -= _minPaneW;
+          freeRatioSum -= ratios[i];
+          changed = true;
+        }
+      }
+      if (!changed) break;
+      if (freeRatioSum <= 0) break;
+    }
+
+    // 剩下按比例
+    final freeCount = n - fixed.where((f) => f).length;
+    for (var i = 0; i < n; i++) {
+      if (!fixed[i]) {
+        widths[i] = freeRatioSum > 0
+            ? ratios[i] * freeArea / freeRatioSum
+            : freeArea / freeCount.clamp(1, n);
+      }
+    }
+
+    return widths;
   }
 
   Future<void> _showAddReaderPicker() async {
@@ -283,6 +375,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
       }
       _layoutMode = n;
       if (_activePane >= n) _activePane = n - 1;
+      _paneRatios = [1 / 3, 1 / 3, 1 / 3];   // 栏数变——重置等分
     });
     _syncFocus();
     if (_showMaterialPanel) _reloadMaterialItems();
@@ -385,17 +478,47 @@ class _MultiPanePageState extends State<MultiPanePage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Row(
-        children: [
-          for (var i = 0; i < _layoutMode; i++) ...[
-            if (i > 0) const VerticalDivider(width: 1, thickness: 1),
-            Expanded(child: _buildPane(i)),
-          ],
-          if (_showMaterialPanel && activeHasContent) ...[
-            const VerticalDivider(width: 1, thickness: 1),
-            EditorMaterialSlot(items: _materialItems, enabled: activeHasNote),
-          ],
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final availW = constraints.maxWidth;
+          const dividerW = 16.0;
+          const materialW = 280.0;
+          final showMaterial = _showMaterialPanel && activeHasContent;
+
+          // 可用宽 = 总宽 - 分隔线占位 - (素材栏 + 其前分隔线)
+          final panesArea = availW -
+              (_layoutMode - 1) * dividerW -
+              (showMaterial ? dividerW + materialW : 0);
+
+          final paneRatios = _paneRatios.take(_layoutMode).toList();
+          final paneWidths = _computePaneWidths(paneRatios, panesArea);
+          final ratioSum = paneRatios.reduce((a, b) => a + b);
+          final perRatio = ratioSum > 0 ? panesArea / ratioSum : 0.0;
+
+          return Row(
+            children: [
+              for (var i = 0; i < _layoutMode; i++) ...[
+                if (i > 0)
+                  _DraggableDivider(
+                    width: dividerW,
+                    onDrag: (dx) => _onDividerDrag(i, dx, perRatio),
+                    onDoubleTap: _resetPaneRatios,
+                  ),
+                SizedBox(
+                  width: paneWidths[i],
+                  child: _buildPane(i),
+                ),
+              ],
+              if (showMaterial) ...[
+                const SizedBox(width: dividerW),
+                EditorMaterialSlot(
+                  items: _materialItems,
+                  enabled: activeHasNote,
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -403,7 +526,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
   Widget _buildPane(int i) {
     final pane = _panes[i];
     final isActive = i == _activePane;
-        return Listener(
+    return Listener(
       // 批：多栏焦点修——Listener.onPointerDown 走 pointer 阶段
       // 不进 Gesture Arena——不被 TextField / QuillEditor 抢
       // translucent 保留——hit-test 命中层面也需（两层配合，省不得）
@@ -474,6 +597,95 @@ class _MultiPanePageState extends State<MultiPanePage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 可拖拽分隔线——宽 [width]（默认 8，视觉线仅 1 宽居中）
+/// 拖拽 → onDrag(dx)
+/// 双击 → onDoubleTap（复位等分）
+/// 可拖拽分隔线——视觉强提示 + 8px 命中区
+///
+/// 常态：2px 灰线 + 中间三点 grip（暗示「可拖」）
+/// hover / 拖动：4px 蓝线 + grip 变色（反馈）
+class _DraggableDivider extends StatefulWidget {
+  final double width;
+  final void Function(double dx) onDrag;
+  final VoidCallback onDoubleTap;
+
+  const _DraggableDivider({
+    required this.width,
+    required this.onDrag,
+    required this.onDoubleTap,
+  });
+
+  @override
+  State<_DraggableDivider> createState() => _DraggableDividerState();
+}
+
+class _DraggableDividerState extends State<_DraggableDivider> {
+  bool _hovering = false;
+  bool _dragging = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _hovering || _dragging;
+
+    final lineColor = active
+        ? Colors.blue.shade400
+        : Colors.grey.shade400;
+    final lineWidth = active ? 4.0 : 2.0;
+    final gripColor = active
+        ? Colors.blue.shade700
+        : Colors.grey.shade600;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) => setState(() => _dragging = true),
+        onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
+        onHorizontalDragEnd: (_) => setState(() => _dragging = false),
+        onDoubleTap: widget.onDoubleTap,
+        child: SizedBox(
+          width: widget.width,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // 底线——常态 2px 灰 / hover 4px 蓝
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: lineWidth,
+                color: lineColor,
+              ),
+              // grip——三个小圆点——常态暗示「可拖」
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _gripDot(gripColor),
+                  const SizedBox(height: 4),
+                  _gripDot(gripColor),
+                  const SizedBox(height: 4),
+                  _gripDot(gripColor),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _gripDot(Color color) {
+    return Container(
+      width: 4,
+      height: 4,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+      ),
     );
   }
 }
