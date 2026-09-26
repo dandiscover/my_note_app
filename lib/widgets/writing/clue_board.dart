@@ -60,7 +60,7 @@ class ClueEdge {
 
 // ─── 画板状态 ──────────────────────────────────────────────
 enum DrawMode { select, line, text }
-
+enum _ClueToolbarAction { select, line, text, delete, reset }
 class ClueBoard extends StatefulWidget {
   final String viewId;
   final List<MaterialItem> items;
@@ -508,8 +508,22 @@ class ClueBoardState extends State<ClueBoard> {
       color: Colors.grey.shade50,
       child: Column(
         children: [
-          _buildToolbar(),
-          const Divider(height: 1),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final paneWidth = constraints.maxWidth;
+              // 老白裁：多栏 pane < 64 —— 工具栏 + Divider 全不渲染
+              if (widget.embedded && paneWidth < 64) {
+                return const SizedBox.shrink();
+              }
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildToolbar(paneWidth),
+                  const Divider(height: 1),
+                ],
+              );
+            },
+          ),
           Expanded(
                           child: Row(
                 children: [
@@ -534,7 +548,16 @@ class ClueBoardState extends State<ClueBoard> {
     );
   }
 
-  Widget _buildToolbar() {
+  Widget _buildToolbar(double paneWidth) {
+    // 独立页（embedded == false）：永远宽态，一字不改
+    if (!widget.embedded) return _buildToolbarWide();
+    // 多栏：pane >= 260 宽态；pane < 260 窄态
+    if (paneWidth >= 260) return _buildToolbarWide();
+    return _buildToolbarNarrow();
+  }
+
+  /// 宽态 —— 与 v0.3 前原文逐字一致
+  Widget _buildToolbarWide() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       color: Colors.white,
@@ -588,6 +611,86 @@ class ClueBoardState extends State<ClueBoard> {
           ],
       ),
     );
+  }
+
+  /// 窄态 —— 单个 ⋯，菜单含全部动作
+  Widget _buildToolbarNarrow() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      color: Colors.white,
+      child: Row(
+        children: [
+          const Spacer(),
+          PopupMenuButton<_ClueToolbarAction>(
+            icon: const Icon(Icons.more_horiz),
+            tooltip: '更多',
+            onSelected: _handleToolbarAction,
+            itemBuilder: (_) => [
+              _toolbarMenuItem(_ClueToolbarAction.select, Icons.select_all, '选择'),
+              _toolbarMenuItem(_ClueToolbarAction.line, Icons.timeline, '连线模式'),
+              _toolbarMenuItem(_ClueToolbarAction.text, Icons.title, '添加文字'),
+              _toolbarMenuItem(_ClueToolbarAction.delete, Icons.delete_outline, '删除选中', isDelete: true),
+              _toolbarMenuItem(_ClueToolbarAction.reset, Icons.clear_all, '重置'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<_ClueToolbarAction> _toolbarMenuItem(
+    _ClueToolbarAction action,
+    IconData icon,
+    String label, {
+    bool isDelete = false,
+  }) {
+    final isActive = switch (action) {
+      _ClueToolbarAction.select => _drawMode == DrawMode.select,
+      _ClueToolbarAction.line => _drawMode == DrawMode.line,
+      _ClueToolbarAction.text => _drawMode == DrawMode.text,
+      _ => false,
+    };
+    return PopupMenuItem<_ClueToolbarAction>(
+      value: action,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: isDelete ? Colors.red : null),
+          const SizedBox(width: 12),
+          Text(label),
+          if (isActive) ...[
+            const Spacer(),
+            const Icon(Icons.check, size: 16, color: Colors.blue),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _handleToolbarAction(_ClueToolbarAction action) {
+    switch (action) {
+      case _ClueToolbarAction.select:
+        setState(() => _drawMode = DrawMode.select);
+      case _ClueToolbarAction.line:
+        setState(() {
+          _drawMode = DrawMode.line;
+          _lineStartId = null;
+        });
+      case _ClueToolbarAction.text:
+        setState(() {
+          _drawMode = DrawMode.text;
+          _addTextNode();
+        });
+      case _ClueToolbarAction.delete:
+        _deleteSelected();
+      case _ClueToolbarAction.reset:
+        setState(() {
+          _nodes.clear();
+          _edges.clear();
+          _lineStartId = null;
+          _selectedNodeId = null;
+        });
+        _scheduleSave();
+    }
   }
 
   Widget _buildBoard() {
