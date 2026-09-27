@@ -10,7 +10,7 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 import '../database_service.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
-
+import '../services/note_opener.dart';
 import 'workbench/kernel_markdown.dart';
 import 'workbench/editor_kernel.dart';
 import 'workbench/editor_material_slot.dart';
@@ -646,15 +646,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     final note = await _db.getNoteByNodeId(targetNodeId);
     if (note != null) {
       Navigator.pop(context);
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => NoteDetailPage(
-            entry: note,
-            isFromCollection: false,
-            nodeId: targetNodeId,
-          ),
-        ),
+      await NoteOpener.open(
+        context: context,
+        entry: note,
+        isFromCollection: false,
+        nodeId: targetNodeId,
       );
     }
   }
@@ -1421,14 +1417,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       orElse: () => Node.empty,
     );
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NoteDetailPage(
-          entry: note,
-          nodeId: targetNode.id.isEmpty ? null : targetNode.id,
-        ),
-      ),
+    NoteOpener.open(
+      context: context,
+      entry: note,
+      nodeId: targetNode.id.isEmpty ? null : targetNode.id,
+      replace: true,
     );
   }
 }

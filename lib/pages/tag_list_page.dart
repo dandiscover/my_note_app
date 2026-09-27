@@ -4,7 +4,7 @@ import '../database_service.dart';
 import '../models/node.dart';
 import 'note_detail_page.dart';
 import 'book_detail_page.dart';
-
+import '../services/note_opener.dart';
 class TagListPage extends StatefulWidget {
   final List<Node> allNodes;
 
@@ -239,15 +239,11 @@ class _TagListPageState extends State<TagListPage> {
     if (node.nodeType == 'note') {
       final note = await _db.getNoteByNodeId(node.id);
       if (note != null) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => NoteDetailPage(
-              entry: note,
-              isFromCollection: false,
-              nodeId: node.id,
-            ),
-          ),
+        await NoteOpener.open(
+          context: context,
+          entry: note,
+          isFromCollection: false,
+          nodeId: node.id,
         );
       }
     } else if (node.nodeType == 'book') {

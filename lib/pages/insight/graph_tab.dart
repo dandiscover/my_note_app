@@ -9,7 +9,7 @@ import '../../models/note.dart';
 import '../../widgets/insight/knowledge_graph.dart';
 import '../note_detail_page.dart';
 import '../book_detail_page.dart';
-
+import '../../services/note_opener.dart';
 class GraphTab extends StatefulWidget {
   final List<Node> allNodes;
   final List<NotebookEntry> allNotes;
@@ -131,15 +131,11 @@ class GraphTabState extends State<GraphTab> {
     if (node.nodeType == 'note' && node.targetId != null) {
       _db.getNoteByNodeId(node.id).then((note) {
         if (note != null && mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => NoteDetailPage(
-                entry: note,
-                isFromCollection: false,
-                nodeId: node.id,
-              ),
-            ),
+          NoteOpener.open(
+            context: context,
+            entry: note,
+            isFromCollection: false,
+            nodeId: node.id,
           );
         }
       });

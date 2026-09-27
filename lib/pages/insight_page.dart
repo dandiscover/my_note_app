@@ -4,7 +4,7 @@
 // ✅ 任务三：图谱点笔记节点 → 底部面板显示卡片 → 长按多选 → 送去素材区
 // ✅ 问题 8 修复：TabBarView 加 NeverScrollableScrollPhysics，避免抢走 InteractiveViewer 手势
 // ✅ 2.4px 溢出修复：_openNoteCardsPanel 卡片 leading SizedBox 宽度 40 → 44
-
+import '../services/note_opener.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:collection/collection.dart';
@@ -621,15 +621,11 @@ class InsightPageState extends State<InsightPage>
     if (node.nodeType == 'note') {
       final note = await _db.getNoteByNodeId(node.id);
       if (note != null) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => NoteDetailPage(
-              entry: note,
-              isFromCollection: false,
-              nodeId: node.id,
-            ),
-          ),
+        await NoteOpener.open(
+          context: context,
+          entry: note,
+          isFromCollection: false,
+          nodeId: node.id,
         );
         await refreshData();
       }

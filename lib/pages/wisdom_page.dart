@@ -26,6 +26,7 @@ import '../models/note.dart';
 import '../models/book.dart';
 import '../models/node.dart';
 import '../models/card.dart';
+import '../services/note_opener.dart';
 import '../utils/app_string_utils.dart';
 import '../services/card_service.dart';
 import '../services/cache_manager.dart';
@@ -379,18 +380,14 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: '无标题笔记', content: '', tags: [], updatedAt: DateTime.now(), editorMode: 'plain',
     );
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NoteDetailPage(
-          entry: tempNote,
-          isFromCollection: true,
-          currentNodeId: _currentFolderId,
-          isNew: true,
-          shouldPopOnSave: true,
-          syncToCloud: true,
-        ),
-      ),
+    final result = await NoteOpener.open(
+      context: context,
+      entry: tempNote,
+      isFromCollection: true,
+      currentNodeId: _currentFolderId,
+      isNew: true,
+      shouldPopOnSave: true,
+      syncToCloud: true,
     );
     if (result == true) {
       _cache.invalidate(_cacheKeyNodes);
@@ -668,7 +665,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     if (node.nodeType == 'note') {
       final note = await _db.getNoteByNodeId(node.id);
       if (note != null) {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => NoteDetailPage(entry: note, nodeId: node.id)));
+        await NoteOpener.open(context: context, entry: note, nodeId: node.id);
         _cache.invalidate(_cacheKeyNotes); await _loadData();
       }
     } else if (node.nodeType == 'book') {
@@ -1919,15 +1916,11 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               );
               if (noteMap.isEmpty) return;
               final note = NotebookEntry.fromMap(noteMap);
-              await Navigator.push(
-                this.context,
-                MaterialPageRoute(
-                  builder: (_) => NoteDetailPage(
-                    entry: note,
-                    isFromCollection: false,
-                    initInEditMode: true,
-                  ),
-                ),
+              await NoteOpener.open(
+                context: this.context,
+                entry: note,
+                isFromCollection: false,
+                initInEditMode: true,
               );
             },
             icon: const Icon(Icons.note_add, size: 16),

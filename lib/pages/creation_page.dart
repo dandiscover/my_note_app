@@ -5,7 +5,7 @@
 // ✅ 新增：探究任务自动判定（问题 + exploreTasks + 未完成）
 // ✅ 清理：删除旧 _generateExploreNote 死代码和未使用的 import
 // ✅ 修改：探究卡片点击改为打开 ExploreTaskExecuteDialog
-
+import '../services/note_opener.dart';
 import '../models/card.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -686,15 +686,11 @@ class CreationPageState extends State<CreationPage>
                   updatedAt: DateTime.now(),
                   editorMode: 'plain',
                 );
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => NoteDetailPage(
-                      entry: draft,
-                      isNew: true,
-                      shouldPopOnSave: true,
-                    ),
-                  ),
+                NoteOpener.open(
+                  context: context,
+                  entry: draft,
+                  isNew: true,
+                  shouldPopOnSave: true,
                 );
               },
             icon: const Icon(Icons.arrow_forward),

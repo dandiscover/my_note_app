@@ -32,7 +32,7 @@ import 'note_detail_page.dart';
 import 'multi_pane_page.dart';
 import '../models/note.dart';
 import '../services/note_book_link_service.dart';
-
+import '../services/note_opener.dart';
 enum _AnnotationSource { local, weread }
 
 class _AnnotationItem {
@@ -1025,14 +1025,10 @@ class _BookDetailPageState extends State<BookDetailPage>
   }
 
   Future<void> _openLinkedNote(NotebookEntry entry) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NoteDetailPage(
-          entry: entry,
-          isFromCollection: false,
-        ),
-      ),
+    await NoteOpener.open(
+      context: context,
+      entry: entry,
+      isFromCollection: false,
     );
     if (mounted) await _loadLinkedNotes();
   }
@@ -1073,15 +1069,11 @@ class _BookDetailPageState extends State<BookDetailPage>
       return;
     }
     if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NoteDetailPage(
-          entry: entry,
-          isFromCollection: false,
-          initInEditMode: true,
-        ),
-      ),
+    await NoteOpener.open(
+      context: context,
+      entry: entry,
+      isFromCollection: false,
+      initInEditMode: true,
     );
     if (!mounted) return;
 
