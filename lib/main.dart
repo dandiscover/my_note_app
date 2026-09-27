@@ -14,7 +14,7 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'pages/workbench/editor_kernel.dart';
 import 'models/pet.dart';
 import 'dart:io';
-
+import 'services/note_opener.dart';
 import 'services/supabase_service.dart';
 import 'services/keyboard_shortcut_manager.dart';
 import 'services/pet_service.dart';
@@ -301,6 +301,8 @@ class _NotebookPageState extends State<NotebookPage> {
   KeyboardShortcutManager? _shortcutManager;
 
   // ✅ 所有页面的 GlobalKey（用于跨页面刷新）
+  final GlobalKey<AdaptiveNavigationState> _adaptiveNavKey =
+      GlobalKey<AdaptiveNavigationState>();
   final GlobalKey<WisdomPageState> _wisdomKey = GlobalKey<WisdomPageState>();
   final GlobalKey<InsightPageState> _insightKey = GlobalKey<InsightPageState>();
   final GlobalKey<creation.CreationPageState> _creationKey =
@@ -361,14 +363,10 @@ class _NotebookPageState extends State<NotebookPage> {
       label: '新建笔记',
       description: '开一篇空白笔记',
       icon: Icons.note_add,
-      onExecute: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => NoteDetailPage(
-            entry: NotebookEntry.empty,
-            isNew: true,
-          ),
-        ),
+      onExecute: () => NoteOpener.open(
+        context: context,
+        entry: NotebookEntry.empty,
+        isNew: true,
       ),
     ),
     CommandItem(
@@ -376,7 +374,7 @@ class _NotebookPageState extends State<NotebookPage> {
       label: '打开采集',
       description: '进采集页',
       icon: Icons.add_box_outlined,
-      onExecute: () => _onTabChange(0),
+      onExecute: () => _adaptiveNavKey.currentState?.setTab(0),
     ),
     CommandItem(
       id: 'global_search',
@@ -384,7 +382,7 @@ class _NotebookPageState extends State<NotebookPage> {
       description: '搜所有笔记和书',
       icon: Icons.search,
       onExecute: () {
-        _onTabChange(1);
+        _adaptiveNavKey.currentState?.setTab(1);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _wisdomKey.currentState?.toggleSearch();
         });
@@ -405,7 +403,7 @@ class _NotebookPageState extends State<NotebookPage> {
       label: '打开设置',
       description: '进「我的」设置',
       icon: Icons.settings,
-      onExecute: () => _onTabChange(4),
+      onExecute: () => _adaptiveNavKey.currentState?.setTab(4),
     ),
   ];
 
@@ -491,14 +489,10 @@ class _NotebookPageState extends State<NotebookPage> {
       orElse: () => Node.empty,
     );
     if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NoteDetailPage(
-          entry: note,
-          nodeId: targetNode.id.isEmpty ? null : targetNode.id,
-        ),
-      ),
+    NoteOpener.open(
+      context: context,
+      entry: note,
+      nodeId: targetNode.id.isEmpty ? null : targetNode.id,
     );
   }
 
@@ -647,6 +641,7 @@ class _NotebookPageState extends State<NotebookPage> {
               ],
             ),
             body: AdaptiveNavigation(
+              key: _adaptiveNavKey,
               onTabChange: _onTabChange,
               onLoginSuccess: _syncAfterLogin,
               wisdomKey: _wisdomKey,

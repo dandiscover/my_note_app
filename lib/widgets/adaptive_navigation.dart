@@ -33,10 +33,10 @@ class AdaptiveNavigation extends StatefulWidget {
   });
 
   @override
-  State<AdaptiveNavigation> createState() => _AdaptiveNavigationState();
+  State<AdaptiveNavigation> createState() => AdaptiveNavigationState();
 }
 
-class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
+class AdaptiveNavigationState extends State<AdaptiveNavigation> {
   int _currentIndex = 0;
   NotebookEntry? _draftNote;
 
@@ -71,6 +71,14 @@ class _AdaptiveNavigationState extends State<AdaptiveNavigation> {
   void _onTabChange(int index) {
     setState(() => _currentIndex = index);
     widget.onTabChange?.call(index);
+  }
+
+  /// 命令面板调 —— 切 tab
+  void setTab(int index) {
+    final deviceType = _getDeviceType(context);
+    final pages = _getPages(deviceType);
+    if (index < 0 || index >= pages.length) return;
+    _onTabChange(index);
   }
   /// 第 5 tab「写作」——无参默认 editor 模式。
   ///
