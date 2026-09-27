@@ -38,7 +38,6 @@ class AdaptiveNavigation extends StatefulWidget {
 
 class AdaptiveNavigationState extends State<AdaptiveNavigation> {
   int _currentIndex = 0;
-  NotebookEntry? _draftNote;
 
   // ─── 内置平台检测 ──────────────────────────────────────────
 
@@ -57,12 +56,8 @@ class AdaptiveNavigationState extends State<AdaptiveNavigation> {
       {'id': 'insight', 'label': '洞察', 'icon': Icons.insights},
       {'id': 'creation', 'label': '创作', 'icon': Icons.create},
       {'id': 'profile', 'label': '我的', 'icon': Icons.person_outline},
-      {'id': 'writing', 'label': '写作', 'icon': Icons.edit_note},
     ];
 
-    if (deviceType == DeviceType.mobile || deviceType == DeviceType.tablet) {
-      return allPages.where((p) => p['id'] != 'writing').toList();
-    }
     return allPages;
   }
 
@@ -80,25 +75,7 @@ class AdaptiveNavigationState extends State<AdaptiveNavigation> {
     if (index < 0 || index >= pages.length) return;
     _onTabChange(index);
   }
-  /// 第 5 tab「写作」——无参默认 editor 模式。
-  ///
-  /// ⚠️ build 副作用：首次 sidebar 渲染时建草稿，缓存到 _draftNote。
-  /// 跨 rebuild 保留，避免 _entry 被替换触发 kernel 重建。
-  Widget _buildWritingTab() {
-    _draftNote ??= NotebookEntry(
-      id: 'tab_draft_${DateTime.now().millisecondsSinceEpoch}',
-      title: '无标题',
-      content: '',
-      tags: [],
-      updatedAt: DateTime.now(),
-      editorMode: 'plain',
-    );
-    return NoteDetailPage(
-      entry: _draftNote!,
-      isNew: true,
-      shouldPopOnSave: false,
-    );
-  }
+
   @override
   Widget build(BuildContext context) {
     final deviceType = _getDeviceType(context);
@@ -146,9 +123,7 @@ class AdaptiveNavigationState extends State<AdaptiveNavigation> {
       ),
     ];
 
-    final pageWidgets = showSidebar
-        ? [...children, _buildWritingTab()]
-        : children;
+    final pageWidgets = children;
 
     final pageContent = IndexedStack(
       index: _currentIndex,
