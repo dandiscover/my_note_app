@@ -27,7 +27,8 @@ import 'widgets/sync_indicator.dart';
 import 'models/command_item.dart';
 import 'pages/workbench/clue_board_page.dart';
 import 'services/command_palette_launcher.dart';
-
+import 'services/open_tabs_manager.dart';
+import 'services/note_opener.dart';
 import 'pages/collection_page.dart';
 import 'services/focus_mode_notifier.dart';
 import 'models/note.dart';
@@ -82,6 +83,8 @@ void main() async {
 
   // ✅ 迁移笔记旧字段到多任务模型
   await DatabaseService().ensureExploreMigration();
+
+  await OpenTabsManager.instance.load();
 
   runApp(const MyApp());
 }
@@ -316,6 +319,7 @@ class _NotebookPageState extends State<NotebookPage> {
     _initShortcuts();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       CommandPaletteLauncher.register(_handleCommandPalette);
+    NoteOpener.onOpenNote = () => _adaptiveNavKey.currentState?.setTab(1);
       KeyboardShortcutManager.revision.addListener(_onShortcutsChanged);
       FocusScope.of(context).requestFocus(_focusNode);
     });

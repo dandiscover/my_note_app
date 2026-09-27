@@ -5,7 +5,8 @@
 import 'package:flutter/material.dart';
 import '../models/note.dart';
 import '../pages/note_detail_page.dart';
-
+import 'open_tabs_manager.dart';
+import '../utils/app_string_utils.dart';
 class NoteOpener {
   NoteOpener._();
 
@@ -40,6 +41,18 @@ class NoteOpener {
     if (replace) {
       return Navigator.pushReplacement<bool, dynamic>(context, route);
     }
-    return Navigator.push<bool>(context, route);
+    if (isNew) {
+      return Navigator.push<bool>(context, route);
+    }
+    OpenTabsManager.instance.open(
+      OpenTab(
+        noteId: entry.id,
+        title: AppStringUtils.displayNoteTitle(entry.title, entry.content),
+      ),
+    );
+    onOpenNote?.call();
+    return Future.value(true);
   }
+
+  static void Function()? onOpenNote;
 }

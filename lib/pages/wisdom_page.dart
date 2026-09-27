@@ -49,11 +49,13 @@ import '../widgets/mark_summary/mark_summary_panel.dart';
 import '../widgets/mark_summary/mark_summary_builder.dart';
 import 'epub_reader_page.dart';
 import 'pdf_reader_page.dart';
+import '../widgets/folder_tabs_bar.dart';
 // ✅ 第五轮：EPUB 导出
 import '../services/epub_export/epub_exporter.dart';
 import '../services/epub_export/epub_platform_saver.dart';
 import '../widgets/wisdom/epub_reorder_dialog.dart';
-
+import '../services/open_tabs_manager.dart';
+import '../widgets/open_tabs_bar.dart';
 enum WisdomViewMode { list, grid, large, split, cardWall, timeline, gallery }
 
 class WisdomPage extends StatefulWidget {
@@ -73,6 +75,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   List<Book> _books = [];
   List<CardModel> _cards = [];
   String? _currentFolderId;
+  NotebookEntry? _openedNote;
+  bool _showTabView = true;
   String _searchKeyword = '';
   // ✅ 第四轮批 1 新增：统一搜索结果（searchIndex() 返回的混合列表）
   // 依据老白裁 A：改搜索数据源为 searchIndex()，不建新页。
@@ -100,6 +104,35 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   void initState() {
     super.initState();
     _loadData();
+    OpenTabsManager.activeTabId.addListener(_onActiveTabChanged);
+    _onActiveTabChanged();
+  }
+
+  @override
+  void dispose() {
+    OpenTabsManager.activeTabId.removeListener(_onActiveTabChanged);
+    super.dispose();
+  }
+
+  Future<void> _onActiveTabChanged() async {
+    final noteId = OpenTabsManager.activeTabId.value;
+    if (noteId == null) {
+      if (mounted) setState(() => _openedNote = null);
+      return;
+    }
+    final maps = await _db.getAllNotes(includeDeleted: false);
+    Map<String, dynamic>? noteMap;
+    for (final m in maps) {
+      if (m['id'] == noteId) {
+        noteMap = m;
+        break;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _openedNote = noteMap == null ? null : NotebookEntry.fromMap(noteMap);
+      if (noteMap != null) _showTabView = true;
+    });
   }
 
   void refreshData() {
@@ -240,6 +273,22 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     return node.systemTag == 'cardbox' && node.isFolder && node.parentId == null;
   }
 
+  List<Node> get _siblingFolders {
+    String? parentId;
+    if (_currentFolderId == null) {
+      parentId = null;
+    } else {
+      final cur = _nodes.firstWhere(
+        (n) => n.id == _currentFolderId,
+        orElse: () => Node.empty,
+      );
+      parentId = cur.parentId;
+    }
+    return _nodes
+        .where((n) => n.isFolder && n.parentId == parentId)
+        .toList();
+  }
+
   /// 判断当前文件夹是否为图书馆
   bool get _isLibraryFolder {
     if (_currentFolderId == null) return false;
@@ -338,7 +387,13 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   void _navigateToFolder(String? folderId) {
-    setState(() { _currentFolderId = folderId; _cachedFilteredNodes = null; _searchKeyword = ''; _showSearchBar = false; });
+    setState(() {
+      _currentFolderId = folderId;
+      _cachedFilteredNodes = null;
+      _searchKeyword = '';
+      _showSearchBar = false;
+      _showTabView = false;
+    });
   }
 
   void _openClueBoard() {
@@ -836,7 +891,29 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: _buildAppBar(),
-      body: _isCardBoxView ? _buildCardBoxView() : _buildFolderView(),
+      body: Column(
+        children: [
+          if (_openedNote == null)
+            FolderTabsBar(
+              siblings: _siblingFolders,
+              currentFolderId: _currentFolderId,
+              onFolderTap: _navigateToFolder,
+            ),
+          OpenTabsBar(
+            onTabTap: () => setState(() => _showTabView = true),
+          ),
+          Expanded(
+            child: (_showTabView && _openedNote != null)
+                ? NoteDetailPage(
+                    entry: _openedNote!,
+                    embedded: true,
+                  )
+                : (_isCardBoxView
+                    ? _buildCardBoxView()
+                    : _buildFolderView()),
+          ),
+        ],
+      ),
       floatingActionButton: _buildFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
@@ -849,7 +926,19 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       elevation: 0,
       backgroundColor: Colors.white,
       foregroundColor: Colors.black87,
-      leading: _isCardBoxView ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => _navigateToFolder(null), tooltip: '返回智库') : null,
+      leading: (_showTabView && _openedNote != null)
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              tooltip: '返回智库',
+              onPressed: () => setState(() => _showTabView = false),
+            )
+          : (_isCardBoxView
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => _navigateToFolder(null),
+                  tooltip: '返回智库',
+                )
+              : null),
       actions: [
         IconButton(icon: const Icon(Icons.keyboard_command_key), onPressed: () => CommandPaletteLauncher.open(), tooltip: '命令面板'),
         IconButton(icon: const Icon(Icons.search), onPressed: _toggleSearch, tooltip: '搜索'),

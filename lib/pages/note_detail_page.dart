@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
-
+import '../services/open_tabs_manager.dart';
 import '../database_service.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
@@ -53,6 +53,7 @@ class NoteDetailPage extends StatefulWidget {
   final bool shouldPopOnSave;
   final bool syncToCloud;
   final bool initInEditMode;   // 批 1b 修复：从图书侧新建 → 强制进编辑态
+  final bool embedded;         // 嵌入模式 —— 不包 Scaffold
 
   const NoteDetailPage({
     super.key,
@@ -64,6 +65,7 @@ class NoteDetailPage extends StatefulWidget {
     this.shouldPopOnSave = false,
     this.syncToCloud = false,
     this.initInEditMode = false,
+    this.embedded = false,
   });
 
   @override
@@ -134,6 +136,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   void _onCardsChanged() {
     if (mounted && _showMaterialPanel) _loadMaterialItems();
+  }
+
+  @override
+  void didUpdateWidget(covariant NoteDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.entry.id != oldWidget.entry.id) {
+      _entry = widget.entry;
+      _kernel.updateEntry(widget.entry);
+      _isReadMode = widget.entry.contentFormat == 'richtext'
+          ? true
+          : !widget.isFromCollection;
+      setState(() {});
+    }
   }
 
   @override
@@ -364,7 +379,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       }
 
       if (widget.shouldPopOnSave && mounted) {
-        Navigator.pop(context, true);
+        if (widget.embedded) {
+          OpenTabsManager.instance.close(_entry.id);
+        } else {
+          Navigator.pop(context, true);
+        }
       }
 
       try {
@@ -645,7 +664,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   Future<void> _openNote(BuildContext context, String targetNodeId) async {
     final note = await _db.getNoteByNodeId(targetNodeId);
     if (note != null) {
-      Navigator.pop(context);
+      if (!widget.embedded) {
+        Navigator.pop(context);
+      }
       await NoteOpener.open(
         context: context,
         entry: note,
@@ -861,42 +882,61 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   // ─── UI ─────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final appBar = _focusMode
+        ? null
+        : EditorAppBar(
+            title: _isReadMode
+                ? '📖 ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}'
+                : '✏️ ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}',
+            isReadMode: _isReadMode,
+            isRichtext: _entry.contentFormat == 'richtext',
+            onInquiry: _openInquiry,
+            onToggleMode: _toggleMode,
+            onCard: () => _showFullNoteCardDialog(),
+            onQuickSwitch: () => CommandPaletteLauncher.open(),
+            onOpenMultiPane: _openMultiPane,
+            onToggleFocus: _toggleFocusMode,
+            isFocusMode: _focusMode,
+            onToggleOutline:
+                MediaQuery.sizeOf(context).width >= 600
+                    ? _toggleOutlinePanel
+                    : null,
+            isOutlineOpen: _showOutlinePanel,
+            onToggleMaterial: _toggleMaterialPanel,
+            onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
+          );
+
+    final body = _isReadMode ? _buildReadMode() : _buildEditMode();
+
+    final fab = _focusMode
+        ? FloatingActionButton(
+            mini: true,
+            onPressed: _toggleFocusMode,
+            tooltip: '退出专注',
+            child: const Icon(Icons.fullscreen_exit),
+          )
+        : null;
+
+    if (widget.embedded) {
+      return Stack(
+        children: [
+          Column(
+            children: [
+              if (appBar != null) appBar,
+              Expanded(child: body),
+            ],
+          ),
+          if (fab != null)
+            Positioned(right: 16, bottom: 16, child: fab),
+        ],
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: _focusMode
-          ? null
-          : EditorAppBar(
-              title: _isReadMode
-                  ? '📖 ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}'
-                  : '✏️ ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}',
-              isReadMode: _isReadMode,
-              isRichtext: _entry.contentFormat == 'richtext',
-              onInquiry: _openInquiry,
-              onToggleMode: _toggleMode,
-              onCard: () => _showFullNoteCardDialog(),
-              onQuickSwitch: () => CommandPaletteLauncher.open(),
-              onOpenMultiPane: _openMultiPane,
-              onToggleFocus: _toggleFocusMode,
-              isFocusMode: _focusMode,
-              onToggleOutline:
-                  MediaQuery.sizeOf(context).width >= 600
-                      ? _toggleOutlinePanel
-                      : null,
-                              isOutlineOpen: _showOutlinePanel,
-                onToggleMaterial: _toggleMaterialPanel,
-              onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
-            ),
-            body: _isReadMode
-            ? _buildReadMode()
-            : _buildEditMode(),
-      floatingActionButton: _focusMode
-          ? FloatingActionButton(
-              mini: true,
-              onPressed: _toggleFocusMode,
-              tooltip: '退出专注',
-              child: const Icon(Icons.fullscreen_exit),
-            )
-          : null,
+      appBar: appBar,
+      body: body,
+      floatingActionButton: fab,
     );
   }
   // _buildMapMode 已撤 —— 导图嵌入 _buildReadMode 的正文段
