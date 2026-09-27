@@ -14,9 +14,6 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'pages/workbench/editor_kernel.dart';
 import 'models/pet.dart';
 import 'dart:io';
-import 'web_shortcut.dart'
-    if (dart.library.html) 'web_shortcut.dart'
-    if (dart.library.io) 'web_shortcut_stub.dart';
 
 import 'services/supabase_service.dart';
 import 'services/keyboard_shortcut_manager.dart';
@@ -27,6 +24,9 @@ import 'database_service.dart';
 import 'widgets/adaptive_navigation.dart';
 import 'widgets/floating_pet.dart';  // ✅ 导出 floatingPetKey + PetVisibilityController
 import 'widgets/sync_indicator.dart';
+import 'models/command_item.dart';
+import 'pages/workbench/clue_board_page.dart';
+import 'services/command_palette_launcher.dart';
 
 import 'pages/collection_page.dart';
 import 'services/focus_mode_notifier.dart';
@@ -299,7 +299,6 @@ class NotebookPage extends StatefulWidget {
 class _NotebookPageState extends State<NotebookPage> {
   final FocusNode _focusNode = FocusNode();
   KeyboardShortcutManager? _shortcutManager;
-  WebShortcutManager? _webShortcutManager;
 
   // ✅ 所有页面的 GlobalKey（用于跨页面刷新）
   final GlobalKey<WisdomPageState> _wisdomKey = GlobalKey<WisdomPageState>();
@@ -314,16 +313,16 @@ class _NotebookPageState extends State<NotebookPage> {
     super.initState();
     _initShortcuts();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (kIsWeb) {
-        _setupWebShortcuts();
-      }
+      CommandPaletteLauncher.register(_handleCommandPalette);
+      KeyboardShortcutManager.revision.addListener(_onShortcutsChanged);
       FocusScope.of(context).requestFocus(_focusNode);
     });
   }
 
   @override
   void dispose() {
-    _webShortcutManager?.dispose();
+    CommandPaletteLauncher.unregister();
+    KeyboardShortcutManager.revision.removeListener(_onShortcutsChanged);
     _focusNode.dispose();
     super.dispose();
   }
@@ -335,13 +334,80 @@ class _NotebookPageState extends State<NotebookPage> {
     await _shortcutManager!.load();
   }
 
-  void _setupWebShortcuts() {
-    _webShortcutManager = WebShortcutManager(
-      onExecute: _executeShortcut,
-      onShowSnackBar: _showShortcutSnackBar,
-    );
-    _webShortcutManager!.startListening();
+  void _onShortcutsChanged() {
+    if (mounted) setState(() {});
   }
+
+  Future<void> _handleCommandPalette() async {
+    final maps = await DatabaseService().getAllNotes(includeDeleted: false);
+    final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => QuickSwitchDialog(
+        notes: notes,
+        commands: _buildCommands(),
+        onSelect: (note) {
+          Navigator.pop(ctx);
+          _openNoteFromQuickSwitch(note);
+        },
+      ),
+    );
+  }
+
+  List<CommandItem> _buildCommands() => [
+    CommandItem(
+      id: 'new_note',
+      label: '新建笔记',
+      description: '开一篇空白笔记',
+      icon: Icons.note_add,
+      onExecute: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NoteDetailPage(
+            entry: NotebookEntry.empty,
+            isNew: true,
+          ),
+        ),
+      ),
+    ),
+    CommandItem(
+      id: 'open_collection',
+      label: '打开采集',
+      description: '进采集页',
+      icon: Icons.add_box_outlined,
+      onExecute: () => _onTabChange(0),
+    ),
+    CommandItem(
+      id: 'global_search',
+      label: '全库搜索',
+      description: '搜所有笔记和书',
+      icon: Icons.search,
+      onExecute: () {
+        _onTabChange(1);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _wisdomKey.currentState?.toggleSearch();
+        });
+      },
+    ),
+    CommandItem(
+      id: 'open_clue_board',
+      label: '打开线索墙',
+      description: '进全局线索墙',
+      icon: Icons.bubble_chart,
+      onExecute: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ClueBoardPage()),
+      ),
+    ),
+    CommandItem(
+      id: 'open_settings',
+      label: '打开设置',
+      description: '进「我的」设置',
+      icon: Icons.settings,
+      onExecute: () => _onTabChange(4),
+    ),
+  ];
 
   void _showShortcutSnackBar(String label) {
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -390,6 +456,9 @@ class _NotebookPageState extends State<NotebookPage> {
       case 'quickSwitch':
         _handleQuickSwitch();
         break;
+      case 'commandPalette':
+        _handleCommandPalette();
+        break;
       default:
         break;
     }
@@ -412,22 +481,10 @@ class _NotebookPageState extends State<NotebookPage> {
       extentOffset: end + mark.length,
     );
   }
-  Future<void> _handleQuickSwitch() async {
-    final maps = await DatabaseService().getAllNotes(includeDeleted: false);
-    final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      builder: (ctx) => QuickSwitchDialog(
-        notes: notes,
-        onSelect: (note) {
-          Navigator.pop(ctx);
-          _openNoteFromQuickSwitch(note);
-        },
-      ),
-    );
-  }
-    Future<void> _openNoteFromQuickSwitch(NotebookEntry note) async {
+
+  Future<void> _handleQuickSwitch() => _handleCommandPalette();
+
+  Future<void> _openNoteFromQuickSwitch(NotebookEntry note) async {
     final nodes = await DatabaseService().getAllNodes();
     final targetNode = nodes.firstWhere(
       (n) => n.nodeType == 'note' && n.targetId == note.id,
@@ -444,6 +501,7 @@ class _NotebookPageState extends State<NotebookPage> {
       ),
     );
   }
+
   TextEditingController? _getFocusedController() {
     final focus = FocusManager.instance.primaryFocus;
     if (focus == null || focus.context == null) return null;
@@ -516,87 +574,96 @@ class _NotebookPageState extends State<NotebookPage> {
     }
   }
 
+  // ─── 跨平台快捷键 ─────────────────────────────────────────
+
+  static const Map<String, LogicalKeyboardKey> _keyStringMap = {
+    'a': LogicalKeyboardKey.keyA, 'b': LogicalKeyboardKey.keyB,
+    'c': LogicalKeyboardKey.keyC, 'd': LogicalKeyboardKey.keyD,
+    'e': LogicalKeyboardKey.keyE, 'f': LogicalKeyboardKey.keyF,
+    'g': LogicalKeyboardKey.keyG, 'h': LogicalKeyboardKey.keyH,
+    'i': LogicalKeyboardKey.keyI, 'j': LogicalKeyboardKey.keyJ,
+    'k': LogicalKeyboardKey.keyK, 'l': LogicalKeyboardKey.keyL,
+    'm': LogicalKeyboardKey.keyM, 'n': LogicalKeyboardKey.keyN,
+    'o': LogicalKeyboardKey.keyO, 'p': LogicalKeyboardKey.keyP,
+    'q': LogicalKeyboardKey.keyQ, 'r': LogicalKeyboardKey.keyR,
+    's': LogicalKeyboardKey.keyS, 't': LogicalKeyboardKey.keyT,
+    'u': LogicalKeyboardKey.keyU, 'v': LogicalKeyboardKey.keyV,
+    'w': LogicalKeyboardKey.keyW, 'x': LogicalKeyboardKey.keyX,
+    'y': LogicalKeyboardKey.keyY, 'z': LogicalKeyboardKey.keyZ,
+    'escape': LogicalKeyboardKey.escape,
+    'space': LogicalKeyboardKey.space,
+  };
+
+  Map<ShortcutActivator, Intent> _buildShortcutsMap() {
+    final map = <ShortcutActivator, Intent>{};
+    for (final s in (_shortcutManager?.all ?? [])) {
+      final trigger = _keyStringMap[s.key.toLowerCase()];
+      if (trigger == null) continue;
+      map[SingleActivator(
+        trigger,
+        control: s.isCtrlRequired,
+        shift: s.isShiftRequired,
+        alt: s.isAltRequired,
+      )] = _ExecuteShortcutIntent(s.id);
+    }
+    return map;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return RawKeyboardListener(
+    return Focus(
       focusNode: _focusNode,
-      onKey: (event) {
-        if (kIsWeb) return;
-
-        if (event is RawKeyDownEvent) {
-          final isCtrl = event.isControlPressed || event.isMetaPressed;
-          final key = event.logicalKey;
-
-          String keyName = '';
-          if (key == LogicalKeyboardKey.escape) {
-            keyName = 'escape';
-          } else {
-            keyName = key.keyLabel.toLowerCase();
-            if (keyName.isEmpty) return;
-          }
-
-          if (isCtrl && keyName == 's') {
-            final editorActive = EditorKernel.isActive;
-            final dialogActive = CollectionPage.isActive;
-
-            if (editorActive) {
-              EditorKernel.triggerSave();
-              _showShortcutSnackBar('💾 笔记已保存');
-            } else if (dialogActive) {
-              CollectionPage.triggerSave();
-              _showShortcutSnackBar('💾 笔记已保存');
-            } else {
-              _showShortcutSnackBar('ℹ️ 没有可保存的内容');
-            }
-            return;
-          }
-
-          if (_shortcutManager != null) {
-            final matched = _shortcutManager!.match(
-              keyName,
-              isCtrl,
-              event.isShiftPressed,
-              event.isAltPressed,
-            );
-            if (matched != null) {
-              _executeShortcut(matched.id);
-              _showShortcutSnackBar(matched.displayName);
-            }
-          }
-
-          if (isCtrl && (key == LogicalKeyboardKey.keyZ)) return;
-        }
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('云脑计划'),
-          centerTitle: true,
-          actions: [
-            const SyncIndicator(),
-            IconButton(
-              tooltip: '关于',
-              onPressed: () {
-                showAboutDialog(
-                  context: context,
-                  applicationName: '云脑计划',
-                  applicationVersion: 'v1.0.0',
-                  applicationLegalese: '© 2026 三少爷',
-                  children: const [Text('一个稳定智慧的外脑。')],
-                );
+      autofocus: true,
+      child: Shortcuts(
+        shortcuts: _buildShortcutsMap(),
+        child: Actions(
+          actions: {
+            _ExecuteShortcutIntent: CallbackAction<_ExecuteShortcutIntent>(
+              onInvoke: (intent) {
+                _executeShortcut(intent.shortcutId);
+                return null;
               },
-              icon: const Icon(Icons.info_outline),
             ),
-          ],
-        ),
-        body: AdaptiveNavigation(
-          onTabChange: _onTabChange,
-          onLoginSuccess: _syncAfterLogin,
-          wisdomKey: _wisdomKey,
-          insightKey: _insightKey,
-          creationKey: _creationKey,
-          onRefreshAll: _refreshAllPages,
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('云脑计划'),
+              centerTitle: true,
+              actions: [
+                const SyncIndicator(),
+                IconButton(
+                  tooltip: '关于',
+                  onPressed: () {
+                    showAboutDialog(
+                      context: context,
+                      applicationName: '云脑计划',
+                      applicationVersion: 'v1.0.0',
+                      applicationLegalese: '© 2026 三少爷',
+                      children: const [Text('一个稳定智慧的外脑。')],
+                    );
+                  },
+                  icon: const Icon(Icons.info_outline),
+                ),
+              ],
+            ),
+            body: AdaptiveNavigation(
+              onTabChange: _onTabChange,
+              onLoginSuccess: _syncAfterLogin,
+              wisdomKey: _wisdomKey,
+              insightKey: _insightKey,
+              creationKey: _creationKey,
+              onRefreshAll: _refreshAllPages,
+            ),
+          ),
         ),
       ),
     );
   }
+}
+
+// ─── 快捷键 Intent ────────────────────────────────────────────
+
+class _ExecuteShortcutIntent extends Intent {
+  final String shortcutId;
+  const _ExecuteShortcutIntent(this.shortcutId);
 }

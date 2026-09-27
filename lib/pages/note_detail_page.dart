@@ -19,7 +19,7 @@ import 'workbench/editor_app_bar.dart';
 import '../widgets/workbench/outline_panel.dart';
 import '../widgets/workbench/note_map_view.dart';
 import '../widgets/workbench/note_map_breadcrumb.dart';
-
+import '../services/command_palette_launcher.dart';
 import 'workbench/workbench_body.dart';
 import 'multi_pane_page.dart';
 import '../models/note.dart';
@@ -878,7 +878,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               onInquiry: _openInquiry,
               onToggleMode: _toggleMode,
               onCard: () => _showFullNoteCardDialog(),
-              onQuickSwitch: _showQuickSwitch,
+              onQuickSwitch: () => CommandPaletteLauncher.open(),
               onOpenMultiPane: _openMultiPane,
               onToggleFocus: _toggleFocusMode,
               isFocusMode: _focusMode,

@@ -4,9 +4,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/keyboard_shortcut.dart';
-
+import 'package:flutter/foundation.dart';
 class KeyboardShortcutManager {
   static const String _key = 'keyboard_shortcuts';
+
+  /// 快捷键变更通知 —— main.dart 监听后 setState 重建 Shortcuts map
+  static final ValueNotifier<int> revision = ValueNotifier(0);
 
   List<KeyboardShortcut> all = [];
   KeyboardShortcut? saveShortcut;
@@ -38,6 +41,7 @@ class KeyboardShortcutManager {
     } catch (e) {
       print('加载快捷键失败: $e');
     }
+    revision.value++;
   }
 
   // ─── 保存用户自定义 ─────────────────────────────
@@ -49,12 +53,14 @@ class KeyboardShortcutManager {
     } catch (e) {
       print('保存快捷键失败: $e');
     }
+    revision.value++;
   }
 
   // ─── 🆕 重置所有快捷键为默认 ─────────────────────────────
   Future<void> reset() async {
     _initDefaults();
     await save();
+    revision.value++;
   }
 
   // ─── 🆕 更新单个快捷键 ─────────────────────────────
@@ -67,6 +73,7 @@ class KeyboardShortcutManager {
         saveShortcut = all[index];
       }
     }
+    revision.value++;
   }
 
   // ─── 🆕 更新快捷键（通过参数） ─────────────────────────────
@@ -90,6 +97,7 @@ class KeyboardShortcutManager {
         saveShortcut = all[index];
       }
     }
+    revision.value++;
   }
 
   // ─── 匹配快捷键 ─────────────────────────────

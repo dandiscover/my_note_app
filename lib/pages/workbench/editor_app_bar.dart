@@ -95,8 +95,8 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
               onPressed: onToggleOutline,
             ),
           IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            tooltip: '快速切换笔记',
+            icon: const Icon(Icons.keyboard_command_key),
+            tooltip: '命令面板',
             onPressed: onQuickSwitch,
           ),
                   if (onOpenMultiPane != null)

@@ -311,7 +311,9 @@ class _RichtextBodyState extends State<_RichtextBody> {
           children: [
             quill.QuillSimpleToolbar(
               controller: _quillController!,
-              config: const quill.QuillSimpleToolbarConfig(),
+              config: const quill.QuillSimpleToolbarConfig(
+                showAlignmentButtons: true,
+              ),
             ),
             const Divider(height: 1),
             Expanded(

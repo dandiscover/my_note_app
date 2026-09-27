@@ -20,6 +20,7 @@ import 'workbench/clue_board_page.dart';
 import 'richtext_editor_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../services/command_palette_launcher.dart';
 import '../database_service.dart';
 import '../models/note.dart';
 import '../models/book.dart';
@@ -470,8 +471,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   void _closeFab() => setState(() => _fabExpanded = false);
-  void _toggleSearch() => setState(() => _showSearchBar = !_showSearchBar);
+    void _toggleSearch() => setState(() => _showSearchBar = !_showSearchBar);
 
+  /// 命令面板调用 —— 打开搜索栏
+  void toggleSearch() => _toggleSearch();   // ← 新增这一行 + 注释
   Future<void> _batchDelete() async {
     if (_selectedIds.isEmpty) return;
     final confirm = await showDialog<bool>(
@@ -851,6 +854,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       foregroundColor: Colors.black87,
       leading: _isCardBoxView ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => _navigateToFolder(null), tooltip: '返回智库') : null,
       actions: [
+        IconButton(icon: const Icon(Icons.keyboard_command_key), onPressed: () => CommandPaletteLauncher.open(), tooltip: '命令面板'),
         IconButton(icon: const Icon(Icons.search), onPressed: _toggleSearch, tooltip: '搜索'),
         // ✅ 第四轮批 2a：标记汇总入口
         IconButton(icon: const Icon(Icons.bookmarks_outlined), onPressed: _openMarkSummary, tooltip: '标记汇总'),

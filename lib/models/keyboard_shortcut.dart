@@ -129,6 +129,13 @@ class KeyboardShortcut {
         key: 'p',
         isCtrlRequired: true,
       ),
+      KeyboardShortcut(
+        id: 'commandPalette',
+        name: '命令面板',
+        description: '打开命令面板',
+        key: 'k',
+        isCtrlRequired: true,
+      ),
     ];
   }
 
