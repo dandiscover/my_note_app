@@ -6,7 +6,7 @@ import '../../models/note.dart';
 /// 回调全 optional——壳自选显哪些
 /// 布局切换 / 侧栏切换 / 专注——也归此零件，但由壳传回调
 class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
-  final String title;
+  final String? title;
   final bool isReadMode;
   final bool isRichtext;
 
@@ -32,7 +32,7 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   const EditorAppBar({
     super.key,
-    required this.title,
+    this.title,
     required this.isReadMode,
     this.isRichtext = false,
     this.onInquiry,
@@ -60,13 +60,13 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return AppBar(
-      title: Text(title),
+      title: title == null ? null : Text(title!),
       centerTitle: true,
       elevation: 0,
       backgroundColor: Colors.white,
       foregroundColor: Colors.black87,
       actions: [
-        if (onInquiry != null)
+        if (onInquiry != null && !isReadMode)
           IconButton(
             icon: const Icon(Icons.explore, color: Colors.purple),
             tooltip: '深入',

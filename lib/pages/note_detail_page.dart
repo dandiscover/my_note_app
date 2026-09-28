@@ -883,9 +883,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     final appBar = _focusMode
         ? null
         : EditorAppBar(
-            title: _isReadMode
-                ? '📖 ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}'
-                : '✏️ ${AppStringUtils.displayNoteTitle(_entry.title, _entry.content)}',
+            title: null,
             isReadMode: _isReadMode,
             isRichtext: _entry.contentFormat == 'richtext',
             onInquiry: _openInquiry,
