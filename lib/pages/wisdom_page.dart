@@ -110,7 +110,17 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   void _onReopen() {
-    if (mounted) setState(() => _showTabView = true);
+    if (mounted) {
+      setState(() => _showTabView = true);
+      _syncNoteViewActive();
+    }
+  }
+  /// 命令面板调用 —— 打开标记汇总
+  void openMarkSummary() => _openMarkSummary();
+  
+  void _syncNoteViewActive() {
+    OpenTabsManager.noteViewActive.value =
+        _showTabView && _openedNote != null;
   }
 
   @override
@@ -124,6 +134,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     final noteId = OpenTabsManager.activeTabId.value;
     if (noteId == null) {
       if (mounted) setState(() => _openedNote = null);
+      _syncNoteViewActive();
       return;
     }
     final maps = await _db.getAllNotes(includeDeleted: false);
@@ -139,6 +150,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       _openedNote = noteMap == null ? null : NotebookEntry.fromMap(noteMap);
       if (noteMap != null) _showTabView = true;
     });
+    _syncNoteViewActive();
   }
 
   void refreshData() {
@@ -400,6 +412,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       _showSearchBar = false;
       _showTabView = false;
     });
+    _syncNoteViewActive();
   }
 
   void _openClueBoard() {
@@ -896,7 +909,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     }
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: _buildAppBar(),
+      appBar: (_showTabView && _openedNote != null) ? null : _buildAppBar(),
       body: Column(
         children: [
           if (_openedNote == null)
@@ -906,7 +919,16 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               onFolderTap: _navigateToFolder,
             ),
           OpenTabsBar(
-            onTabTap: () => setState(() => _showTabView = true),
+            onTabTap: () {
+              setState(() => _showTabView = true);
+              _syncNoteViewActive();
+            },
+            onBack: (_showTabView && _openedNote != null)
+                ? () {
+                    setState(() => _showTabView = false);
+                    _syncNoteViewActive();
+                  }
+                : null,
           ),
           Expanded(
             child: (_showTabView && _openedNote != null)
@@ -932,19 +954,13 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       elevation: 0,
       backgroundColor: Colors.white,
       foregroundColor: Colors.black87,
-      leading: (_showTabView && _openedNote != null)
+      leading: _isCardBoxView
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
+              onPressed: () => _navigateToFolder(null),
               tooltip: '返回智库',
-              onPressed: () => setState(() => _showTabView = false),
             )
-          : (_isCardBoxView
-              ? IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => _navigateToFolder(null),
-                  tooltip: '返回智库',
-                )
-              : null),
+          : null,
       actions: [
         if (!(_showTabView && _openedNote != null))
           IconButton(icon: const Icon(Icons.keyboard_command_key), onPressed: () => CommandPaletteLauncher.open(), tooltip: '命令面板'),

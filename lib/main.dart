@@ -3,7 +3,7 @@
 // ✅ 新增：迁移旧探究数据到多任务模型
 // ✅ Spike：全局悬浮宠物加 3 个隐藏边界（弹窗/键盘/全屏阅读）+ 暂隐（双击 30 秒）
 // ✅ 小云尺寸调整：手机 100 / Pad 280（断点 600 dp）
-
+import 'services/open_tabs_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -320,15 +320,19 @@ class _NotebookPageState extends State<NotebookPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       CommandPaletteLauncher.register(_handleCommandPalette);
     NoteOpener.onOpenNote = () => _adaptiveNavKey.currentState?.setTab(1);
+    OpenTabsManager.noteViewActive.addListener(_onNoteViewChanged);
       KeyboardShortcutManager.revision.addListener(_onShortcutsChanged);
       FocusScope.of(context).requestFocus(_focusNode);
     });
   }
-
+  void _onNoteViewChanged() {
+    if (mounted) setState(() {});
+  }
   @override
   void dispose() {
     CommandPaletteLauncher.unregister();
     KeyboardShortcutManager.revision.removeListener(_onShortcutsChanged);
+    OpenTabsManager.noteViewActive.removeListener(_onNoteViewChanged);
     _focusNode.dispose();
     super.dispose();
   }
@@ -389,6 +393,18 @@ class _NotebookPageState extends State<NotebookPage> {
         _adaptiveNavKey.currentState?.setTab(1);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _wisdomKey.currentState?.toggleSearch();
+        });
+      },
+    ),
+    CommandItem(
+      id: 'mark_summary',
+      label: '标记汇总',
+      description: '打开标记汇总面板',
+      icon: Icons.bookmarks_outlined,
+      onExecute: () {
+        _adaptiveNavKey.currentState?.setTab(1);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _wisdomKey.currentState?.openMarkSummary();
         });
       },
     ),
@@ -624,7 +640,9 @@ class _NotebookPageState extends State<NotebookPage> {
             ),
           },
           child: Scaffold(
-            appBar: AppBar(
+            appBar: OpenTabsManager.noteViewActive.value
+                ? null
+                : AppBar(
               title: const Text('云脑计划'),
               centerTitle: true,
               actions: [

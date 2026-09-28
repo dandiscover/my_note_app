@@ -1,7 +1,7 @@
 // lib/pages/note_detail_page.dart
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
 // （顶部注释略 —— 原文件头部注释保留不动）
-
+import '../services/open_tabs_manager.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -575,26 +575,24 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   Widget _buildTagToggleRow() {
     return Row(
       children: [
-        ActionChip(
-          avatar: Icon(
+        IconButton(
+          icon: Icon(
             _entry.tags.contains('重要') ? Icons.star : Icons.star_border,
-            size: 16,
             color: _entry.tags.contains('重要') ? Colors.amber : null,
           ),
-          label: const Text('重要'),
+          tooltip: '重要',
           onPressed: _toggleTagImportant,
           visualDensity: VisualDensity.compact,
         ),
-        const SizedBox(width: 8),
-        ActionChip(
-          avatar: Icon(
+        const SizedBox(width: 4),
+        IconButton(
+          icon: Icon(
             _entry.tags.contains('待解决')
                 ? Icons.help
                 : Icons.help_outline,
-            size: 16,
             color: _entry.tags.contains('待解决') ? Colors.orange : null,
           ),
-          label: const Text('待解决'),
+          tooltip: '待解决',
           onPressed: _toggleTagPending,
           visualDensity: VisualDensity.compact,
         ),
@@ -1422,12 +1420,25 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       }
     }
     if (!mounted) return;
+    final allEntries = await OpenTabsManager.instance.loadEntries();
+    if (!mounted) return;
+    // 当前笔记放主栏（左）—— 其余按 tabs 顺序
+    final ordered = <NotebookEntry>[
+      _entry,
+      ...allEntries.where((e) => e.id != _entry.id),
+    ];
+    final limited = ordered.take(3).toList();
+    if (ordered.length > 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('超过三栏上限，只取前 3 篇')),
+      );
+    }
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MultiPanePage(
-          initialEntries: [_entry],
-          initialLayout: 2,
+          initialEntries: limited,
+          initialLayout: limited.length.clamp(1, 3),
         ),
       ),
     );

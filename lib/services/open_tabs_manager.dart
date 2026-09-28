@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../database_service.dart';
-
+import '../models/note.dart';
 class OpenTab {
   final String noteId;
   final String title;
@@ -24,6 +24,7 @@ class OpenTabsManager {
   static final ValueNotifier<List<OpenTab>> tabs = ValueNotifier([]);
   static final ValueNotifier<String?> activeTabId = ValueNotifier(null);
   static final ValueNotifier<int> reopenTick = ValueNotifier(0);
+  static final ValueNotifier<bool> noteViewActive = ValueNotifier(false);
 
   /// 启动读 —— 校验 noteId 存在性 —— 已删跳过
   Future<void> load() async {
@@ -74,7 +75,18 @@ class OpenTabsManager {
     activeTabId.value = noteId;
     _persist();
   }
-
+  /// 按 tabs 顺序加载完整 entry —— 供多栏用
+  Future<List<NotebookEntry>> loadEntries() async {
+    final ids = tabs.value.map((t) => t.noteId).toList();
+    if (ids.isEmpty) return [];
+    final maps = await DatabaseService().getAllNotes(includeDeleted: false);
+    final map = {for (final m in maps) m['id'] as String: m};
+    return ids
+        .map((id) => map[id])
+        .whereType<Map<String, dynamic>>()
+        .map((m) => NotebookEntry.fromMap(m))
+        .toList();
+  }
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     final json = jsonEncode(tabs.value.map((t) => t.toJson()).toList());
