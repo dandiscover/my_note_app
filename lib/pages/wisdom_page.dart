@@ -105,12 +105,18 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     super.initState();
     _loadData();
     OpenTabsManager.activeTabId.addListener(_onActiveTabChanged);
+    OpenTabsManager.reopenTick.addListener(_onReopen);
     _onActiveTabChanged();
+  }
+
+  void _onReopen() {
+    if (mounted) setState(() => _showTabView = true);
   }
 
   @override
   void dispose() {
     OpenTabsManager.activeTabId.removeListener(_onActiveTabChanged);
+    OpenTabsManager.reopenTick.removeListener(_onReopen);
     super.dispose();
   }
 

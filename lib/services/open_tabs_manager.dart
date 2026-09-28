@@ -23,6 +23,7 @@ class OpenTabsManager {
   static const String _prefsKey = 'open_tabs';
   static final ValueNotifier<List<OpenTab>> tabs = ValueNotifier([]);
   static final ValueNotifier<String?> activeTabId = ValueNotifier(null);
+  static final ValueNotifier<int> reopenTick = ValueNotifier(0);
 
   /// 启动读 —— 校验 noteId 存在性 —— 已删跳过
   Future<void> load() async {
@@ -55,6 +56,7 @@ class OpenTabsManager {
       tabs.value = [...current, tab];
     }
     activeTabId.value = tab.noteId;
+    reopenTick.value++;
     _persist();
   }
 
