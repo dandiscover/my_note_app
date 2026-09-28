@@ -940,7 +940,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
                 )
               : null),
       actions: [
-        IconButton(icon: const Icon(Icons.keyboard_command_key), onPressed: () => CommandPaletteLauncher.open(), tooltip: '命令面板'),
+        if (!(_showTabView && _openedNote != null))
+          IconButton(icon: const Icon(Icons.keyboard_command_key), onPressed: () => CommandPaletteLauncher.open(), tooltip: '命令面板'),
         IconButton(icon: const Icon(Icons.search), onPressed: _toggleSearch, tooltip: '搜索'),
         // ✅ 第四轮批 2a：标记汇总入口
         IconButton(icon: const Icon(Icons.bookmarks_outlined), onPressed: _openMarkSummary, tooltip: '标记汇总'),
