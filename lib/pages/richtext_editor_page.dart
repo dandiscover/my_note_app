@@ -16,7 +16,11 @@
 // ✅ 第四轮批 1：AppBar 加 ⭐/❓ 笔记级标记入口（依据 v5 方案 §6.2）
 
 import 'dart:convert';
-
+import '../models/material_item.dart';
+import '../models/card.dart';
+import '../services/card_service.dart';
+import '../services/command_palette_launcher.dart';
+import '../widgets/writing/material_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 
@@ -48,6 +52,8 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
   String? _initError;
 
   bool _isSaving = false;
+  bool _showMaterialPanel = false;
+  List<MaterialItem> _materialItems = [];
 
   // ✅ 第四轮批 1 新增：笔记级标记（⭐ 重要 / ❓ 待解决）
   // 依据老白裁定 + v5 方案 §6.2：批 1 只做笔记级标记，blockId=null。
@@ -60,6 +66,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     _titleController = TextEditingController(text: widget.entry.title);
     _titleController.addListener(_onTitleChanged);
     _currentTags = List<String>.from(widget.entry.tags);
+    _loadMaterialItems();
 
     try {
       // 1. 解析 entry.content 为自定义结构
@@ -97,7 +104,42 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
       }
     });
   }
+  Future<void> _loadMaterialItems() async {
+    final cards = await CardService().getAllCards();
+    final maps = await DatabaseService().getAllNotes(includeDeleted: false);
+    final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
+    final indexCards =
+        cards.where((c) => c.cardType == CardType.indexCard).toList();
+    if (!mounted) return;
+    setState(() {
+      _materialItems = [
+        ...indexCards.map((c) => MaterialItem.fromCard(c)),
+        ...notes.map((n) => MaterialItem.fromNote(n)),
+      ];
+    });
+  }
 
+  void _insertCardAtCursor(CardModel card) {
+    final quote = card.highlight ?? card.indexTitle ?? card.displayFront;
+    final citation =
+        '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}\n';
+    _insertTextAtCursor(citation);
+  }
+
+  void _insertNoteAtCursor(NotebookEntry note) {
+    // 富文本插笔记暂 no-op——归后批
+  }
+
+  void _insertTextAtCursor(String text) {
+    if (_quillController == null) return;
+    final sel = _quillController!.selection;
+    _quillController!.replaceText(
+      sel.start,
+      sel.end - sel.start,
+      text,
+      TextSelection.collapsed(offset: sel.start + text.length),
+    );
+  }
   @override
   void dispose() {
     _titleController.removeListener(_onTitleChanged);
@@ -276,6 +318,20 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
           ),
           const SizedBox(width: 8),
           IconButton(
+            icon: const Icon(Icons.keyboard_command_key),
+            tooltip: '命令面板',
+            onPressed: () => CommandPaletteLauncher.open(),
+          ),
+          IconButton(
+            icon: Icon(_showMaterialPanel
+                ? Icons.view_sidebar
+                : Icons.view_sidebar_outlined),
+            tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
+            onPressed: () =>
+                setState(() => _showMaterialPanel = !_showMaterialPanel),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
             icon: const Icon(Icons.ios_share),
             tooltip: '导出 EPUB',
             onPressed: _isSaving ? null : _exportEpub,
@@ -283,22 +339,40 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
         ],
       ),
       body: SafeArea(
-        child: Column(
+        child: Row(
           children: [
-            quill.QuillSimpleToolbar(
-              controller: _quillController!,
-              config: const quill.QuillSimpleToolbarConfig(),
-            ),
-            const Divider(height: 1),
             Expanded(
-              child: quill.QuillEditor.basic(
-                controller: _quillController!,
-                config: quill.QuillEditorConfig(
-                  placeholder: '开始写…',
-                  embedBuilders: [_DividerEmbedBuilder()],
-                ),
+              child: Column(
+                children: [
+                  quill.QuillSimpleToolbar(
+                    controller: _quillController!,
+                    config: const quill.QuillSimpleToolbarConfig(),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: quill.QuillEditor.basic(
+                      controller: _quillController!,
+                      config: quill.QuillEditorConfig(
+                        placeholder: '开始写…',
+                        embedBuilders: [_DividerEmbedBuilder()],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
+            if (_showMaterialPanel) ...[
+              const VerticalDivider(width: 1),
+              SizedBox(
+                width: 280,
+                child: MaterialPanel(
+                  items: _materialItems,
+                  enabled: true,
+                  onInsertCard: _insertCardAtCursor,
+                  onInsertNote: _insertNoteAtCursor,
+                ),
+              ),
+            ],
           ],
         ),
       ),
