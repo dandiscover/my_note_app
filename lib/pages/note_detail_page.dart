@@ -910,6 +910,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             isOutlineOpen: _showOutlinePanel,
             onToggleMaterial: _toggleMaterialPanel,
             onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
+            trailingExtra: _buildTagToggleRow(),
           );
 
     final body = _isReadMode ? _buildReadMode() : _buildEditMode();
@@ -959,12 +960,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                _buildTagToggleRow(),
-                const Spacer(),
-                _buildReadBodySwitcher(),
-              ],
+            Align(
+              alignment: Alignment.centerRight,
+              child: _buildReadBodySwitcher(),
             ),
             const SizedBox(height: 12),
             Builder(builder: (_) {
@@ -1372,7 +1370,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     final workbench = WorkbenchBody(
       kernel: _kernel,
       entry: _entry,
-      header: _buildTagToggleRow(),
+
       errorMessage: _errorMessage,
       onExploreTap: _showExploreSummary,
       onCancel: () => Navigator.pop(context),

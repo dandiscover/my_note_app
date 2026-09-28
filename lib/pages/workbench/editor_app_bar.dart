@@ -27,6 +27,7 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onToggleMaterial;    // 素材库（单栏）
   final VoidCallback? onFileTree;          // 文件树
   final VoidCallback? onToggleOutline;     // 大纲面板
+  final Widget? trailingExtra;             // ⭐❓尾缀
   final bool isOutlineOpen;
   // onToggleMap / isMapOpen 已撤 —— 导图切换在正文区
 
@@ -52,6 +53,7 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.onFileTree,
     this.onToggleOutline,
     this.isOutlineOpen = false,
+    this.trailingExtra,
   });
 
   @override
@@ -136,6 +138,9 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
             tooltip: '文件树',
             onPressed: onFileTree,
           ),
+        if (trailingExtra != null &&
+            MediaQuery.sizeOf(context).width >= 600)
+          trailingExtra!,
       ],
     );
   }
