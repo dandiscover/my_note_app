@@ -91,6 +91,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   // ✅ 骨架：素材面板状态
   bool _showMaterialPanel = false;
   bool _showOutlinePanel = false;
+  bool _showFileTree = false;
   bool _showNoteMap = false;
   List<BreadcrumbItem> _mapBreadcrumb = [];
   int _mapRefreshTick = 0;
@@ -623,6 +624,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   // ─── 文件树 ─────────────────────────────
   void _toggleFileTree() {
+    final isWide = MediaQuery.sizeOf(context).width >= 600;
+    if (isWide) {
+      setState(() => _showFileTree = !_showFileTree);
+      return;
+    }
     showDialog(
       context: context,
       barrierColor: Colors.black54,
@@ -634,19 +640,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           children: [
             SizedBox(
               width: MediaQuery.of(context).size.width / 3,
-              child: FileTreePanel(
-                currentNodeId: _currentNodeId,
-                currentNodeName: _entry.title,
-                currentFolderId: widget.currentNodeId,
-                onNodeTap: (targetNodeId, nodeType) {
-                  Navigator.pop(context);
-                  if (nodeType == 'note') {
-                    _openNote(context, targetNodeId);
-                  } else if (nodeType == 'book') {
-                    _openBook(context, targetNodeId);
-                  }
-                },
-              ),
+              child: _buildFileTreePanel(),
             ),
             Expanded(
               child: GestureDetector(
@@ -657,6 +651,21 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildFileTreePanel() {
+    return FileTreePanel(
+      currentNodeId: _currentNodeId,
+      currentNodeName: _entry.title,
+      currentFolderId: widget.currentNodeId,
+      onNodeTap: (targetNodeId, nodeType) {
+        if (nodeType == 'note') {
+          _openNote(context, targetNodeId);
+        } else if (nodeType == 'book') {
+          _openBook(context, targetNodeId);
+        }
+      },
     );
   }
 
@@ -943,7 +952,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (_entry.contentFormat == 'richtext') {
       return _buildRichtextReadMode();
     }
-    return Padding(
+     final isWide = MediaQuery.sizeOf(context).width >= 600;
+    final body = Padding(
       padding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
         child: Column(
@@ -957,14 +967,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               ],
             ),
             const SizedBox(height: 12),
-            if (_entry.tags.isNotEmpty)
-              Wrap(
+            Builder(builder: (_) {
+              final displayTags = _entry.tags
+                  .where((t) => t != '重要' && t != '待解决')
+                  .toList();
+              if (displayTags.isEmpty) return const SizedBox.shrink();
+              return Wrap(
                 spacing: 4,
-                children: _entry.tags.map((tag) => Chip(
+                children: displayTags.map((tag) => Chip(
                   label: Text(tag),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 )).toList(),
-              ),
+              );
+            }),
             const SizedBox(height: 8),
             if (_showNoteMap)
               _buildMapBody()
@@ -1016,6 +1031,15 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           ],
         ),
       ),
+    );
+    if (!isWide || !_showFileTree) return body;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(width: 240, child: _buildFileTreePanel()),
+        const VerticalDivider(width: 1),
+        Expanded(child: body),
+      ],
     );
   }
 
@@ -1090,16 +1114,22 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           children: [
             _buildTagToggleRow(),
             const SizedBox(height: 12),
-            if (_entry.tags.isNotEmpty) ...[
-              Wrap(
-                spacing: 4,
-                children: _entry.tags.map((tag) => Chip(
-                  label: Text(tag),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                )).toList(),
-              ),
-              const SizedBox(height: 12),
-            ],
+            Builder(builder: (_) {
+              final displayTags = _entry.tags
+                  .where((t) => t != '重要' && t != '待解决')
+                  .toList();
+              if (displayTags.isEmpty) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Wrap(
+                  spacing: 4,
+                  children: displayTags.map((tag) => Chip(
+                    label: Text(tag),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  )).toList(),
+                ),
+              );
+            }),
             _RichtextReadView(
               key: ValueKey(_entry.content),
               delta: result.delta,
@@ -1353,20 +1383,30 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       appBarHasCardAction: true,
     );
 
-    if (!_showOutlinePanel) return workbench;
+    final isWide = MediaQuery.sizeOf(context).width >= 600;
+    final showOutline = _showOutlinePanel && isWide;
+    final showFileTree = _showFileTree && isWide;
+
+    if (!showOutline && !showFileTree) return workbench;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 200,
-          child: OutlinePanel(
-            content: _kernel.contentController.text,
-            contentFormat: _entry.contentFormat,
-            onHeadingTap: _onOutlineTap,
+        if (showFileTree) ...[
+          SizedBox(width: 240, child: _buildFileTreePanel()),
+          const VerticalDivider(width: 1),
+        ],
+        if (showOutline) ...[
+          SizedBox(
+            width: 200,
+            child: OutlinePanel(
+              content: _kernel.contentController.text,
+              contentFormat: _entry.contentFormat,
+              onHeadingTap: _onOutlineTap,
+            ),
           ),
-        ),
-        const VerticalDivider(width: 1),
+          const VerticalDivider(width: 1),
+        ],
         Expanded(child: workbench),
       ],
     );
