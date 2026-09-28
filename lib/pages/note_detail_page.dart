@@ -574,6 +574,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   /// 笔记级标记行
   Widget _buildTagToggleRow() {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
           icon: Icon(
@@ -948,7 +949,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildTagToggleRow(),
+            Row(
+              children: [
+                _buildTagToggleRow(),
+                const Spacer(),
+                _buildReadBodySwitcher(),
+              ],
+            ),
             const SizedBox(height: 12),
             if (_entry.tags.isNotEmpty)
               Wrap(
@@ -958,8 +965,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 )).toList(),
               ),
-            const SizedBox(height: 12),
-            _buildReadBodySwitcher(),
             const SizedBox(height: 8),
             if (_showNoteMap)
               _buildMapBody()

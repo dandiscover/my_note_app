@@ -55,6 +55,7 @@ import '../services/epub_export/epub_exporter.dart';
 import '../services/epub_export/epub_platform_saver.dart';
 import '../widgets/wisdom/epub_reorder_dialog.dart';
 import '../services/open_tabs_manager.dart';
+import '../services/focus_mode_notifier.dart';
 import '../widgets/open_tabs_bar.dart';
 enum WisdomViewMode { list, grid, large, split, cardWall, timeline, gallery }
 
@@ -105,6 +106,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     super.initState();
     _loadData();
     OpenTabsManager.activeTabId.addListener(_onActiveTabChanged);
+    focusModeNotifier.addListener(_onFocusModeChanged);
     OpenTabsManager.reopenTick.addListener(_onReopen);
     _onActiveTabChanged();
   }
@@ -118,6 +120,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   /// 命令面板调用 —— 打开标记汇总
   void openMarkSummary() => _openMarkSummary();
   
+  void _onFocusModeChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _syncNoteViewActive() {
     OpenTabsManager.noteViewActive.value =
         _showTabView && _openedNote != null;
@@ -127,6 +133,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   void dispose() {
     OpenTabsManager.activeTabId.removeListener(_onActiveTabChanged);
     OpenTabsManager.reopenTick.removeListener(_onReopen);
+    focusModeNotifier.removeListener(_onFocusModeChanged);
     super.dispose();
   }
 
@@ -2082,6 +2089,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
   Widget _buildFab() {
     if (_isCardBoxView) return const SizedBox.shrink();
+    if (focusModeNotifier.value) return const SizedBox.shrink();
     return Stack(
       alignment: Alignment.bottomCenter,
       children: [
