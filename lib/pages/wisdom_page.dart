@@ -2089,7 +2089,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
   Widget _buildFab() {
     if (_isCardBoxView) return const SizedBox.shrink();
-    if (focusModeNotifier.value) return const SizedBox.shrink();
+    if (focusModeNotifier.value && _showTabView && _openedNote != null) {
+      return const SizedBox.shrink();
+    }
     return Stack(
       alignment: Alignment.bottomCenter,
       children: [
