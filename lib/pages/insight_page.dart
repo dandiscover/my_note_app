@@ -73,7 +73,8 @@ class InsightPageState extends State<InsightPage>
   bool _isGraphReady = false;
   String? _focusNodeId;
   GraphLayoutMode _layoutMode = GraphLayoutMode.forceDirected;
-  bool _showTagEdges = false; // ✅ 任务二：同标签关联开关，默认关闭
+  bool _showTagEdges = false;
+  Map<String, Set<String>> _noteNoteLinkEdges = {}; // ✅ 任务二：同标签关联开关，默认关闭
 
   List<CardModel> _reviewCards = [];
   int _reviewIndex = 0;
@@ -176,6 +177,29 @@ class InsightPageState extends State<InsightPage>
         books: books,
       );
 
+      // B4：拉 note_note_links → 构 nodeId → Set<targetNodeId>
+      Map<String, Set<String>> noteNoteLinkEdges = {};
+      try {
+        final dbConn = await _db.database;
+        final linkRows = await dbConn.query('note_note_links');
+        final nodeByNoteId = <String, String>{};
+        for (final n in nodes) {
+          if (n.nodeType == 'note' && n.targetId != null) {
+            nodeByNoteId[n.targetId!] = n.id;
+          }
+        }
+        for (final r in linkRows) {
+          final srcNodeId = nodeByNoteId[r['source_note_id'] as String];
+          final tgtNodeId = nodeByNoteId[r['target_note_id'] as String];
+          if (srcNodeId == null || tgtNodeId == null) continue;
+          noteNoteLinkEdges
+              .putIfAbsent(srcNodeId, () => <String>{})
+              .add(tgtNodeId);
+        }
+      } catch (e) {
+        debugPrint('insight_page 拉 note_note_links 失败: $e');
+      }
+
       if (!mounted) return;
       setState(() {
         _allNodes = nodes;
@@ -184,6 +208,7 @@ class InsightPageState extends State<InsightPage>
         _userSettings = settings;
         _pet = pet;
         _markItems = markItems;
+        _noteNoteLinkEdges = noteNoteLinkEdges;
         _isLoading = false;
       });
 
@@ -228,6 +253,7 @@ class InsightPageState extends State<InsightPage>
       noteContents: noteContentMap,
       noteTagsByNodeId: noteTagsByNodeId,
       includeTagEdges: _showTagEdges,
+      noteNoteLinkEdges: _noteNoteLinkEdges,
     );
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;

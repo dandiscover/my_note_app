@@ -264,6 +264,7 @@ class GraphBuilder {
     Map<String, String>? noteContents,
     Map<String, Set<String>>? noteTagsByNodeId, // ✅ 任务二新增
     bool includeTagEdges = false,               // ✅ 任务二新增
+    Map<String, Set<String>>? noteNoteLinkEdges, // B4 新增
   }) {
     final graphNodes = <GraphNode>[];
     final graphEdges = <GraphEdge>[];
@@ -333,6 +334,26 @@ class GraphBuilder {
             targetId: b,
             weight: 1.0,
             isWeak: true,
+          ));
+        }
+      }
+    }
+
+    // B4：笔记↔笔记 wikilink 边
+    if (noteNoteLinkEdges != null && noteNoteLinkEdges.isNotEmpty) {
+      final nodeIds = nodeMap.keys.toSet();
+      for (final entry in noteNoteLinkEdges.entries) {
+        if (!nodeIds.contains(entry.key)) continue;
+        for (final targetId in entry.value) {
+          if (!nodeIds.contains(targetId)) continue;
+          final exists = graphEdges.any((e) =>
+              (e.sourceId == entry.key && e.targetId == targetId) ||
+              (e.sourceId == targetId && e.targetId == entry.key));
+          if (exists) continue;
+          graphEdges.add(GraphEdge(
+            sourceId: entry.key,
+            targetId: targetId,
+            weight: 1.0,
           ));
         }
       }

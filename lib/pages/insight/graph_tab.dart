@@ -34,12 +34,13 @@ class GraphTabState extends State<GraphTab> {
   GraphLayoutMode _layoutMode = GraphLayoutMode.forceDirected;
 
   GraphData? _cachedGraph;
+  Map<String, Set<String>> _noteNoteLinkEdges = {};
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_cachedGraph == null) {
-      _prepareGraph();
+      _loadAndPrepare();
     }
   }
 
@@ -49,7 +50,31 @@ class GraphTabState extends State<GraphTab> {
       _isGraphReady = false;
       _graphData = null;
     });
-    _prepareGraph();
+    _loadAndPrepare();
+  }
+
+  Future<void> _loadAndPrepare() async {
+    try {
+      final dbConn = await _db.database;
+      final linkRows = await dbConn.query('note_note_links');
+      final nodeByNoteId = <String, String>{};
+      for (final n in widget.allNodes) {
+        if (n.nodeType == 'note' && n.targetId != null) {
+          nodeByNoteId[n.targetId!] = n.id;
+        }
+      }
+      final map = <String, Set<String>>{};
+      for (final r in linkRows) {
+        final srcNodeId = nodeByNoteId[r['source_note_id'] as String];
+        final tgtNodeId = nodeByNoteId[r['target_note_id'] as String];
+        if (srcNodeId == null || tgtNodeId == null) continue;
+        map.putIfAbsent(srcNodeId, () => <String>{}).add(tgtNodeId);
+      }
+      _noteNoteLinkEdges = map;
+    } catch (e) {
+      debugPrint('graph_tab 拉 note_note_links 失败: $e');
+    }
+    if (mounted) _prepareGraph();
   }
 
   void _prepareGraph() {
@@ -70,7 +95,11 @@ class GraphTabState extends State<GraphTab> {
       noteContentMap[note.id] = note.content;
     }
 
-    final rawGraph = GraphBuilder.build(validNodes, noteContents: noteContentMap);
+    final rawGraph = GraphBuilder.build(
+      validNodes,
+      noteContents: noteContentMap,
+      noteNoteLinkEdges: _noteNoteLinkEdges,
+    );
     _cachedGraph = rawGraph;
     _applyLayout();
   }
