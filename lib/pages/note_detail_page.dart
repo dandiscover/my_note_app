@@ -92,6 +92,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _showMaterialPanel = false;
   bool _showOutlinePanel = false;
   bool _showFileTree = false;
+  bool _showRightPanelWide = false;
+  List<Node> _subNotesList = [];
   bool _showNoteMap = false;
   List<BreadcrumbItem> _mapBreadcrumb = [];
   int _mapRefreshTick = 0;
@@ -184,7 +186,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (widget.nodeId == null) return;
     final children = await _db.getChildren(widget.nodeId!);
     if (!mounted) return;
-    setState(() => _subNotesCount = children.length);
+    setState(() {
+      _subNotesCount = children.length;
+      _subNotesList = children;
+    });
   }
 
   // ✅ 骨架：加载索引卡（素材面板用）
@@ -1014,13 +1019,15 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               EditorExploreArea(entry: _entry, onTap: _showExploreSummary),
             ],
             const SizedBox(height: 12),
-            _buildLinkedBooksSection(),
-            const SizedBox(height: 12),
             _buildCraftingSection(),
-            const SizedBox(height: 12),
-            _buildSubNotesSection(),
-            const SizedBox(height: 12),
-            _buildNoteCardsSection(),
+            if (!isWide) ...[
+              const SizedBox(height: 12),
+              _buildLinkedBooksSection(),
+              const SizedBox(height: 12),
+              _buildSubNotesSection(),
+              const SizedBox(height: 12),
+              _buildNoteCardsSection(),
+            ],
             const SizedBox(height: 12),
             Text(
               '更新于 ${_entry.updatedAt.toLocal().toString().substring(0, 16)}',
@@ -1030,13 +1037,29 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         ),
       ),
     );
-    if (!isWide || !_showFileTree) return body;
+    if (!isWide) return body;
+
+    final rightColumn = _buildRightColumn();
+    final withRight = Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: body),
+        const VerticalDivider(width: 1),
+        InkWell(
+          onTap: () => setState(
+              () => _showRightPanelWide = !_showRightPanelWide),
+          child: rightColumn,
+        ),
+      ],
+    );
+
+    if (!_showFileTree) return withRight;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(width: 240, child: _buildFileTreePanel()),
         const VerticalDivider(width: 1),
-        Expanded(child: body),
+        Expanded(child: withRight),
       ],
     );
   }
@@ -1290,7 +1313,126 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ),
     );
   }
+  Widget _buildRightColumn() {
+    return SizedBox(
+      width: _showRightPanelWide ? 280 : 140,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildRightSection(
+              title: '📚 关联的书',
+              count: _linkedBooks.length,
+              onAdd: _onLinkBook,
+              expanded: _showRightPanelWide,
+              buildExpanded: _buildLinkedBooksSection,
+            ),
+            _buildRightSection(
+              title: '📇 关联卡片',
+              count: _noteCards.length,
+              onAdd: () {},
+              expanded: _showRightPanelWide,
+              buildExpanded: _buildNoteCardsSection,
+            ),
+            _buildRightSection(
+              title: '📎 子笔记',
+              count: _subNotesList.length,
+              onAdd: _toggleFileTree,
+              expanded: _showRightPanelWide,
+              buildExpanded: _buildSubNotesListExpanded,
+            ),
+            _buildRightSection(
+              title: '📝 关联笔记',
+              count: 0,
+              onAdd: () {},
+              expanded: _showRightPanelWide,
+              buildExpanded: () => const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
+  Widget _buildRightSection({
+    required String title,
+    required int count,
+    required VoidCallback onAdd,
+    required bool expanded,
+    required Widget Function() buildExpanded,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ),
+              InkWell(
+                onTap: onAdd,
+                child: const Icon(Icons.add, size: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Divider(height: 1),
+          const SizedBox(height: 6),
+          if (expanded)
+            buildExpanded()
+          else if (count == 0)
+            Text(
+              '暂无',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade400,
+              ),
+            )
+          else
+            Text(
+              '$count 项',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade600,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+   Widget _buildSubNotesListExpanded() {
+    if (_subNotesList.isEmpty) {
+      return Text(
+        '暂无',
+        style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: _subNotesList
+          .map((node) => InkWell(
+                onTap: () => _openNote(context, node.id),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    node.title,
+                    style: const TextStyle(fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ))
+          .toList(),
+    );
+  }
   Widget _buildNoteCardsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
