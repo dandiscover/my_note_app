@@ -965,9 +965,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: _buildReadBodySwitcher(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [_buildReadBodySwitcher()],
             ),
             const SizedBox(height: 12),
             Builder(builder: (_) {
