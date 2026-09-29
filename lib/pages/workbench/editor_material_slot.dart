@@ -42,8 +42,10 @@ class EditorMaterialSlot extends StatelessWidget {
       return;
     }
     final quote = card.highlight ?? card.indexTitle ?? card.displayFront;
+    // B5：点卡（素材面板）落「长内容 + 角标」—— 与 _handleDropItem 拖动一致
+    //       角标存 content 内嵌锚 [0](card:id) —— N 渲染时动态算
     final citation =
-        '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}';
+        '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}[0](card:${card.id})';
     EditorKernel.insertTextGlobal(citation);
   }
 
