@@ -39,6 +39,7 @@ import '../widgets/explore_task_summary_dialog.dart';
 import '../models/material_item.dart';
 import '../widgets/quick_switch_dialog.dart';
 import '../widgets/note_card_dialog.dart';
+import '../widgets/preview_popup.dart';
 import 'book_detail_page.dart';
 import '../services/note_book_link_service.dart';
 import 'inquiry_page.dart';
@@ -1181,130 +1182,222 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ],
     );
   }
-  List<TextSpan> _buildHighlightedSpans(String content, TextStyle base) {
-    // 清旧 recognizer（防泄漏 / 防重复）
-    for (final r in _wikilinkRecognizers) {
-      r.dispose();
-    }
-    _wikilinkRecognizers.clear();
-
-    // 匹配两类：#标签 / [[标题]]
-    final regex = RegExp(r'(^|\s)(#[^\s#]+)|(\[\[[^\]\n]+\]\])');
-    final spans = <TextSpan>[];
-    int last = 0;
-    for (final m in regex.allMatches(content)) {
-      if (m.start > last) {
-        spans.add(TextSpan(text: content.substring(last, m.start), style: base));
+      List<TextSpan> _buildHighlightedSpans(String content, TextStyle base) {
+      // 清旧 recognizer（防泄漏 / 防重复）
+      for (final r in _wikilinkRecognizers) {
+        r.dispose();
       }
-      final raw = m.group(0)!;
-      if (raw.startsWith('[[')) {
-        final title = raw.substring(2, raw.length - 2).trim();
-        final rec = TapGestureRecognizer()
-          ..onTap = () => _onWikilinkTap(title);
-        _wikilinkRecognizers.add(rec);
-        spans.add(TextSpan(
-          text: raw,
-          style: base.copyWith(
-            color: Colors.purple.shade700,
-          ),
-          recognizer: rec,
-        ));
-      } else {
-        final prefix = m.group(1) ?? '';
-        final tag = m.group(2) ?? '';
-        if (prefix.isNotEmpty) {
-          spans.add(TextSpan(text: prefix, style: base));
+      _wikilinkRecognizers.clear();
+
+      // 匹配三类：#标签 / [[标题]] / [N](card:id) —— B5 加第三类
+      final regex = RegExp(
+          r'(^|\s)(#[^\s#]+)|(\[\[[^\]\n]+\]\])|(\[\d+\]\(card:[^)]+\))');
+      final spans = <TextSpan>[];
+      int last = 0;
+      int refCounter = 0; // B5：动态编号 —— 每次渲染重算
+      for (final m in regex.allMatches(content)) {
+        if (m.start > last) {
+          spans.add(TextSpan(text: content.substring(last, m.start), style: base));
         }
-        spans.add(TextSpan(
-          text: '#$tag',
-          style: base.copyWith(
-            color: Colors.blue.shade700,
-            backgroundColor: Colors.blue.shade50,
-          ),
-        ));
+        final raw = m.group(0)!;
+        if (m.group(3) != null) {
+          // [[X]] —— 保持 B4 紫字（老白裁 1）
+          final title = raw.substring(2, raw.length - 2).trim();
+          final rec = TapGestureRecognizer()
+            ..onTapUp = (details) =>
+                _onWikilinkTap(title, details.globalPosition);
+          _wikilinkRecognizers.add(rec);
+          spans.add(TextSpan(
+            text: raw,
+            style: base.copyWith(
+              color: Colors.purple.shade700,
+            ),
+            recognizer: rec,
+          ));
+        } else if (m.group(4) != null) {
+          // B5：卡片角标 [N](card:id) —— N 按出现顺序重算
+          final m2 = RegExp(r'^\[\d+\]\(card:([^)]+)\)$').firstMatch(raw);
+          if (m2 == null) {
+            spans.add(TextSpan(text: raw, style: base));
+          } else {
+            final cardId = m2.group(1)!;
+            refCounter++;
+            final rec = TapGestureRecognizer()
+              ..onTapUp = (details) =>
+                  _onCardRefTap(cardId, details.globalPosition);
+            _wikilinkRecognizers.add(rec);
+            spans.add(TextSpan(
+              text: '[$refCounter]',
+              style: base.copyWith(
+                color: Colors.orange.shade700,
+                fontWeight: FontWeight.w600,
+              ),
+              recognizer: rec,
+            ));
+          }
+        } else {
+          final prefix = m.group(1) ?? '';
+          final tag = m.group(2) ?? '';
+          if (prefix.isNotEmpty) {
+            spans.add(TextSpan(text: prefix, style: base));
+          }
+          spans.add(TextSpan(
+            text: '#$tag',
+            style: base.copyWith(
+              color: Colors.blue.shade700,
+              backgroundColor: Colors.blue.shade50,
+            ),
+          ));
+        }
+        last = m.end;
       }
-      last = m.end;
+      if (last < content.length) {
+        spans.add(TextSpan(text: content.substring(last), style: base));
+      }
+      return spans;
     }
-    if (last < content.length) {
-      spans.add(TextSpan(text: content.substring(last), style: base));
-    }
-    return spans;
-  }
 
-  Future<void> _onWikilinkTap(String title) async {
-    // 优先：查 note_note_links —— 锚定 id
-    final links = await NoteBookLinkService()
-        .getOutboundLinksByText(_entry.id, title);
-    if (links.isNotEmpty) {
-      if (links.length == 1) {
-        _jumpToNoteById(links.first['target_note_id'] as String);
+     
+    
+    Future<void> _onWikilinkTap(String title, Offset anchor) async {
+      // 优先：查 note_note_links —— 锚定 id
+      final links = await NoteBookLinkService()
+          .getOutboundLinksByText(_entry.id, title);
+      if (links.isNotEmpty) {
+        if (links.length == 1) {
+          // B5：单命中 → 弹预览（不再直跳）
+          _showNotePreview(links.first['target_note_id'] as String, anchor);
+          return;
+        }
+        // 多命中：一次拉全表 —— 内存 map —— 弹选择
+        final allNotes = await _db.getAllNotes(includeDeleted: false);
+        final notesById = <String, Map<String, dynamic>>{
+          for (final m in allNotes) m['id'] as String: m,
+        };
+        if (!mounted) return;
+        final chosen = await showDialog<String>(
+          context: context,
+          builder: (ctx) => SimpleDialog(
+            title: const Text('选择目标笔记'),
+            children: links.map((l) {
+              final tgtId = l['target_note_id'] as String;
+              final m = notesById[tgtId];
+              final raw = (m?['title'] as String? ?? '').trim();
+              final disp = raw.isNotEmpty
+                  ? raw
+                  : _virtualTitleOf(m?['content'] as String? ?? '');
+              return SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, tgtId),
+                child: Text(disp),
+              );
+            }).toList(),
+          ),
+        );
+        // B5：多命中选完 → 弹预览（与单命中一致 —— 老白裁 2）
+        if (chosen != null && mounted) {
+          _showNotePreview(chosen, anchor);
+        }
         return;
       }
-      // 多命中：一次拉全表 —— 内存 map —— 弹选择
+
+      // Fallback：按标题查（兼容旧数据）
       final allNotes = await _db.getAllNotes(includeDeleted: false);
-      final notesById = <String, Map<String, dynamic>>{
-        for (final m in allNotes) m['id'] as String: m,
-      };
+      final matches = allNotes.where((m) {
+        final rowId = m['id'] as String;
+        if (rowId == _entry.id) return false;
+        final rawTitle = (m['title'] as String? ?? '').trim();
+        final displayTitle = rawTitle.isNotEmpty
+            ? rawTitle
+            : _virtualTitleOf(m['content'] as String? ?? '');
+        return displayTitle == title;
+      }).toList();
+
+      if (matches.isEmpty) return;
+      if (matches.length == 1) {
+        // B5：单命中 → 弹预览
+        _showNotePreview(matches.first['id'] as String, anchor);
+        return;
+      }
       if (!mounted) return;
       final chosen = await showDialog<String>(
         context: context,
         builder: (ctx) => SimpleDialog(
           title: const Text('选择目标笔记'),
-          children: links.map((l) {
-            final tgtId = l['target_note_id'] as String;
-            final m = notesById[tgtId];
-            final raw = (m?['title'] as String? ?? '').trim();
-            final disp = raw.isNotEmpty
-                ? raw
-                : _virtualTitleOf(m?['content'] as String? ?? '');
-            return SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, tgtId),
-              child: Text(disp),
-            );
-          }).toList(),
+          children: matches
+              .map((m) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(ctx, m['id'] as String),
+                    child: Text((m['title'] as String? ?? '').trim().isEmpty
+                        ? _virtualTitleOf(m['content'] as String? ?? '')
+                        : (m['title'] as String).trim()),
+                  ))
+              .toList(),
         ),
       );
-      if (chosen != null && mounted) _jumpToNoteById(chosen);
-      return;
+      // B5：多命中选完 → 弹预览
+      if (chosen != null && mounted) {
+        _showNotePreview(chosen, anchor);
+      }
     }
 
-    // Fallback：按标题查（兼容旧数据）
-    final allNotes = await _db.getAllNotes(includeDeleted: false);
-    final matches = allNotes.where((m) {
-      final rowId = m['id'] as String;
-      if (rowId == _entry.id) return false;
-      final rawTitle = (m['title'] as String? ?? '').trim();
+    /// B5：弹笔记预览 —— 单命中 / 多命中统一走
+  Future<void> _showNotePreview(String noteId, Offset anchor) async {
+      final notes = await _db.getAllNotes(includeDeleted: false);
+      Map<String, dynamic>? target;
+      for (final m in notes) {
+        if (m['id'] == noteId) {
+          target = m;
+          break;
+        }
+      }
+      if (target == null) {
+        // 目标不存在 → 退回直跳（由 _jumpToNoteById 内部处理空）
+        _jumpToNoteById(noteId);
+        return;
+      }
+      final rawTitle = (target['title'] as String? ?? '').trim();
       final displayTitle = rawTitle.isNotEmpty
           ? rawTitle
-          : _virtualTitleOf(m['content'] as String? ?? '');
-      return displayTitle == title;
-    }).toList();
-
-    if (matches.isEmpty) return;
-    if (matches.length == 1) {
-      _jumpToNoteById(matches.first['id'] as String);
-      return;
+          : _virtualTitleOf(target['content'] as String? ?? '');
+      final content = target['content'] as String? ?? '';
+      final summary =
+          content.length > 100 ? content.substring(0, 100) : content;
+      final updatedAt = target['updatedAt'] as String?;
+      if (!mounted) return;
+      PreviewPopup.show(
+        context,
+        anchor,
+        PreviewData(
+          title: displayTitle.isEmpty ? '（无标题）' : displayTitle,
+          summary: summary.isEmpty ? '（空笔记）' : summary,
+          meta: updatedAt != null ? '更新于 $updatedAt' : null,
+          onOpen: () {
+            _jumpToNoteById(noteId);
+          },
+        ),
+      );
     }
-    if (!mounted) return;
-    final chosen = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('选择目标笔记'),
-        children: matches
-            .map((m) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, m['id'] as String),
-                  child: Text((m['title'] as String? ?? '').trim().isEmpty
-                      ? _virtualTitleOf(m['content'] as String? ?? '')
-                      : (m['title'] as String).trim()),
-                ))
-            .toList(),
-      ),
-    );
-    if (chosen != null && mounted) {
-      _jumpToNoteById(chosen);
+  
+      /// B5：点卡片角标 [N] —— 弹卡预览（卡详情入口待核 —— onOpen 暂 null）
+    Future<void> _onCardRefTap(String cardId, Offset anchor) async {
+      final card = await _cardService.getCard(cardId);
+      if (card == null) return;
+      if (!mounted) return;
+      final title = card.indexTitle ?? card.highlight ?? card.displayFront;
+      final summary = card.highlight ?? card.displayFront;
+      final source = card.sourceTitle ?? '来源未知';
+      PreviewPopup.show(
+        context,
+        anchor,
+        PreviewData(
+          title: title.isEmpty ? '（无标题卡）' : title,
+          summary: summary.isEmpty ? '（空卡）' : summary,
+          meta: '来自 $source',
+          // 卡详情入口待核 —— 本轮 onOpen 传 null —— 见方案 §二 甲案
+          onOpen: null,
+        ),
+      );
     }
-  }
-
+  
   Future<void> _jumpToNoteById(String noteId) async {
     final node = await _db.getNodeByNoteId(noteId);
     final notes = await _db.getAllNotes(includeDeleted: false);
@@ -1836,8 +1929,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (item.type == MaterialItemType.card && item.card != null) {
       final card = item.card!;
       final quote = card.highlight ?? card.indexTitle ?? card.displayFront;
+      // B5：拖卡落「长内容 + 角标」—— 角标存 content 内嵌锚 [0](card:id)
+      //       N 由渲染时按出现顺序动态算 —— 此处写 0 占位
       final citation =
-          '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}';
+          '「$quote」\n—— ${card.author ?? card.sourceTitle ?? '来源未知'}[0](card:${card.id})';
       EditorKernel.insertTextGlobal(citation);
     } else if (item.type == MaterialItemType.note && item.note != null) {
       final note = item.note!;
