@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../database_service.dart';
 import '../models/note.dart';
+
 class OpenTab {
   final String noteId;
   final String title;
@@ -36,11 +37,13 @@ class OpenTabsManager {
       final loaded = list
           .map((e) => OpenTab.fromJson(Map<String, dynamic>.from(e)))
           .toList();
-      final allNotes =
-          await DatabaseService().getAllNotes(includeDeleted: false);
+      final allNotes = await DatabaseService().getAllNotes(
+        includeDeleted: false,
+      );
       final validIds = allNotes.map((m) => m['id'] as String).toSet();
-      final filtered =
-          loaded.where((t) => validIds.contains(t.noteId)).toList();
+      final filtered = loaded
+          .where((t) => validIds.contains(t.noteId))
+          .toList();
       tabs.value = filtered;
       if (filtered.isNotEmpty) {
         activeTabId.value = filtered.first.noteId;
@@ -75,6 +78,18 @@ class OpenTabsManager {
     activeTabId.value = noteId;
     _persist();
   }
+
+  void updateTitle(String noteId, String newTitle) {
+    final current = tabs.value;
+    final index = current.indexWhere((t) => t.noteId == noteId);
+    if (index == -1) return;
+    if (current[index].title == newTitle) return;
+    final updated = List<OpenTab>.from(current);
+    updated[index] = OpenTab(noteId: noteId, title: newTitle);
+    tabs.value = updated;
+    _persist();
+  }
+
   /// 按 tabs 顺序加载完整 entry —— 供多栏用
   Future<List<NotebookEntry>> loadEntries() async {
     final ids = tabs.value.map((t) => t.noteId).toList();
@@ -87,6 +102,7 @@ class OpenTabsManager {
         .map((m) => NotebookEntry.fromMap(m))
         .toList();
   }
+
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     final json = jsonEncode(tabs.value.map((t) => t.toJson()).toList());
