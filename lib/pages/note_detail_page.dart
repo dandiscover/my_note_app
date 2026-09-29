@@ -989,8 +989,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             else
               SelectableText.rich(
                 TextSpan(
-                  text: _entry.content,
-                  style: const TextStyle(fontSize: 16, height: 1.6),
+                  children: _buildHighlightedSpans(
+                    _entry.content,
+                    const TextStyle(fontSize: 16, height: 1.6),
+                  ),
                 ),
                 contextMenuBuilder: (context, editableTextState) {
                   final selectedText = editableTextState.textEditingValue.selection.textInside(
@@ -1089,7 +1091,33 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ],
     );
   }
-
+  List<TextSpan> _buildHighlightedSpans(String content, TextStyle base) {
+    final regex = RegExp(r'(^|\s)(#[^\s#]+)');
+    final spans = <TextSpan>[];
+    int last = 0;
+    for (final m in regex.allMatches(content)) {
+      final hashStart = m.start + m.group(1)!.length;
+      final tagEnd = m.end;
+      if (m.start > last) {
+        spans.add(TextSpan(text: content.substring(last, m.start), style: base));
+      }
+      if (m.group(1)!.isNotEmpty) {
+        spans.add(TextSpan(text: m.group(1), style: base));
+      }
+      spans.add(TextSpan(
+        text: content.substring(hashStart, tagEnd),
+        style: base.copyWith(
+          color: Colors.blue.shade700,
+          backgroundColor: Colors.blue.shade50,
+        ),
+      ));
+      last = tagEnd;
+    }
+    if (last < content.length) {
+      spans.add(TextSpan(text: content.substring(last), style: base));
+    }
+    return spans;
+  }
   /// 导图体 —— 嵌在正文段（面包屑 + 树）
   Widget _buildMapBody() {
     return Column(

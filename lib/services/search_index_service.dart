@@ -203,13 +203,13 @@ class SearchIndexService {
     final content = (noteMap['content'] as String?) ?? '';
     if (content.isEmpty) return const [];
 
-    final regex = RegExp(r'#([^\s#]+)');
+    final regex = RegExp(r'(^|\s)#([^\s#]+)');
     final seen = <String>{};
     final rows = <Map<String, dynamic>>[];
     final now = DateTime.now().toIso8601String();
 
     for (final match in regex.allMatches(content)) {
-      final tag = match.group(1);
+      final tag = match.group(2);
       if (tag == null || tag.isEmpty) continue;
       if (seen.contains(tag)) continue;
       seen.add(tag);
@@ -221,7 +221,7 @@ class SearchIndexService {
         'type': 'custom',
         'tag': tag,
         'blockId': null,
-        'text': match.group(0),
+        'text': '#$tag',
         'createdAt': now,
       });
     }
