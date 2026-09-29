@@ -514,9 +514,20 @@ class _NoteCardDialogState extends State<NoteCardDialog> {
         result['back'] = _backController.text.trim();
         break;
       case CardType.indexCard:
-        result['indexTitle'] = _indexTitleController.text.trim();
+        final rawTitle = _indexTitleController.text.trim();
+        final rawHighlight = _highlightController.text.trim();
+        // B5：indexTitle 空 → 自动取 highlight 前 50 字
+        // ⚠️ 本批只对「新建 / 重存」卡走 fallback。
+        //    批前已建的空 indexTitle 卡 —— 不迁移 —— 不可被 [[X]] 引用。
+        //    用户需重存该卡一次（走本 dialog）→ fallback 落地 → 可引用。
+        final fallbackTitle = rawTitle.isNotEmpty
+            ? rawTitle
+            : (rawHighlight.length > 50
+                ? '${rawHighlight.substring(0, 50)}...'
+                : rawHighlight);
+        result['indexTitle'] = fallbackTitle;
         result['author'] = _authorController.text.trim();
-        result['highlight'] = _highlightController.text.trim();
+        result['highlight'] = rawHighlight;
         break;
       case CardType.qa:
         result['question'] = _questionController.text.trim();
