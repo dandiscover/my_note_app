@@ -124,15 +124,16 @@ class NoteBookLinkService {
 
       await db.insert(
         'note_book_links',
-        {
-          // 后缀 counter：同微秒多次匹配不撞主键
-          'id': '${DateTime.now().microsecondsSinceEpoch}_${counter++}',
-          'note_id': noteId,
-          'book_id': bookId,
-          'link_type': linkTypeWikilink,
-          'context': context,
-          'created_at': DateTime.now().toIso8601String(),
-        },
+                 {
+            // 后缀 counter：同微秒多次匹配不撞主键
+            'id': '${DateTime.now().microsecondsSinceEpoch}_${counter++}',
+            'note_id': noteId,
+            'book_id': bookId,
+            'link_type': linkTypeWikilink,
+            'link_text': title,
+            'context': context,
+            'created_at': DateTime.now().toIso8601String(),
+          },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     }
@@ -237,6 +238,19 @@ class NoteBookLinkService {
       'note_note_links',
       where: 'source_note_id = ? AND link_text = ?',
       whereArgs: [sourceNoteId, linkText],
+    );
+  }
+
+  /// B5 补：按 note + link_text 查书边
+  Future<List<Map<String, dynamic>>> getOutboundBookLinksByText(
+    String sourceNoteId,
+    String linkText,
+  ) async {
+    final db = await _db.database;
+    return db.query(
+      'note_book_links',
+      where: 'note_id = ? AND link_type = ? AND link_text = ?',
+      whereArgs: [sourceNoteId, linkTypeWikilink, linkText],
     );
   }
   static String _virtualTitle(String content) {
