@@ -165,15 +165,25 @@ class CardService {
   }
 
   // ✅ 任务三：签名改为 named + required，双条件（sourceType + sourceId）
-  Future<List<CardModel>> getCardsBySource({
-    required String sourceType,
-    required String sourceId,
-  }) async {
-    final cards = await getAllCards();
-    return cards.where((c) =>
-      c.sourceType == sourceType && c.sourceId == sourceId).toList();
-  }
+      Future<List<CardModel>> getCardsBySource({
+      required String sourceType,
+      required String sourceId,
+    }) async {
+      final cards = await getAllCards();
+      return cards.where((c) =>
+          c.sourceType == sourceType && c.sourceId == sourceId).toList();
+    }
 
+    /// B5：按 indexTitle 精确查卡（B5 卡片引用匹配键）
+    /// —— 严格匹配 indexTitle（空 indexTitle 卡不可被引用）
+    Future<List<CardModel>> getCardsByIndexTitle(String title) async {
+      final t = title.trim();
+      if (t.isEmpty) return const [];
+      final cards = await getAllCards();
+      return cards
+          .where((c) => (c.indexTitle ?? '').trim() == t)
+          .toList();
+    }
   Future<List<CardModel>> getDueCards() async {
     final cards = await getAllCards();
     final reviewable = cards.where((c) => c.kind == CardKind.atomic).toList();
