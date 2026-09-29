@@ -137,7 +137,113 @@ class NoteBookLinkService {
       );
     }
   }
+  // ─── [[笔记标题]] 扫描（笔记保存时调用）──────────────
 
+  /// 重扫笔记↔笔记链接：先删旧，再按 content 重建
+  /// 锚定靠 note_id —— 标题匹配只用于定位目标
+  /// 多命中：全记（用户自判）
+  /// ⚡ 性能：notes 全表只查一次（移出 [[X]] 循环外）
+  Future<void> rebuildNoteNoteLinks({
+    required String noteId,
+    required String content,
+  }) async {
+    final db = await _db.database;
+
+    // 1. 删旧
+    await db.delete(
+      'note_note_links',
+      where: 'source_note_id = ? AND link_type = ?',
+      whereArgs: [noteId, linkTypeWikilink],
+    );
+
+    // 2. 扫 content
+    final regex = RegExp(r'\[\[([^\]\n]+)\]\]');
+    final matches = regex.allMatches(content).toList();
+    if (matches.isEmpty) return;
+
+    // 3. 一次性查 notes —— 移出循环
+    final allNotes = await db.query(
+      'notes',
+      columns: ['id', 'title', 'content'],
+      where: 'status != ?',
+      whereArgs: ['deleted'],
+    );
+
+    // 4. 建 title → List<noteId> 索引
+    final byTitle = <String, List<String>>{};
+    for (final row in allNotes) {
+      final rowId = row['id'] as String;
+      if (rowId == noteId) continue;
+      final rawTitle = (row['title'] as String? ?? '').trim();
+      final displayTitle = rawTitle.isNotEmpty
+          ? rawTitle
+          : _virtualTitle(row['content'] as String? ?? '');
+      byTitle.putIfAbsent(displayTitle, () => []).add(rowId);
+    }
+
+    // 5. 逐 [[X]] 匹配 —— O(1) 查索引
+    int counter = 0;
+    for (final m in matches) {
+      final title = m.group(1)?.trim() ?? '';
+      if (title.isEmpty) continue;
+      final targets = byTitle[title];
+      if (targets == null || targets.isEmpty) continue;
+
+      for (final targetId in targets) {
+        await db.insert(
+          'note_note_links',
+          {
+            'id':
+                '${DateTime.now().microsecondsSinceEpoch}_${counter++}',
+            'source_note_id': noteId,
+            'target_note_id': targetId,
+            'link_type': linkTypeWikilink,
+            'link_text': title,
+            'created_at': DateTime.now().toIso8601String(),
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    }
+  }
+
+  /// 反查：哪些笔记引用了 noteId
+  Future<List<Map<String, dynamic>>> getBacklinks(String noteId) async {
+    final db = await _db.database;
+    return db.query(
+      'note_note_links',
+      where: 'target_note_id = ?',
+      whereArgs: [noteId],
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  /// 前查：noteId 引用了哪些笔记
+  Future<List<Map<String, dynamic>>> getOutboundLinks(String noteId) async {
+    final db = await _db.database;
+    return db.query(
+      'note_note_links',
+      where: 'source_note_id = ?',
+      whereArgs: [noteId],
+      orderBy: 'created_at DESC',
+    );
+  }
+  Future<List<Map<String, dynamic>>> getOutboundLinksByText(
+    String sourceNoteId,
+    String linkText,
+  ) async {
+    final db = await _db.database;
+    return db.query(
+      'note_note_links',
+      where: 'source_note_id = ? AND link_text = ?',
+      whereArgs: [sourceNoteId, linkText],
+    );
+  }
+  static String _virtualTitle(String content) {
+    final c = content.trim().replaceAll('\n', ' ');
+    if (c.isEmpty) return '无标题';
+    return c.length > 20 ? '${c.substring(0, 20)}…' : c;
+  }
   // ─── 内部工具 ──────────────────────────────────────────
 
   static String _extractContext(String content, int start, int end) {

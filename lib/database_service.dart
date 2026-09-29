@@ -1259,7 +1259,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 21, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 23, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1502,6 +1502,34 @@ class DatabaseService {
         debugPrint('board_nodes 20→21 迁移失败: $e');
       }
     }
+        if (oldVersion < 22) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS note_note_links(
+            id TEXT PRIMARY KEY,
+            source_note_id TEXT NOT NULL,
+            target_note_id TEXT NOT NULL,
+            link_type TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(source_note_id, target_note_id, link_type)
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_nnl_source ON note_note_links(source_note_id)');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_nnl_target ON note_note_links(target_note_id)');
+      } catch (e) {
+        debugPrint('note_note_links 21→22 迁移失败: $e');
+      }
+    }
+    if (oldVersion < 23) {
+  try {
+    await db.execute(
+      'ALTER TABLE note_note_links ADD COLUMN link_text TEXT');
+  } catch (e) {
+    debugPrint('note_note_links 22→23 迁移失败: $e');
+  }
+}
   }
     /// 批 1a：L2 → L3 迁移
   /// 读 SharedPreferences book_reading_note_id_$bookId → 写 note_book_links
@@ -1683,7 +1711,21 @@ class DatabaseService {
         'CREATE INDEX IF NOT EXISTS idx_bh_book ON book_highlights(book_id)');
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_bh_source ON book_highlights(source)');
-
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS note_note_links(
+        id TEXT PRIMARY KEY,
+        source_note_id TEXT NOT NULL,
+        target_note_id TEXT NOT NULL,
+        link_type TEXT NOT NULL,
+        link_text TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(source_note_id, target_note_id, link_type, link_text)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_nnl_source ON note_note_links(source_note_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_nnl_target ON note_note_links(target_note_id)');
       for (final sql in SearchIndexService.getCreateTableSql()) {
         await db.execute(sql);
       }

@@ -1,7 +1,7 @@
 // lib/pages/note_detail_page.dart
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
 // （顶部注释略 —— 原文件头部注释保留不动）
-import '../services/open_tabs_manager.dart';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -43,7 +43,7 @@ import 'book_detail_page.dart';
 import '../services/note_book_link_service.dart';
 import 'inquiry_page.dart';
 import 'richtext_editor_page.dart';
-
+import 'package:flutter/gestures.dart';
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -94,6 +94,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _showFileTree = false;
   bool _showRightPanelWide = false;
   List<Node> _subNotesList = [];
+  List<Map<String, dynamic>> _backlinks = [];
+  final List<TapGestureRecognizer> _wikilinkRecognizers = [];
   bool _showNoteMap = false;
   List<BreadcrumbItem> _mapBreadcrumb = [];
   int _mapRefreshTick = 0;
@@ -134,6 +136,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     _loadSubNotesCount();
     _loadMaterialItems();
     _loadLinkedBooks();
+    _loadBacklinks();
     CardService.revision.addListener(_onCardsChanged);
   }
 
@@ -156,6 +159,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   @override
   void dispose() {
+    for (final r in _wikilinkRecognizers) {
+      r.dispose();
+    }
+    _wikilinkRecognizers.clear();
     focusModeNotifier.removeListener(_onFocusModeChanged);
     CardService.revision.removeListener(_onCardsChanged);
     _kernel.contentController.removeListener(_onContentChanged);
@@ -397,9 +404,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           noteId: updated.id,
           content: updated.content,
         );
+        await NoteBookLinkService().rebuildNoteNoteLinks(
+          noteId: updated.id,
+          content: updated.content,
+        );
       } catch (e) {
         debugPrint('rebuildWikiLinks 失败: $e');
       }
+
+      OpenTabsManager.instance.updateTitle(
+        updated.id,
+        AppStringUtils.displayNoteTitle(updated.title, updated.content),
+      );
 
       return true;
     } catch (e) {
@@ -785,7 +801,81 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (!mounted) return;
     setState(() => _linkedBooks = books);
   }
+    Future<void> _loadBacklinks() async {
+    final svc = NoteBookLinkService();
+    final backRows = await svc.getBacklinks(_entry.id);
+    final outRows = await svc.getOutboundLinks(_entry.id);
 
+    if (backRows.isEmpty && outRows.isEmpty) {
+      if (mounted) setState(() => _backlinks = []);
+      return;
+    }
+
+    final allNotes = await _db.getAllNotes(includeDeleted: false);
+    final notesById = <String, Map<String, dynamic>>{
+      for (final m in allNotes) m['id'] as String: m,
+    };
+
+    String displayOf(String id) {
+      final m = notesById[id];
+      if (m == null) return '未知';
+      final rawTitle = (m['title'] as String? ?? '').trim();
+      return rawTitle.isNotEmpty
+          ? rawTitle
+          : _virtualTitleOf(m['content'] as String? ?? '');
+    }
+
+    DateTime updatedAtOf(String id) {
+      final m = notesById[id];
+      if (m == null) return DateTime.fromMillisecondsSinceEpoch(0);
+      try {
+        return DateTime.parse(m['updatedAt'] as String? ?? '');
+      } catch (_) {
+        return DateTime.fromMillisecondsSinceEpoch(0);
+      }
+    }
+
+    final seen = <String>{};
+    final enriched = <Map<String, dynamic>>[];
+
+    // 反向：谁引用我
+    for (final r in backRows) {
+      final srcId = r['source_note_id'] as String;
+      if (!seen.add(srcId)) continue;
+      enriched.add({
+        'note_id': srcId,
+        'title': displayOf(srcId),
+        'direction': 'back',
+        'updated_at': updatedAtOf(srcId),
+      });
+    }
+
+    // 正向：我引用谁
+    for (final r in outRows) {
+      final tgtId = r['target_note_id'] as String;
+      if (!seen.add(tgtId)) continue;
+      enriched.add({
+        'note_id': tgtId,
+        'title': displayOf(tgtId),
+        'direction': 'out',
+        'updated_at': updatedAtOf(tgtId),
+      });
+    }
+
+    enriched.sort((a, b) {
+      final da = a['direction'] as String;
+      final db = b['direction'] as String;
+      if (da != db) return da == 'back' ? -1 : 1;
+      final ta = a['updated_at'] as DateTime;
+      final tb = b['updated_at'] as DateTime;
+      return tb.compareTo(ta);
+    });
+
+    if (!mounted) return;
+    setState(() => _backlinks = enriched);
+  }
+  
+  
   Widget _buildLinkedBooksSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1092,31 +1182,151 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
   }
   List<TextSpan> _buildHighlightedSpans(String content, TextStyle base) {
-    final regex = RegExp(r'(^|\s)(#[^\s#]+)');
+    // 清旧 recognizer（防泄漏 / 防重复）
+    for (final r in _wikilinkRecognizers) {
+      r.dispose();
+    }
+    _wikilinkRecognizers.clear();
+
+    // 匹配两类：#标签 / [[标题]]
+    final regex = RegExp(r'(^|\s)(#[^\s#]+)|(\[\[[^\]\n]+\]\])');
     final spans = <TextSpan>[];
     int last = 0;
     for (final m in regex.allMatches(content)) {
-      final hashStart = m.start + m.group(1)!.length;
-      final tagEnd = m.end;
       if (m.start > last) {
         spans.add(TextSpan(text: content.substring(last, m.start), style: base));
       }
-      if (m.group(1)!.isNotEmpty) {
-        spans.add(TextSpan(text: m.group(1), style: base));
+      final raw = m.group(0)!;
+      if (raw.startsWith('[[')) {
+        final title = raw.substring(2, raw.length - 2).trim();
+        final rec = TapGestureRecognizer()
+          ..onTap = () => _onWikilinkTap(title);
+        _wikilinkRecognizers.add(rec);
+        spans.add(TextSpan(
+          text: raw,
+          style: base.copyWith(
+            color: Colors.purple.shade700,
+          ),
+          recognizer: rec,
+        ));
+      } else {
+        final prefix = m.group(1) ?? '';
+        final tag = m.group(2) ?? '';
+        if (prefix.isNotEmpty) {
+          spans.add(TextSpan(text: prefix, style: base));
+        }
+        spans.add(TextSpan(
+          text: '#$tag',
+          style: base.copyWith(
+            color: Colors.blue.shade700,
+            backgroundColor: Colors.blue.shade50,
+          ),
+        ));
       }
-      spans.add(TextSpan(
-        text: content.substring(hashStart, tagEnd),
-        style: base.copyWith(
-          color: Colors.blue.shade700,
-          backgroundColor: Colors.blue.shade50,
-        ),
-      ));
-      last = tagEnd;
+      last = m.end;
     }
     if (last < content.length) {
       spans.add(TextSpan(text: content.substring(last), style: base));
     }
     return spans;
+  }
+
+  Future<void> _onWikilinkTap(String title) async {
+    // 优先：查 note_note_links —— 锚定 id
+    final links = await NoteBookLinkService()
+        .getOutboundLinksByText(_entry.id, title);
+    if (links.isNotEmpty) {
+      if (links.length == 1) {
+        _jumpToNoteById(links.first['target_note_id'] as String);
+        return;
+      }
+      // 多命中：一次拉全表 —— 内存 map —— 弹选择
+      final allNotes = await _db.getAllNotes(includeDeleted: false);
+      final notesById = <String, Map<String, dynamic>>{
+        for (final m in allNotes) m['id'] as String: m,
+      };
+      if (!mounted) return;
+      final chosen = await showDialog<String>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('选择目标笔记'),
+          children: links.map((l) {
+            final tgtId = l['target_note_id'] as String;
+            final m = notesById[tgtId];
+            final raw = (m?['title'] as String? ?? '').trim();
+            final disp = raw.isNotEmpty
+                ? raw
+                : _virtualTitleOf(m?['content'] as String? ?? '');
+            return SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, tgtId),
+              child: Text(disp),
+            );
+          }).toList(),
+        ),
+      );
+      if (chosen != null && mounted) _jumpToNoteById(chosen);
+      return;
+    }
+
+    // Fallback：按标题查（兼容旧数据）
+    final allNotes = await _db.getAllNotes(includeDeleted: false);
+    final matches = allNotes.where((m) {
+      final rowId = m['id'] as String;
+      if (rowId == _entry.id) return false;
+      final rawTitle = (m['title'] as String? ?? '').trim();
+      final displayTitle = rawTitle.isNotEmpty
+          ? rawTitle
+          : _virtualTitleOf(m['content'] as String? ?? '');
+      return displayTitle == title;
+    }).toList();
+
+    if (matches.isEmpty) return;
+    if (matches.length == 1) {
+      _jumpToNoteById(matches.first['id'] as String);
+      return;
+    }
+    if (!mounted) return;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('选择目标笔记'),
+        children: matches
+            .map((m) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, m['id'] as String),
+                  child: Text((m['title'] as String? ?? '').trim().isEmpty
+                      ? _virtualTitleOf(m['content'] as String? ?? '')
+                      : (m['title'] as String).trim()),
+                ))
+            .toList(),
+      ),
+    );
+    if (chosen != null && mounted) {
+      _jumpToNoteById(chosen);
+    }
+  }
+
+  Future<void> _jumpToNoteById(String noteId) async {
+    final node = await _db.getNodeByNoteId(noteId);
+    final notes = await _db.getAllNotes(includeDeleted: false);
+    final target = notes.firstWhere(
+      (m) => m['id'] == noteId,
+      orElse: () => <String, dynamic>{},
+    );
+    if (target.isEmpty) return;
+    final entry = NotebookEntry.fromMap(target);
+    if (!mounted) return;
+    await NoteOpener.open(
+      context: context,
+      entry: entry,
+      isFromCollection: false,
+      nodeId: node?.id,
+    );
+  }
+
+  static String _virtualTitleOf(String content) {
+    final c = content.trim().replaceAll('\n', ' ');
+    if (c.isEmpty) return '无标题';
+    return c.length > 20 ? '${c.substring(0, 20)}…' : c;
   }
   /// 导图体 —— 嵌在正文段（面包屑 + 树）
   Widget _buildMapBody() {
@@ -1161,8 +1371,6 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildTagToggleRow(),
-            const SizedBox(height: 12),
             Builder(builder: (_) {
               final displayTags = _entry.tags
                   .where((t) => t != '重要' && t != '待解决')
@@ -1371,10 +1579,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
             _buildRightSection(
               title: '📝 关联笔记',
-              count: 0,
+              count: _backlinks.length,
               onAdd: () {},
               expanded: _showRightPanelWide,
-              buildExpanded: () => const SizedBox.shrink(),
+              buildExpanded: _buildBacklinksListExpanded,
             ),
           ],
         ),
@@ -1436,7 +1644,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ),
     );
   }
-   Widget _buildSubNotesListExpanded() {
+  Widget _buildSubNotesListExpanded() {
     if (_subNotesList.isEmpty) {
       return Text(
         '暂无',
@@ -1461,6 +1669,47 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           .toList(),
     );
   }
+   
+  Widget _buildBacklinksListExpanded() {
+    if (_backlinks.isEmpty) {
+      return Text(
+        '暂无',
+        style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: _backlinks.map((row) {
+        final noteId = row['note_id'] as String;
+        final title = row['title'] as String? ?? '未命名';
+        final direction = row['direction'] as String? ?? 'out';
+        final isBack = direction == 'back';
+        final icon = isBack ? '↘' : '↗';
+        final color = isBack ? Colors.green.shade700 : Colors.blue.shade700;
+        return InkWell(
+          onTap: () => _jumpToNoteById(noteId),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                Text(icon, style: TextStyle(fontSize: 11, color: color)),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildNoteCardsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
