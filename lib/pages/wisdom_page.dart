@@ -2092,6 +2092,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     if (focusModeNotifier.value && _showTabView && _openedNote != null) {
       return const SizedBox.shrink();
     }
+
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final showRelated = isMobile && _openedNote != null && _showTabView;
+
     return Stack(
       alignment: Alignment.bottomCenter,
       children: [
@@ -2113,7 +2117,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               children: [
                 _buildFabOption(icon: Icons.edit_note, label: '新建笔记', color: Colors.blue, onTap: _createNote),
                 const SizedBox(height: 8),
-                // ✅ 第三轮：新建富文本笔记（老白裁 2 + 图标 Icons.article_outlined）
                 _buildFabOption(icon: Icons.article_outlined, label: '新建富文本笔记', color: Colors.teal, onTap: _createRichtextNote),
                 const SizedBox(height: 8),
                 _buildFabOption(icon: Icons.create_new_folder, label: '新建文件夹', color: Colors.orange, onTap: _createFolder),
@@ -2122,6 +2125,17 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             ),
           ),
         ),
+        if (showRelated)
+          Positioned(
+            right: 16,
+            bottom: 80,
+            child: FloatingActionButton.extended(
+              heroTag: 'related_fab',
+              onPressed: _openRelatedPanel,
+              icon: const Icon(Icons.attach_file, size: 16),
+              label: const Text('关联'),
+            ),
+          ),
         FloatingActionButton(
           heroTag: 'wisdom_fab',
           onPressed: () => setState(() => _fabExpanded = !_fabExpanded),
@@ -2148,5 +2162,35 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       ),
     );
   }
-  
-}
+
+  void _openRelatedPanel() {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        backgroundColor: Colors.white,
+        child: SafeArea(
+          child: Column(
+            children: [
+              AppBar(
+                title: const Text('关联'),
+                leading: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    '关联内容加载中...',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+}  
