@@ -1257,87 +1257,53 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       return spans;
     }
 
-     
-    
-    Future<void> _onWikilinkTap(String title, Offset anchor) async {
-      // 优先：查 note_note_links —— 锚定 id
-      final links = await NoteBookLinkService()
-          .getOutboundLinksByText(_entry.id, title);
-      if (links.isNotEmpty) {
-        if (links.length == 1) {
-          // B5：单命中 → 弹预览（不再直跳）
-          _showNotePreview(links.first['target_note_id'] as String, anchor);
-          return;
-        }
-        // 多命中：一次拉全表 —— 内存 map —— 弹选择
-        final allNotes = await _db.getAllNotes(includeDeleted: false);
-        final notesById = <String, Map<String, dynamic>>{
-          for (final m in allNotes) m['id'] as String: m,
-        };
-        if (!mounted) return;
-        final chosen = await showDialog<String>(
-          context: context,
-          builder: (ctx) => SimpleDialog(
-            title: const Text('选择目标笔记'),
-            children: links.map((l) {
-              final tgtId = l['target_note_id'] as String;
-              final m = notesById[tgtId];
-              final raw = (m?['title'] as String? ?? '').trim();
-              final disp = raw.isNotEmpty
-                  ? raw
-                  : _virtualTitleOf(m?['content'] as String? ?? '');
-              return SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, tgtId),
-                child: Text(disp),
-              );
-            }).toList(),
-          ),
-        );
-        // B5：多命中选完 → 弹预览（与单命中一致 —— 老白裁 2）
-        if (chosen != null && mounted) {
-          _showNotePreview(chosen, anchor);
-        }
-        return;
-      }
+  Future<void> _onWikilinkTap(String title, Offset anchor) async {
+    final linkSvc = NoteBookLinkService();
+    final noteLinks = await linkSvc.getOutboundLinksByText(_entry.id, title);
+    final bookLinks =
+        await linkSvc.getOutboundBookLinksByText(_entry.id, title);
+    final cards = await _cardService.getCardsByIndexTitle(title);
 
-      // Fallback：按标题查（兼容旧数据）
-      final allNotes = await _db.getAllNotes(includeDeleted: false);
-      final matches = allNotes.where((m) {
-        final rowId = m['id'] as String;
-        if (rowId == _entry.id) return false;
-        final rawTitle = (m['title'] as String? ?? '').trim();
-        final displayTitle = rawTitle.isNotEmpty
-            ? rawTitle
-            : _virtualTitleOf(m['content'] as String? ?? '');
-        return displayTitle == title;
-      }).toList();
+    final total = noteLinks.length + bookLinks.length + cards.length;
 
-      if (matches.isEmpty) return;
-      if (matches.length == 1) {
-        // B5：单命中 → 弹预览
-        _showNotePreview(matches.first['id'] as String, anchor);
-        return;
-      }
-      if (!mounted) return;
-      final chosen = await showDialog<String>(
-        context: context,
-        builder: (ctx) => SimpleDialog(
-          title: const Text('选择目标笔记'),
-          children: matches
-              .map((m) => SimpleDialogOption(
-                    onPressed: () => Navigator.pop(ctx, m['id'] as String),
-                    child: Text((m['title'] as String? ?? '').trim().isEmpty
-                        ? _virtualTitleOf(m['content'] as String? ?? '')
-                        : (m['title'] as String).trim()),
-                  ))
-              .toList(),
-        ),
-      );
-      // B5：多命中选完 → 弹预览
-      if (chosen != null && mounted) {
-        _showNotePreview(chosen, anchor);
-      }
+    if (total == 0) {
+      await _onWikilinkTapFallback(title, anchor);
+      return;
     }
+
+    if (total == 1) {
+      if (noteLinks.isNotEmpty) {
+        _showNotePreview(noteLinks.first['target_note_id'] as String, anchor);
+      } else if (bookLinks.isNotEmpty) {
+        _showBookPreview(bookLinks.first['book_id'] as String, anchor);
+      } else {
+        _showCardPreview(cards.first, anchor);
+      }
+      return;
+    }
+
+    final chosen = await _showWikilinkSelector(noteLinks, bookLinks, cards);
+    if (chosen == null || !mounted) return;
+    final type = chosen['type'] as String;
+    final id = chosen['id'] as String;
+    switch (type) {
+      case 'note':
+        _showNotePreview(id, anchor);
+        break;
+      case 'book':
+        _showBookPreview(id, anchor);
+        break;
+      case 'card':
+        final card = cards.firstWhere(
+          (c) => c.id == id,
+          orElse: () => cards.first,
+        );
+        _showCardPreview(card, anchor);
+        break;
+    }
+  }
+
+
 
     /// B5：弹笔记预览 —— 单命中 / 多命中统一走
   Future<void> _showNotePreview(String noteId, Offset anchor) async {
@@ -1376,26 +1342,184 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         ),
       );
     }
-  
+    Future<void> _onWikilinkTapFallback(String title, Offset anchor) async {
+    final allNotes = await _db.getAllNotes(includeDeleted: false);
+    final matches = allNotes.where((m) {
+      final rowId = m['id'] as String;
+      if (rowId == _entry.id) return false;
+      final rawTitle = (m['title'] as String? ?? '').trim();
+      final displayTitle = rawTitle.isNotEmpty
+          ? rawTitle
+          : _virtualTitleOf(m['content'] as String? ?? '');
+      return displayTitle == title;
+    }).toList();
+
+    if (matches.isEmpty) return;
+    if (matches.length == 1) {
+      _showNotePreview(matches.first['id'] as String, anchor);
+      return;
+    }
+    if (!mounted) return;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('选择目标笔记'),
+        children: matches
+            .map((m) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, m['id'] as String),
+                  child: Text((m['title'] as String? ?? '').trim().isEmpty
+                      ? _virtualTitleOf(m['content'] as String? ?? '')
+                      : (m['title'] as String).trim()),
+                ))
+            .toList(),
+      ),
+    );
+    if (chosen != null && mounted) {
+      _showNotePreview(chosen, anchor);
+    }
+  }
+
+  Future<void> _showBookPreview(String bookId, Offset anchor) async {
+    final book = await _db.getBook(bookId);
+    if (book == null || !mounted) return;
+    final title = (book['title'] as String? ?? '').trim();
+    final author = (book['author'] as String? ?? '').trim();
+    final status = (book['status'] as String? ?? '').trim();
+    final metaParts = <String>[];
+    if (author.isNotEmpty) metaParts.add(author);
+    if (status.isNotEmpty) metaParts.add(status);
+    PreviewPopup.show(
+      context,
+      anchor,
+      PreviewData(
+        title: title.isEmpty ? '（无书名）' : title,
+        summary: metaParts.isEmpty ? '（无简介）' : metaParts.join(' · '),
+        meta: null,
+        onOpen: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => BookDetailPage(bookId: bookId),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showCardPreview(CardModel card, Offset anchor) {
+    final title = card.indexTitle ?? card.highlight ?? card.displayFront;
+    final summary = card.highlight ?? card.displayFront;
+    final source = card.sourceTitle ?? '来源未知';
+    PreviewPopup.show(
+      context,
+      anchor,
+      PreviewData(
+        title: title.isEmpty ? '（无标题卡）' : title,
+        summary: summary.isEmpty ? '（空卡）' : summary,
+        meta: '来自 $source',
+        onOpen: null,
+      ),
+    );
+  }
+
+    Future<Map<String, dynamic>?> _showWikilinkSelector(
+    List<Map<String, dynamic>> noteLinks,
+    List<Map<String, dynamic>> bookLinks,
+    List<CardModel> cards,
+  ) async {
+    final noteIds =
+        noteLinks.map((l) => l['target_note_id'] as String).toSet();
+    final allNotes = await _db.getAllNotes(includeDeleted: false);
+    final notesById = <String, Map<String, dynamic>>{};
+    for (final m in allNotes) {
+      final id = m['id'] as String?;
+      if (id != null && noteIds.contains(id)) notesById[id] = m;
+    }
+
+    final allBooks = await _db.getAllBooks();
+    final booksById = <String, Map<String, dynamic>>{
+      for (final b in allBooks) (b['id'] as String): b,
+    };
+
+    final entries = <_WikilinkSelectorEntry>[];
+    for (final l in noteLinks) {
+      final id = l['target_note_id'] as String;
+      final m = notesById[id];
+      if (m == null) continue;
+      final raw = (m['title'] as String? ?? '').trim();
+      final t = raw.isNotEmpty
+          ? raw
+          : _virtualTitleOf(m['content'] as String? ?? '');
+      entries.add(_WikilinkSelectorEntry(
+        type: 'note',
+        id: id,
+        title: t.isEmpty ? '（无标题）' : t,
+        sortKey: _parseDt(m['updatedAt']),
+      ));
+    }
+    for (final l in bookLinks) {
+      final id = l['book_id'] as String;
+      final b = booksById[id];
+      if (b == null) continue;
+      final t = (b['title'] as String? ?? '').trim();
+      entries.add(_WikilinkSelectorEntry(
+        type: 'book',
+        id: id,
+        title: t.isEmpty ? '（无书名）' : t,
+        sortKey: _parseDt(b['lastReadAt']),   // ✅ 修正：camelCase
+      ));
+    }
+    for (final c in cards) {
+      final t = c.indexTitle ?? c.highlight ?? c.displayFront;
+      entries.add(_WikilinkSelectorEntry(
+        type: 'card',
+        id: c.id,
+        title: t.isEmpty ? '（无标题卡）' : t,
+        sortKey: c.createdAt,
+      ));
+    }
+
+    int typeOrder(String t) => t == 'note' ? 0 : (t == 'book' ? 1 : 2);
+    entries.sort((a, b) {
+      final c = typeOrder(a.type).compareTo(typeOrder(b.type));
+      if (c != 0) return c;
+      return b.sortKey.compareTo(a.sortKey);
+    });
+
+    if (!mounted) return null;
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('选择目标'),
+        children: entries.map((e) {
+          final icon =
+              e.type == 'note' ? '📝' : (e.type == 'book' ? '📖' : '📇');
+          return SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, {'type': e.type, 'id': e.id}),
+            child: Text('$icon ${e.title}'),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  DateTime _parseDt(dynamic v) {
+    if (v == null) return DateTime.fromMillisecondsSinceEpoch(0);
+    if (v is DateTime) return v;
+    final s = v.toString();
+    final parsed = DateTime.tryParse(s);
+    if (parsed != null) return parsed;
+    final ms = int.tryParse(s);
+    if (ms != null) return DateTime.fromMillisecondsSinceEpoch(ms);
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
       /// B5：点卡片角标 [N] —— 弹卡预览（卡详情入口待核 —— onOpen 暂 null）
-    Future<void> _onCardRefTap(String cardId, Offset anchor) async {
+        Future<void> _onCardRefTap(String cardId, Offset anchor) async {
       final card = await _cardService.getCard(cardId);
       if (card == null) return;
       if (!mounted) return;
-      final title = card.indexTitle ?? card.highlight ?? card.displayFront;
-      final summary = card.highlight ?? card.displayFront;
-      final source = card.sourceTitle ?? '来源未知';
-      PreviewPopup.show(
-        context,
-        anchor,
-        PreviewData(
-          title: title.isEmpty ? '（无标题卡）' : title,
-          summary: summary.isEmpty ? '（空卡）' : summary,
-          meta: '来自 $source',
-          // 卡详情入口待核 —— 本轮 onOpen 传 null —— 见方案 §二 甲案
-          onOpen: null,
-        ),
-      );
+      _showCardPreview(card, anchor);
     }
   
   Future<void> _jumpToNoteById(String noteId) async {
@@ -2031,7 +2155,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
   }
 }
-
+class _WikilinkSelectorEntry {
+  final String type;
+  final String id;
+  final String title;
+  final DateTime sortKey;
+  _WikilinkSelectorEntry({
+    required this.type,
+    required this.id,
+    required this.title,
+    required this.sortKey,
+  });
+}
 /// 富文本只读渲染 widget。
 class _RichtextReadView extends StatefulWidget {
   final List<Map<String, dynamic>> delta;
