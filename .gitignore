@@ -52,3 +52,7 @@ build_web.txt
 analyze_full.txt
 *.bak_*
 *.bak
+
+# Android 构建产物
+android/build/
+
