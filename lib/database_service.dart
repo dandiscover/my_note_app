@@ -1259,7 +1259,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 24, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 25, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1538,6 +1538,27 @@ class DatabaseService {
           debugPrint('note_book_links 23→24 迁移失败: $e');
         }
       }
+      if (oldVersion < 25) {
+        try {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS sparks(
+              id TEXT PRIMARY KEY,
+              content TEXT NOT NULL,
+              anchor_note_id TEXT,
+              anchor_location TEXT,
+              status TEXT DEFAULT 'pending',
+              created_at TEXT NOT NULL,
+              updated_at TEXT
+            )
+          ''');
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sparks_note ON sparks(anchor_note_id)');
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks(status)');
+        } catch (e) {
+          debugPrint('sparks 24→25 迁移失败: $e');
+        }
+      }
   }
     /// 批 1a：L2 → L3 迁移
   /// 读 SharedPreferences book_reading_note_id_$bookId → 写 note_book_links
@@ -1735,6 +1756,24 @@ class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_nnl_source ON note_note_links(source_note_id)');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_nnl_target ON note_note_links(target_note_id)');
+
+    // B8：火花卡表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sparks(
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        anchor_note_id TEXT,
+        anchor_location TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sparks_note ON sparks(anchor_note_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks(status)');
+
       for (final sql in SearchIndexService.getCreateTableSql()) {
         await db.execute(sql);
       }
