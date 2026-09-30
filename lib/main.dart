@@ -27,6 +27,8 @@ import 'widgets/sync_indicator.dart';
 import 'models/command_item.dart';
 import 'pages/workbench/clue_board_page.dart';
 import 'services/command_palette_launcher.dart';
+import 'services/spark_service.dart';
+import 'pages/workbench/kernel_markdown.dart';
 import 'services/open_tabs_manager.dart';
 import 'services/note_opener.dart';
 import 'pages/collection_page.dart';
@@ -365,6 +367,51 @@ class _NotebookPageState extends State<NotebookPage> {
     );
   }
 
+  Future<void> _showSparkList() async {
+    final sparks = await SparkService().getAllPending();
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('💫 火花卡（${sparks.length}）'),
+        content: SizedBox(
+          width: 400,
+          child: sparks.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('暂无待处理火花'),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: sparks.length,
+                  itemBuilder: (_, i) {
+                    final s = sparks[i];
+                    return ListTile(
+                      dense: true,
+                      title: Text(
+                        s.content,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        s.createdAt.toLocal().toString().substring(0, 16),
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      onTap: () => Navigator.pop(ctx),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<CommandItem> _buildCommands() => [
     CommandItem(
       id: 'new_note',
@@ -425,6 +472,13 @@ class _NotebookPageState extends State<NotebookPage> {
       icon: Icons.settings,
       onExecute: () => _adaptiveNavKey.currentState?.setTab(4),
     ),
+    CommandItem(
+      id: 'spark_list',
+      label: '查看火花卡',
+      description: '查看所有待处理火花',
+      icon: Icons.auto_awesome,
+      onExecute: () { _showSparkList(); },
+    ),
   ];
 
   void _showShortcutSnackBar(String label) {
@@ -476,6 +530,9 @@ class _NotebookPageState extends State<NotebookPage> {
         break;
       case 'commandPalette':
         _handleCommandPalette();
+        break;
+      case 'sparkCard':
+        MarkdownKernel.onSparkRequested?.call();
         break;
       default:
         break;
