@@ -136,6 +136,14 @@ class KeyboardShortcut {
         key: 'k',
         isCtrlRequired: true,
       ),
+      KeyboardShortcut(
+        id: 'sparkCard',
+        name: '火花卡',
+        description: '打开火花卡编辑框',
+        key: 'space',
+        isCtrlRequired: true,
+        isShiftRequired: true,
+      ),
     ];
   }
 
