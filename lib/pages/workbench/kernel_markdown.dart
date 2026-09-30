@@ -14,6 +14,9 @@ import '../../services/card_service.dart';
 import '../../widgets/note_card_dialog.dart';
 import '../../pages/inquiry_page.dart';
 import 'editor_kernel.dart';
+import '../../widgets/spark_cursor.dart';
+import '../../widgets/spark_dialog.dart';
+import '../../services/spark_service.dart';
 
 /// Markdown 内核——D 批块 2a
 ///
@@ -24,6 +27,9 @@ import 'editor_kernel.dart';
 class MarkdownKernel extends EditorKernel {
   final EditorContext _ctx;
   _MarkdownBodyState? _state;
+
+  // B8：火花编辑框全局触发入口
+  static VoidCallback? onSparkRequested;
 
   late final TextEditingController titleController =
       TextEditingController(text: _ctx.entry.title);
@@ -110,6 +116,15 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   List<String> _tags = [];
   final CardService _cardService = CardService();
   final FocusNode _contentFocus = FocusNode();
+  // B8：火花锚点（global 坐标 —— Overlay 挂）
+  Offset? _sparkAnchorOffset;
+  bool _showSparkCursor = false;
+  OverlayEntry? _sparkOverlayEntry;
+  Timer? _sparkRecalcThrottle;
+  List<Spark> _pendingSparks = [];
+  final Map<String, Offset> _sparkOffsets = {};
+  // B8：记录上次 selection —— TextField 无 onSelectionChanged —— 靠 listener 差分
+  TextSelection? _lastSelection;
   bool _isGeneratingCard = false;
   bool _isSavingLocal = false;
   bool _isDirty = false;
@@ -144,16 +159,28 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
 
     // ✅ 注册当前实例到 kernel
     widget.kernel._state = this;
+    MarkdownKernel.onSparkRequested = _onSparkTap;
+    _contentFocus.addListener(_onFocusChanged);
+    // B8：监听 controller 变 —— selection 变也触发（TextField 无 onSelectionChanged）
+    _contentController.addListener(_onControllerChanged);
+    _lastSelection = _contentController.selection;
+    _loadPendingSparks();
   }
 
   @override
   void dispose() {
+    _contentController.removeListener(_onControllerChanged);
+    _contentFocus.removeListener(_onFocusChanged);
+    _sparkRecalcThrottle?.cancel();
+    _sparkOverlayEntry?.remove();
+    _sparkOverlayEntry = null;
     _contentFocus.dispose();
     _typingTimer?.cancel();
     _inquiryController.dispose();
     _inquiryFocusNode.dispose();
     if (widget.kernel._state == this) {
       widget.kernel._state = null;
+      MarkdownKernel.onSparkRequested = null;
     }
     super.dispose();
   }
@@ -168,6 +195,265 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
       _isDirty = true;
     });
     _resetTypingTimer();
+  }
+
+  // B8：从 FocusNode 找 EditableTextState
+  EditableTextState? _getContentEditableState() {
+    final ctx = _contentFocus.context;
+    if (ctx == null) {
+      debugPrint('[spark] getState: focus.context null');
+      return null;
+    }
+    final state = ctx.findAncestorStateOfType<EditableTextState>();
+    debugPrint('[spark] getState: state=${state != null}');
+    return state;
+  }
+
+  // B8：controller 变 —— text 或 selection —— 差分 selection —— 触发 💫 重算
+  void _onControllerChanged() {
+    final sel = _contentController.selection;
+    if (sel == _lastSelection) return;
+    _lastSelection = sel;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onSelectionChanged(sel);
+    });
+  }
+
+  // B8：光标 / 选区变化
+  void _onSelectionChanged(TextSelection selection) {
+    if (!selection.isValid || !selection.isCollapsed) {
+      if (_showSparkCursor) {
+        setState(() => _showSparkCursor = false);
+        _sparkOverlayEntry?.markNeedsBuild();
+      }
+      return;
+    }
+    final state = _getContentEditableState();
+    if (state == null) return;
+    final render = state.renderEditable;
+    final rect = render.getLocalRectForCaret(selection.base);
+    final globalPos = render.localToGlobal(rect.topLeft);
+    setState(() {
+      _sparkAnchorOffset = globalPos;
+      _showSparkCursor = true;
+    });
+    _insertSparkOverlay();
+    _sparkOverlayEntry?.markNeedsBuild();
+  }
+
+  void _onFocusChanged() {
+    if (!_contentFocus.hasFocus && _showSparkCursor) {
+      setState(() => _showSparkCursor = false);
+      _sparkOverlayEntry?.markNeedsBuild();
+    }
+  }
+
+  // B8：滚动跟随 —— throttle 16ms（不 cancel —— 活跃跳过）
+  void _onScrollNotification(ScrollNotification n) {
+    if (n is! ScrollUpdateNotification && n is! ScrollEndNotification) return;
+    if (_sparkRecalcThrottle?.isActive ?? false) return;
+    _sparkRecalcThrottle = Timer(
+      const Duration(milliseconds: 16),
+      _recalcSparkPositions,
+    );
+  }
+
+  // B8：重算所有 💫 位置（global）
+  void _recalcSparkPositions() {
+    if (!mounted) return;
+    final state = _getContentEditableState();
+    if (state == null) {
+      debugPrint('[spark] recalc: state null —— abort');
+      return;
+    }
+    final render = state.renderEditable;
+    debugPrint('[spark] recalc: pending=${_pendingSparks.length}');
+
+    Offset? newCursorOffset;
+    if (_showSparkCursor) {
+      final sel = state.textEditingValue.selection;
+      if (sel.isValid && sel.isCollapsed) {
+        final rect = render.getLocalRectForCaret(sel.base);
+        newCursorOffset = render.localToGlobal(rect.topLeft);
+      }
+    }
+    final newSparkOffsets = <String, Offset>{};
+    for (final s in _pendingSparks) {
+      final off = int.tryParse(s.anchorLocation ?? '') ?? 0;
+      try {
+        final rect = render.getLocalRectForCaret(TextPosition(offset: off));
+        newSparkOffsets[s.id] = render.localToGlobal(rect.topLeft);
+      } catch (e) {
+        debugPrint('spark 坐标计算失败 offset=$off: $e');
+      }
+    }
+    setState(() {
+      if (newCursorOffset != null) _sparkAnchorOffset = newCursorOffset;
+      _sparkOffsets
+        ..clear()
+        ..addAll(newSparkOffsets);
+    });
+    _sparkOverlayEntry?.markNeedsBuild();
+  }
+
+  Future<void> _loadPendingSparks() async {
+    final sparks = await SparkService().getPendingByNote(_entry.id);
+    if (!mounted) return;
+    setState(() => _pendingSparks = sparks);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _recalcSparkPositions();
+    });
+  }
+
+  // B8：Overlay 插 / 清
+  void _insertSparkOverlay() {
+    if (_sparkOverlayEntry != null) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _sparkOverlayEntry = OverlayEntry(
+      builder: (ctx) {
+        // B8 修：拿编辑器可视矩形 —— X / Y 都对着它
+        final editorBox =
+            _contentFocus.context?.findRenderObject() as RenderBox?;
+        final editorRect = (editorBox != null && editorBox.hasSize)
+            ? (editorBox.localToGlobal(Offset.zero) & editorBox.size)
+            : null;
+        final rightX = editorRect?.right ?? MediaQuery.of(ctx).size.width;
+
+        return Stack(
+          children: [
+            if (_showSparkCursor && _sparkAnchorOffset != null)
+              Positioned(
+                left: _sparkAnchorOffset!.dx + 8,
+                top: _sparkAnchorOffset!.dy,
+                child: SparkCursor(onTap: () { _onSparkTap(); }),
+              ),
+            ..._pendingSparks.map((s) {
+              final sPos = _sparkOffsets[s.id];
+              if (sPos == null) return const SizedBox.shrink();
+              // B8 修：Y 越编辑器可视区 —— 不显
+              if (editorRect != null &&
+                  (sPos.dy < editorRect.top ||
+                      sPos.dy > editorRect.bottom - 20)) {
+                return const SizedBox.shrink();
+              }
+              return Positioned(
+                left: rightX - 32,
+                top: sPos.dy,
+                child: GestureDetector(
+                  onTap: () { _onSparkItemTap(s); },
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Text('💫', style: TextStyle(fontSize: 16)),
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
+    );
+    overlay.insert(_sparkOverlayEntry!);
+  }
+
+  // B8：存火花为索引卡
+  /// [content] 火花正文
+  /// [offset] 锚点字符位置（String 形式 —— 与 CardModel.anchor String? 一致）
+  /// ⚠️ 顺序不可调换 —— 两处调用点均 (content, offset)
+  Future<void> _saveSparkAsCard(String content, String offset) async {
+    final noteId = _entry.id;
+    final rawTitle = _entry.title.trim();
+    final card = CardModel(
+      id: 'spark_${DateTime.now().millisecondsSinceEpoch}',
+      cardType: CardType.indexCard,
+      sourceType: 'note',
+      sourceId: noteId,
+      sourceTitle: rawTitle.isEmpty ? '无标题笔记' : rawTitle,
+      indexTitle:
+          content.length > 50 ? '${content.substring(0, 50)}...' : content,
+      highlight: content,
+      anchor: offset,
+    );
+    await CardService().addCard(card);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('💫 已存卡片库'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  // B8：点 💫 —— 弹编辑框
+  Future<void> _onSparkTap() async {
+    final result = await showDialog<SparkDialogResult>(
+      context: context,
+      builder: (_) => const SparkDialog(),
+    );
+    if (result == null || result.content.isEmpty) return;
+    final noteId = _entry.id;
+    final offset = _contentController.selection.baseOffset.toString();
+    switch (result.action) {
+      case 'save_card':
+        await _saveSparkAsCard(result.content, offset);
+        break;
+      case 'stash':
+        final spark = Spark(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          content: result.content,
+          anchorNoteId: noteId,
+          anchorLocation: offset,
+          status: 'pending',
+          createdAt: DateTime.now(),
+        );
+        await SparkService().create(spark);
+        await _loadPendingSparks();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('💫 火花已保存'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+        break;
+      case 'send':
+        insertText('\n${result.content}\n');
+        break;
+    }
+  }
+
+  // B8：点右侧 💫 —— 处理已有
+  Future<void> _onSparkItemTap(Spark spark) async {
+    final result = await showDialog<SparkDialogResult>(
+      context: context,
+      builder: (_) => SparkDialog(initialContent: spark.content),
+    );
+    if (result == null || result.content.isEmpty) return;
+    switch (result.action) {
+      case 'save_card':
+        await _saveSparkAsCard(result.content, spark.anchorLocation ?? '0');
+        final updated = spark.copyWith(
+          status: 'done',
+          updatedAt: DateTime.now(),
+        );
+        await SparkService().update(updated);
+        await _loadPendingSparks();
+        break;
+      case 'stash':
+        final updated = spark.copyWith(
+          content: result.content,
+          updatedAt: DateTime.now(),
+        );
+        await SparkService().update(updated);
+        await _loadPendingSparks();
+        break;
+      case 'send':
+        insertText('\n${result.content}\n');
+        await SparkService().delete(spark.id);
+        await _loadPendingSparks();
+        break;
+    }
   }
 
   void _resetTypingTimer() {
@@ -425,7 +711,20 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   void insertText(String text) => _insertTextIntoContent(text);
 
   // ─── 零件化：对外方法 ───
-  void toggleMarkdown(bool v) => setState(() => _isMarkdown = v);
+  void toggleMarkdown(bool v) {
+    setState(() {
+      _isMarkdown = v;
+      // B8：切模式 —— 坐标全失效 —— 清缓存
+      _sparkOffsets.clear();
+      _showSparkCursor = false;
+      _sparkAnchorOffset = null;
+    });
+    _sparkOverlayEntry?.markNeedsBuild();
+    // B8：切模式后 layout 未稳 —— 延迟一帧重算
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _recalcSparkPositions();
+    });
+  }
   void addTagExternal(String tag) {
     final t = tag.trim();
     if (t.isEmpty || _tags.contains(t)) return;
@@ -449,7 +748,13 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
       _entry = newEntry;
       _contentController.text = newEntry.content;
       _titleController.text = newEntry.title;
+      // B8：切笔记 —— spark 缓存清（kernel 复用 —— 必清）
+      _sparkOffsets.clear();
+      _showSparkCursor = false;
+      _sparkAnchorOffset = null;
     });
+    _sparkOverlayEntry?.markNeedsBuild();
+    _loadPendingSparks();
   }
 
   @override
@@ -603,8 +908,15 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
 
               // ─── 正文 ──────────────────────────────
               Expanded(
-                child:
-                    _isMarkdown ? _buildMarkdownEditor() : _buildPlainEditor(),
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (n) {
+                    _onScrollNotification(n);
+                    return false;
+                  },
+                  child: _isMarkdown
+                      ? _buildMarkdownEditor()
+                      : _buildPlainEditor(),
+                ),
               ),
 
               // ─── 深度笔记提示 ────────────────────────
