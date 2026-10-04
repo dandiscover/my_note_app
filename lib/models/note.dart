@@ -9,6 +9,7 @@
 // ✅ 移除：NoteSubtask（抽离到 note_subtask.dart）
 // ✅ 修复：copyWith 哨兵方案，inquiryQuestion / inquiryConclusion 支持清空（BUG-001）
 // ✅ T-177：fromMap 的 contentFormat 类型防御（脏数据不崩）
+// ✅ B8：新增 createdAt（Markdown 导入用）
 
 import 'note_subtask.dart';
 import 'explore_task.dart';
@@ -30,6 +31,10 @@ class NotebookEntry {
   /// 默认 'markdown'，兼容现有笔记。
   final String contentFormat;
 
+  /// B8：创建时间 —— Markdown 导入填入
+  /// 老笔记无该字段 —— 允许 null
+  final DateTime? createdAt;
+
   /// copyWith 哨兵：区分“未传参”（保留旧值）与“显式传 null”（清空）
   static const Object _unset = Object();
 
@@ -46,6 +51,7 @@ class NotebookEntry {
     this.inquiryConclusion,
     this.exploreTasks = const [],
     this.contentFormat = 'markdown',
+    this.createdAt,
   });
 
   static final NotebookEntry empty = NotebookEntry(
@@ -61,6 +67,7 @@ class NotebookEntry {
     inquiryConclusion: null,
     exploreTasks: const [],
     contentFormat: 'markdown',
+    createdAt: null,
   );
 
   factory NotebookEntry.fromMap(Map<String, dynamic> map) {
@@ -84,6 +91,9 @@ class NotebookEntry {
           ?.map((e) => ExploreTask.fromJson(e as Map<String, dynamic>))
           .toList() ?? [],
       contentFormat: cf,
+      createdAt: (map['createdAt'] is String)
+          ? DateTime.tryParse(map['createdAt'] as String)
+          : null,
     );
   }
 
@@ -101,6 +111,7 @@ class NotebookEntry {
       'inquiryConclusion': inquiryConclusion,
       'exploreTasks': exploreTasks.map((e) => e.toJson()).toList(),
       'contentFormat': contentFormat,
+      'createdAt': createdAt?.toIso8601String(),
     };
   }
 
@@ -117,6 +128,7 @@ class NotebookEntry {
     Object? inquiryConclusion = _unset,
     List<ExploreTask>? exploreTasks,
     String? contentFormat,
+    DateTime? createdAt,
   }) {
     return NotebookEntry(
       id: id ?? this.id,
@@ -135,6 +147,7 @@ class NotebookEntry {
           : inquiryConclusion as String?,
       exploreTasks: exploreTasks ?? this.exploreTasks,
       contentFormat: contentFormat ?? this.contentFormat,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 }
