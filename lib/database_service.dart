@@ -478,6 +478,7 @@ class DatabaseService {
         if (!note.containsKey('inquiryConclusion')) note['inquiryConclusion'] = null;
         if (!note.containsKey('exploreTasks')) note['exploreTasks'] = [];
         if (!note.containsKey('contentFormat')) note['contentFormat'] = 'markdown';
+              if (!note.containsKey('createdAt')) note['createdAt'] = null;
       }
       if (includeDeleted) return allNotes;
       return allNotes.where((n) => n['status'] != 'deleted').toList();
@@ -492,6 +493,7 @@ class DatabaseService {
         mapped['scaffoldSessions'] = mapped['scaffold_sessions'];
         mapped['subtasks'] = mapped['subtasks'];
         mapped['contentFormat'] = mapped['content_format'];
+                mapped['createdAt'] = mapped['created_at'];
         return _cleanNoteMap(mapped);
       }).toList();
       if (includeDeleted) return allNotes;
@@ -555,6 +557,7 @@ class DatabaseService {
       'inquiry_conclusion': map['inquiryConclusion'] as String?,
       'explore_tasks': tasksStr,
       'content_format': map['contentFormat'] ?? 'markdown',
+      'created_at': map['createdAt'],
     };
   }
 
@@ -1077,7 +1080,9 @@ class DatabaseService {
   Future<String> ensureReviewFolder() => _ensureSystemFolderByTag('review', '复盘库', tags: ['系统', '复盘']);
   Future<String> ensureCardBoxFolder() => _ensureSystemFolderByTag('cardbox', '卡片盒', tags: ['系统', '卡片盒']);
   Future<String> ensureExpandFolder() => _ensureSystemFolderByTag('expand', '拓展笔记', tags: ['系统', '拓展笔记']);
-
+  /// Markdown 导入目标文件夹
+  Future<String> ensureImportedFolder([String name = '导入的 Markdown']) =>
+      _ensureSystemFolderByTag('imported', name, tags: ['系统', '导入']);
   Future<NotebookEntry> createReviewNote({required String title, required String content, List<String> extraTags = const []}) async {
     final folderId = await ensureReviewFolder();
     final noteId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -1259,7 +1264,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 25, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 27, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1559,7 +1564,52 @@ class DatabaseService {
           debugPrint('sparks 24→25 迁移失败: $e');
         }
       }
+            if (oldVersion < 26) {
+        try {
+          await db.execute('ALTER TABLE notes ADD COLUMN created_at TEXT');
+        } catch (e) {
+          debugPrint('notes 25→26 created_at 迁移失败: $e');
+        }
+      }
+            if (oldVersion < 27) {
+        try {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS board_strokes(
+              id TEXT PRIMARY KEY,
+              view_id TEXT NOT NULL,
+              group_id TEXT,
+              z_index INTEGER DEFAULT 0,
+              points TEXT NOT NULL,
+              color TEXT NOT NULL,
+              width REAL NOT NULL,
+              created_at TEXT NOT NULL
+            )
+          ''');
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_board_strokes_view ON board_strokes(view_id)');
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_board_strokes_group ON board_strokes(group_id)');
+        } catch (e) {
+          debugPrint('board_strokes 26→27 迁移失败: $e');
+        }
+        try {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS board_albums(
+              id TEXT PRIMARY KEY,
+              title TEXT,
+              source_view_id TEXT,
+              strokes_json TEXT NOT NULL,
+              thumbnail_base64 TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT
+            )
+          ''');
+        } catch (e) {
+          debugPrint('board_albums 26→27 迁移失败: $e');
+        }
+      }
   }
+
     /// 批 1a：L2 → L3 迁移
   /// 读 SharedPreferences book_reading_note_id_$bookId → 写 note_book_links
   /// 幂等：ConflictAlgorithm.ignore + UNIQUE 约束
@@ -1626,7 +1676,8 @@ class DatabaseService {
         isLocked INTEGER DEFAULT 0, tags TEXT DEFAULT '',
         inquiry_question TEXT, inquiry_conclusion TEXT,
         explore_tasks TEXT DEFAULT '[]',
-        content_format TEXT DEFAULT 'markdown'
+                  content_format TEXT DEFAULT 'markdown',
+          created_at TEXT
       )
     ''');
     await db.execute('''
@@ -1699,7 +1750,33 @@ class DatabaseService {
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
-
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS board_strokes(
+        id TEXT PRIMARY KEY,
+        view_id TEXT NOT NULL,
+        group_id TEXT,
+        z_index INTEGER DEFAULT 0,
+        points TEXT NOT NULL,
+        color TEXT NOT NULL,
+        width REAL NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_board_strokes_view ON board_strokes(view_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_board_strokes_group ON board_strokes(group_id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS board_albums(
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        source_view_id TEXT,
+        strokes_json TEXT NOT NULL,
+        thumbnail_base64 TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      )
+    ''');
     // ✅ 批 1a：笔记↔书 关联表
     // 设计：一笔记 × 一类型 × 一书 → 一条边（UNIQUE 约束）
     //   同笔记多次 [[同一本书]] 只留首次（context 记第一处示例）
@@ -1921,4 +1998,74 @@ class DatabaseService {
       }
     });
   }
+    Future<void> replaceBoardStrokes(String viewId, List<Map<String, dynamic>> strokes) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.transaction((txn) async {
+      await txn.delete('board_strokes', where: 'view_id = ?', whereArgs: [viewId]);
+      for (final s in strokes) {
+        await txn.insert('board_strokes', {
+          'id': s['id'], 'view_id': s['viewId'],
+          'group_id': s['groupId'], 'z_index': s['zIndex'] ?? 0,
+          'points': s['points'], 'color': s['color'], 'width': s['width'],
+          'created_at': s['createdAt'],
+        });
+      }
+    });
+  }
+
+  Future<void> insertBoardStroke(Map<String, dynamic> s) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.insert('board_strokes', {
+      'id': s['id'], 'view_id': s['viewId'],
+      'group_id': s['groupId'], 'z_index': s['zIndex'] ?? 0,
+      'points': s['points'], 'color': s['color'], 'width': s['width'],
+      'created_at': s['createdAt'],
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getBoardStrokes(String viewId) async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('board_strokes',
+        where: 'view_id = ?', whereArgs: [viewId]);
+    return rows.map((row) => {
+      'id': row['id'], 'viewId': row['view_id'],
+      'groupId': row['group_id'], 'zIndex': row['z_index'],
+      'points': row['points'], 'color': row['color'], 'width': row['width'],
+      'createdAt': row['created_at'],
+    }).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getAllBoardAlbums() async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('board_albums', orderBy: 'created_at DESC');
+    return rows.cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>?> getBoardAlbum(String id) async {
+    if (_isWeb) return null;
+    final db = await _getDatabase();
+    final rows = await db.query('board_albums',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  Future<void> insertBoardAlbum(Map<String, dynamic> m) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.insert('board_albums', m);
+  }
+
+  Future<void> deleteBoardAlbum(String id) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.delete('board_albums', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<String> ensureAlbumFolder() =>
+      _ensureSystemFolderByTag('album', '画册', tags: ['系统', '画册']);
 }
