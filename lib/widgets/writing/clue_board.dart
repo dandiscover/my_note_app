@@ -6,8 +6,13 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show setEquals;
+import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import '../../database_service.dart';
 import '../../models/card.dart';
+import '../../models/clue_stroke.dart';
+import '../../services/board_revision.dart';
 import '../../models/material_item.dart';
 import '../../models/note.dart';
 import '../../utils/app_string_utils.dart';
@@ -59,8 +64,10 @@ class ClueEdge {
 }
 
 // ─── 画板状态 ──────────────────────────────────────────────
-enum DrawMode { select, line, text }
-enum _ClueToolbarAction { select, line, text, delete, reset }
+enum DrawMode { select, line, text, pen, eraser }
+enum _ClueToolbarAction {
+  select, line, text, pen, eraser, delete, reset, saveAlbum, undo
+}
 class ClueBoard extends StatefulWidget {
   final String viewId;
   final List<MaterialItem> items;
@@ -91,6 +98,19 @@ class ClueBoardState extends State<ClueBoard> {
   String? _lineStartId;
 
   final GlobalKey _boardKey = GlobalKey();
+
+  // B8：笔画数据
+  List<ClueStroke> _strokes = [];
+  Color _penColor = Colors.black;
+  double _penWidth = 4.0;
+  bool _rulerOn = false;
+  Offset? _rulerStart;
+  List<Offset>? _currentStrokePoints;
+  bool _eraseChanged = false;
+  final List<_ClueBoardSnapshot> _undoStack = [];
+  static const int _undoMaxDepth = 30;
+  bool _hasPendingChanges = false;
+  OverlayEntry? _penPanelEntry;
   Timer? _saveDebounce;
   bool _showMaterialPanel = true;
 
@@ -107,6 +127,7 @@ class ClueBoardState extends State<ClueBoard> {
   @override
   void initState() {
     super.initState();
+    BoardRevision.revision.addListener(_onRevision);
     _bootstrap();
   }
 
@@ -129,6 +150,7 @@ class ClueBoardState extends State<ClueBoard> {
     final nodeMaps = await _db.getBoardNodes(widget.viewId);
     final edgeMaps = await _db.getBoardEdges(widget.viewId);
     final textMaps = await _db.getBoardTexts(widget.viewId);
+    final strokeMaps = await _db.getBoardStrokes(widget.viewId);
 
           final validCardIds = _validCardIds;
       final loadedNodes = <ClueNode>[];
@@ -190,6 +212,15 @@ class ClueBoardState extends State<ClueBoard> {
       targetId: m['targetNodeId'] as String,
     )).toList();
 
+    final loadedStrokes = <ClueStroke>[];
+    for (final m in strokeMaps) {
+      try {
+        loadedStrokes.add(ClueStroke.fromMap(m));
+      } catch (e) {
+        debugPrint('[clue_board] stroke 反序列化失败: $e');
+      }
+    }
+
     final loadedBoardCount = loadedNodes
         .where((n) => n.type == 'card' || n.type == 'note')
         .length;
@@ -218,7 +249,17 @@ class ClueBoardState extends State<ClueBoard> {
       _nodes = loadedNodes;
       _edges.clear();
       _edges.addAll(loadedEdges);
+      _strokes = loadedStrokes;
     });
+  }
+
+  void _onRevision() {
+    if (_hasPendingChanges) {
+      debugPrint('[clue_board] revision 跳过 —— 有未落库操作');
+      return;
+    }
+    if (!mounted) return;
+    _loadFromDb();
   }
 
   @override
@@ -265,10 +306,344 @@ class ClueBoardState extends State<ClueBoard> {
   }
 
   void _scheduleSave() {
+    _hasPendingChanges = true;
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 500), () {
       _flushToDbWith(widget.viewId, _validCardIds);
     });
+  }
+    // ─── B8：画笔 / 橡皮 ───
+  void _selectPen() {
+    setState(() => _drawMode = DrawMode.pen);
+    _showPenPanel();
+  }
+
+  void _selectEraser() {
+    setState(() => _drawMode = DrawMode.eraser);
+    _showPenPanel();
+  }
+
+  void _showPenPanel() {
+    if (_penPanelEntry != null) {
+      _penPanelEntry!.markNeedsBuild();
+      return;
+    }
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _penPanelEntry = OverlayEntry(
+      builder: (ctx) {
+        return Positioned(
+          left: 16,
+          top: MediaQuery.of(ctx).padding.top + 100,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Text('颜色', style: TextStyle(fontSize: 12)),
+                    const SizedBox(width: 8),
+                    ..._penColors.map((c) => GestureDetector(
+                          onTap: () {
+                            setState(() => _penColor = c);
+                            _penPanelEntry?.markNeedsBuild();
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: c,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _penColor == c
+                                    ? Colors.blue
+                                    : Colors.grey.shade300,
+                                width: _penColor == c ? 2 : 1,
+                              ),
+                            ),
+                          ),
+                        )),
+                  ]),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    const Text('粗细', style: TextStyle(fontSize: 12)),
+                    const SizedBox(width: 8),
+                    ..._penWidths.map((w) => GestureDetector(
+                          onTap: () {
+                            setState(() => _penWidth = w);
+                            _penPanelEntry?.markNeedsBuild();
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: _penWidth == w
+                                    ? Colors.blue
+                                    : Colors.transparent,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Container(
+                              width: 18,
+                              height: w.clamp(2, 8),
+                              color: Colors.black87,
+                            ),
+                          ),
+                        )),
+                  ]),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    const Text('尺子', style: TextStyle(fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Switch(
+                      value: _rulerOn,
+                      onChanged: (v) {
+                        setState(() => _rulerOn = v);
+                        _penPanelEntry?.markNeedsBuild();
+                      },
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _hidePenPanel,
+                      child: const Text('收起'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    overlay.insert(_penPanelEntry!);
+  }
+
+  void _hidePenPanel() {
+    _penPanelEntry?.remove();
+    _penPanelEntry = null;
+  }
+
+  static const List<Color> _penColors = [
+    Colors.black, Colors.red, Colors.orange,
+    Colors.green, Colors.blue, Colors.grey,
+  ];
+  static const List<double> _penWidths = [2.0, 4.0, 8.0];
+
+  // ─── B8：撤销栈 ───
+  void _pushSnapshot() {
+    _undoStack.add(_ClueBoardSnapshot.from(
+      nodes: _nodes,
+      edges: _edges,
+      strokes: _strokes,
+    ));
+    if (_undoStack.length > _undoMaxDepth) {
+      _undoStack.removeAt(0);
+    }
+  }
+
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    final snap = _undoStack.removeLast();
+    setState(() {
+      _nodes = snap.nodes;
+      _edges.clear();
+      _edges.addAll(snap.edges);
+      _strokes = snap.strokes;
+      _currentStrokePoints = null;
+      _rulerStart = null;
+    });
+    _scheduleSave();
+  }
+
+  // ─── B8：画布手势 ───
+  void _onCanvasPanStart(DragStartDetails d) {
+    if (_drawMode != DrawMode.pen && _drawMode != DrawMode.eraser) return;
+    _eraseChanged = false;
+    if (_drawMode == DrawMode.eraser) {
+      return;
+    }
+    final local = _globalToLocal(d.globalPosition);
+    _currentStrokePoints = [local];
+    if (_rulerOn) _rulerStart = local;
+    setState(() {});
+  }
+
+  void _onCanvasPanUpdate(DragUpdateDetails d) {
+    if (_drawMode != DrawMode.pen && _drawMode != DrawMode.eraser) return;
+    final local = _globalToLocal(d.globalPosition);
+    if (_drawMode == DrawMode.eraser) {
+      _eraseAt(local);
+      return;
+    }
+    if (_rulerOn && _rulerStart != null) {
+      setState(() => _currentStrokePoints = [_rulerStart!, local]);
+    } else {
+      final cur = _currentStrokePoints;
+      if (cur == null) {
+        debugPrint('[clue_board] panUpdate: currentStrokePoints null');
+        return;
+      }
+      setState(() => _currentStrokePoints = [...cur, local]);
+    }
+  }
+
+  void _onCanvasPanEnd(DragEndDetails d) {
+    _eraseChanged = false;
+    if (_drawMode != DrawMode.pen) {
+      _currentStrokePoints = null;
+      _rulerStart = null;
+      setState(() {});
+      return;
+    }
+    final pts = _currentStrokePoints;
+    if (pts == null || pts.length < 2) {
+      _currentStrokePoints = null;
+      _rulerStart = null;
+      setState(() {});
+      return;
+    }
+    _pushSnapshot();
+    final stroke = ClueStroke(
+      id: 'stroke_${DateTime.now().microsecondsSinceEpoch}',
+      viewId: widget.viewId,
+      groupId: null,
+      zIndex: 0,
+      points: List<Offset>.from(pts),
+      color: _penColor,
+      width: _penWidth,
+      createdAt: DateTime.now(),
+    );
+    setState(() {
+      _strokes = List.from(_strokes)..add(stroke);
+      _currentStrokePoints = null;
+      _rulerStart = null;
+    });
+    _scheduleSave();
+  }
+
+  Offset _globalToLocal(Offset global) {
+    final box = _boardKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return global;
+    return box.globalToLocal(global);
+  }
+
+  void _eraseAt(Offset p) {
+    if (_strokes.isEmpty) return;
+    final threshold = 8.0;
+    int? removeIdx;
+    for (int i = _strokes.length - 1; i >= 0; i--) {
+      final s = _strokes[i];
+      final r = s.width / 2 + threshold;
+      double minX = double.infinity, minY = double.infinity;
+      double maxX = -double.infinity, maxY = -double.infinity;
+      for (final q in s.points) {
+        if (q.dx < minX) minX = q.dx;
+        if (q.dy < minY) minY = q.dy;
+        if (q.dx > maxX) maxX = q.dx;
+        if (q.dy > maxY) maxY = q.dy;
+      }
+      if (p.dx < minX - r || p.dx > maxX + r) continue;
+      if (p.dy < minY - r || p.dy > maxY + r) continue;
+      for (final q in s.points) {
+        if ((q - p).distance < r) {
+          removeIdx = i;
+          break;
+        }
+      }
+      if (removeIdx != null) break;
+    }
+    if (removeIdx != null) {
+      if (!_eraseChanged) {
+        _pushSnapshot();
+        _eraseChanged = true;
+      }
+      setState(() => _strokes = List.from(_strokes)..removeAt(removeIdx!));
+      _scheduleSave();
+    }
+  }
+
+  // ─── B8：存画册 ───
+  Future<void> _saveToAlbum() async {
+    if (_strokes.isEmpty) return;
+    final imageBytes = await _renderThumbnail();
+    if (imageBytes == null) return;
+    final b64 = base64Encode(imageBytes);
+    final albumId = 'album_${DateTime.now().millisecondsSinceEpoch}';
+    final strokesJson = jsonEncode(
+      _strokes.map((s) => s.toAlbumJson()).toList(),
+    );
+    await _db.insertBoardAlbum({
+      'id': albumId,
+      'title': '画册 ${DateTime.now().toString().substring(0, 16)}',
+      'source_view_id': widget.viewId,
+      'strokes_json': strokesJson,
+      'thumbnail_base64': b64,
+      'created_at': DateTime.now().toIso8601String(),
+      'updated_at': null,
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已存到画册'), duration: Duration(seconds: 1)),
+    );
+  }
+
+  Future<Uint8List?> _renderThumbnail() async {
+    if (_strokes.isEmpty) return null;
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = -double.infinity, maxY = -double.infinity;
+    for (final s in _strokes) {
+      for (final q in s.points) {
+        if (q.dx < minX) minX = q.dx;
+        if (q.dy < minY) minY = q.dy;
+        if (q.dx > maxX) maxX = q.dx;
+        if (q.dy > maxY) maxY = q.dy;
+      }
+    }
+    final w = maxX - minX;
+    final h = maxY - minY;
+    if (w <= 0 || h <= 0) return null;
+    const target = 312.0;
+    final scale = target / (w > h ? w : h);
+    final canvasW = (w * scale) + 8;
+    final canvasH = (h * scale) + 8;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, canvasW, canvasH),
+      Paint()..color = Colors.white,
+    );
+    canvas.save();
+    canvas.translate(4, 4);
+    canvas.scale(scale);
+    canvas.translate(-minX, -minY);
+    for (final s in _strokes) {
+      final paint = Paint()
+        ..color = s.color
+        ..strokeWidth = s.width / scale
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final path = Path()..moveTo(s.points.first.dx, s.points.first.dy);
+      for (int i = 1; i < s.points.length; i++) {
+        path.lineTo(s.points[i].dx, s.points[i].dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+    canvas.restore();
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(canvasW.toInt(), canvasH.toInt());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    return bytes?.buffer.asUint8List();
   }
 
   Future<void> _flushToDbWith(String viewId, Set<String> validCardIds) async {
@@ -294,6 +669,9 @@ class ClueBoardState extends State<ClueBoard> {
       await _db.replaceBoardNodes(viewId, boardNodes.map((n) => _nodeToMap(n, viewId)).toList());
       await _db.replaceBoardEdges(viewId, validEdges.map((e) => _edgeToMap(e, viewId)).toList());
       await _db.replaceBoardTexts(viewId, textNodes.map((n) => _nodeToMap(n, viewId)).toList());
+      await _db.replaceBoardStrokes(
+          viewId, _strokes.map((s) => s.toMap(viewId)).toList());
+      _hasPendingChanges = false;
     } catch (e, st) {
       debugPrint('ClueBoard _flushToDbWith 失败: $e\n$st');
     }
@@ -342,6 +720,9 @@ class ClueBoardState extends State<ClueBoard> {
 
   @override
   void dispose() {
+    BoardRevision.revision.removeListener(_onRevision);
+    _penPanelEntry?.remove();
+    _penPanelEntry = null;
     _saveDebounce?.cancel();
     final viewId = widget.viewId;
          final validCardIds = _validCardIds;
@@ -548,12 +929,68 @@ class ClueBoardState extends State<ClueBoard> {
     );
   }
 
-  Widget _buildToolbar(double paneWidth) {
-    // 独立页（embedded == false）：永远宽态，一字不改
+   Widget _buildToolbar(double paneWidth) {
     if (!widget.embedded) return _buildToolbarWide();
-    // 多栏：pane >= 260 宽态；pane < 260 窄态
-    if (paneWidth >= 260) return _buildToolbarWide();
+    if (paneWidth >= 480) return _buildToolbarWide();
+    if (paneWidth >= 380) return _buildToolbarMid();
     return _buildToolbarNarrow();
+  }
+
+  Widget _buildToolbarMid() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      color: Colors.white,
+      child: Row(
+        children: [
+          _toolbarIcon(DrawMode.select, Icons.select_all, '选择',
+              () => setState(() {
+                    _drawMode = DrawMode.select;
+                    _lineStartId = null;
+                  })),
+          _toolbarIcon(DrawMode.line, Icons.timeline, '连线模式',
+              () => setState(() {
+                    _drawMode = DrawMode.line;
+                    _lineStartId = null;
+                  })),
+          _toolbarIcon(DrawMode.text, Icons.title, '添加文字',
+              () => setState(() {
+                    _drawMode = DrawMode.text;
+                    _addTextNode();
+                  })),
+          _toolbarIcon(DrawMode.pen, Icons.edit, '画笔', _selectPen),
+          _toolbarIcon(DrawMode.eraser, Icons.cleaning_services_outlined, '橡皮',
+              _selectEraser),
+          IconButton(
+            icon: const Icon(Icons.undo),
+            onPressed: _undo,
+            tooltip: '撤销',
+          ),
+          const Spacer(),
+          PopupMenuButton<_ClueToolbarAction>(
+            icon: const Icon(Icons.more_horiz),
+            tooltip: '更多',
+            onSelected: _handleToolbarAction,
+            itemBuilder: (_) => [
+              _toolbarMenuItem(_ClueToolbarAction.delete, Icons.delete_outline,
+                  '删除选中', isDelete: true),
+              _toolbarMenuItem(
+                  _ClueToolbarAction.reset, Icons.clear_all, '重置'),
+              _toolbarMenuItem(_ClueToolbarAction.saveAlbum,
+                  Icons.collections_bookmark, '存画册'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _toolbarIcon(
+      DrawMode m, IconData icon, String tip, VoidCallback onTap) {
+    return IconButton(
+      icon: Icon(icon, color: _drawMode == m ? Colors.blue : null),
+      onPressed: onTap,
+      tooltip: tip,
+    );
   }
 
   /// 宽态 —— 与 v0.3 前原文逐字一致
@@ -580,40 +1017,58 @@ class ClueBoardState extends State<ClueBoard> {
             onPressed: () => setState(() { _drawMode = DrawMode.text; _addTextNode(); }),
             tooltip: '添加文字',
           ),
+          const SizedBox(width: 2),
+          IconButton(
+            icon: Icon(Icons.edit,
+                color: _drawMode == DrawMode.pen ? Colors.blue : null),
+            onPressed: _selectPen,
+            tooltip: '画笔',
+          ),
+          const SizedBox(width: 2),
+          IconButton(
+            icon: Icon(Icons.cleaning_services_outlined,
+                color: _drawMode == DrawMode.eraser ? Colors.blue : null),
+            onPressed: _selectEraser,
+            tooltip: '橡皮',
+          ),
           const Spacer(),
           IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.red),
             onPressed: _deleteSelected,
             tooltip: '删除选中',
           ),
-                      IconButton(
-              icon: const Icon(Icons.clear_all),
-              onPressed: () {
-                setState(() {
-                  _nodes.clear();
-                  _edges.clear();
-                  _lineStartId = null;
-                  _selectedNodeId = null;
-                });
-                _scheduleSave();
-              },
-              tooltip: '重置',
+          IconButton(
+            icon: const Icon(Icons.collections_bookmark),
+            onPressed: _saveToAlbum,
+            tooltip: '存画册',
+          ),
+          IconButton(
+            icon: const Icon(Icons.undo),
+            onPressed: _undo,
+            tooltip: '撤销',
+          ),
+          IconButton(
+            icon: const Icon(Icons.clear_all),
+            onPressed: () => _handleToolbarAction(_ClueToolbarAction.reset),
+            tooltip: '重置',
+          ),
+          if (!widget.embedded)
+            IconButton(
+              icon: Icon(_showMaterialPanel
+                  ? Icons.view_sidebar
+                  : Icons.view_sidebar_outlined),
+              onPressed: () =>
+                  setState(() => _showMaterialPanel = !_showMaterialPanel),
+              tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
             ),
-            if (!widget.embedded)
-              IconButton(
-                icon: Icon(_showMaterialPanel
-                    ? Icons.view_sidebar
-                    : Icons.view_sidebar_outlined),
-                onPressed: () =>
-                    setState(() => _showMaterialPanel = !_showMaterialPanel),
-                tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
-              ),
           ],
       ),
     );
   }
 
   /// 窄态 —— 单个 ⋯，菜单含全部动作
+
+
   Widget _buildToolbarNarrow() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -637,7 +1092,6 @@ class ClueBoardState extends State<ClueBoard> {
       ),
     );
   }
-
   PopupMenuItem<_ClueToolbarAction> _toolbarMenuItem(
     _ClueToolbarAction action,
     IconData icon,
@@ -648,6 +1102,8 @@ class ClueBoardState extends State<ClueBoard> {
       _ClueToolbarAction.select => _drawMode == DrawMode.select,
       _ClueToolbarAction.line => _drawMode == DrawMode.line,
       _ClueToolbarAction.text => _drawMode == DrawMode.text,
+      _ClueToolbarAction.pen => _drawMode == DrawMode.pen,
+      _ClueToolbarAction.eraser => _drawMode == DrawMode.eraser,
       _ => false,
     };
     return PopupMenuItem<_ClueToolbarAction>(
@@ -669,7 +1125,10 @@ class ClueBoardState extends State<ClueBoard> {
   void _handleToolbarAction(_ClueToolbarAction action) {
     switch (action) {
       case _ClueToolbarAction.select:
-        setState(() => _drawMode = DrawMode.select);
+        setState(() {
+          _drawMode = DrawMode.select;
+          _lineStartId = null;
+        });
       case _ClueToolbarAction.line:
         setState(() {
           _drawMode = DrawMode.line;
@@ -680,62 +1139,95 @@ class ClueBoardState extends State<ClueBoard> {
           _drawMode = DrawMode.text;
           _addTextNode();
         });
+      case _ClueToolbarAction.pen:
+        _selectPen();
+      case _ClueToolbarAction.eraser:
+        _selectEraser();
       case _ClueToolbarAction.delete:
         _deleteSelected();
       case _ClueToolbarAction.reset:
+        _pushSnapshot();
         setState(() {
           _nodes.clear();
           _edges.clear();
+          _strokes.clear();
           _lineStartId = null;
           _selectedNodeId = null;
         });
         _scheduleSave();
+      case _ClueToolbarAction.saveAlbum:
+        _saveToAlbum();
+      case _ClueToolbarAction.undo:
+        _undo();
     }
   }
 
   Widget _buildBoard() {
+    final drawing = _drawMode == DrawMode.pen || _drawMode == DrawMode.eraser;
     return GestureDetector(
       onTap: () {
+        if (drawing) return;
         setState(() {
           _selectedNodeId = null;
           if (_drawMode == DrawMode.line) _lineStartId = null;
         });
       },
+      onPanStart: drawing ? _onCanvasPanStart : null,
+      onPanUpdate: drawing ? _onCanvasPanUpdate : null,
+      onPanEnd: drawing ? _onCanvasPanEnd : null,
       child: Container(
         key: _boardKey,
-        child: CustomPaint(
-          painter: _ClueBoardPainter(
-            nodes: _nodes,
-            edges: _edges,
-            selectedId: _selectedNodeId,
-            lineStartId: _lineStartId,
-            mode: _drawMode,
-          ),
-          size: Size.infinite,
-          child: Stack(
-            children: _nodes.map((node) {
-              return Positioned(
-                left: node.position.dx - node.width / 2,
-                top: node.position.dy - node.height / 2,
-                child: GestureDetector(
-                  onPanStart: (details) => _onPanStart(details, node.id),
-                  onPanUpdate: (details) => _onPanUpdate(details, node.id),
-                  onPanEnd: (details) => _onPanEnd(details, node.id),
-                  onDoubleTap: () {
-                    if (node.type == 'text') _editTextNode(node.id);
-                  },
-                  onTap: () {
-                    if (_drawMode == DrawMode.line) {
-                      _startLine(node.id);
-                    } else {
-                      setState(() => _selectedNodeId = node.id);
-                    }
-                  },
-                  child: _buildNodeWidget(node),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _ClueBoardPainter(
+                  nodes: _nodes,
+                  edges: _edges,
+                  selectedId: _selectedNodeId,
+                  lineStartId: _lineStartId,
+                  mode: _drawMode,
                 ),
-              );
-            }).toList(),
-          ),
+              ),
+            ),
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _StrokePainter(
+                  strokes: _strokes,
+                  current: _currentStrokePoints,
+                  currentColor: _penColor,
+                  currentWidth: _penWidth,
+                ),
+              ),
+            ),
+            IgnorePointer(
+              ignoring: drawing,
+              child: Stack(
+                children: _nodes.map((node) {
+                  return Positioned(
+                    left: node.position.dx - node.width / 2,
+                    top: node.position.dy - node.height / 2,
+                    child: GestureDetector(
+                      onPanStart: (details) => _onPanStart(details, node.id),
+                      onPanUpdate: (details) => _onPanUpdate(details, node.id),
+                      onPanEnd: (details) => _onPanEnd(details, node.id),
+                      onDoubleTap: () {
+                        if (node.type == 'text') _editTextNode(node.id);
+                      },
+                      onTap: () {
+                        if (_drawMode == DrawMode.line) {
+                          _startLine(node.id);
+                        } else {
+                          setState(() => _selectedNodeId = node.id);
+                        }
+                      },
+                      child: _buildNodeWidget(node),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -907,6 +1399,95 @@ class _ClueBoardPainter extends CustomPainter {
     if (oldDelegate.edges != edges) return true;
     if (oldDelegate.selectedId != selectedId) return true;
     if (oldDelegate.lineStartId != lineStartId) return true;
+    if (oldDelegate.mode != mode) return true;
     return false;
+  }
+}
+class _StrokePainter extends CustomPainter {
+  final List<ClueStroke> strokes;
+  final List<Offset>? current;
+  final Color currentColor;
+  final double currentWidth;
+
+  _StrokePainter({
+    required this.strokes,
+    this.current,
+    required this.currentColor,
+    required this.currentWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final s in strokes) {
+      if (s.points.length < 2) continue;
+      final paint = Paint()
+        ..color = s.color
+        ..strokeWidth = s.width
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final path = Path()..moveTo(s.points.first.dx, s.points.first.dy);
+      for (int i = 1; i < s.points.length; i++) {
+        path.lineTo(s.points[i].dx, s.points[i].dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+    final cur = current;
+    if (cur != null && cur.length >= 2) {
+      final paint = Paint()
+        ..color = currentColor
+        ..strokeWidth = currentWidth
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final path = Path()..moveTo(cur.first.dx, cur.first.dy);
+      for (int i = 1; i < cur.length; i++) {
+        path.lineTo(cur[i].dx, cur[i].dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StrokePainter old) {
+    if (old.strokes != strokes) return true;
+    if (old.current != current) return true;
+    if (old.currentColor != currentColor) return true;
+    if (old.currentWidth != currentWidth) return true;
+    return false;
+  }
+}
+
+class _ClueBoardSnapshot {
+  final List<ClueNode> nodes;
+  final List<ClueEdge> edges;
+  final List<ClueStroke> strokes;
+
+  _ClueBoardSnapshot({
+    required this.nodes,
+    required this.edges,
+    required this.strokes,
+  });
+
+  factory _ClueBoardSnapshot.from({
+    required List<ClueNode> nodes,
+    required List<ClueEdge> edges,
+    required List<ClueStroke> strokes,
+  }) {
+    return _ClueBoardSnapshot(
+      nodes: nodes.map((n) => n.copyWith()).toList(),
+      edges: edges
+          .map((e) => ClueEdge(
+                id: e.id,
+                sourceId: e.sourceId,
+                targetId: e.targetId,
+              ))
+          .toList(),
+      strokes: strokes
+          .map((s) => s.copyWith(
+                points: List<Offset>.from(s.points),
+              ))
+          .toList(),
+    );
   }
 }
