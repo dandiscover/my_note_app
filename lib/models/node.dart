@@ -124,6 +124,7 @@ class Node {
       if (systemTag == 'archived') return '📦';
       if (systemTag == 'cardbox') return '📇';
       if (systemTag == 'review') return '📝';
+      if (systemTag == 'album') return '🎨';
       if (systemTag == 'expand') return '✏️';
       return '📁';
     }
