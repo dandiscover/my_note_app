@@ -57,6 +57,9 @@ import '../widgets/wisdom/epub_reorder_dialog.dart';
 import '../services/open_tabs_manager.dart';
 import '../services/focus_mode_notifier.dart';
 import '../widgets/open_tabs_bar.dart';
+import 'dart:convert';
+import '../models/clue_stroke.dart';
+import '../services/board_revision.dart';
 enum WisdomViewMode { list, grid, large, split, cardWall, timeline, gallery }
 
 class WisdomPage extends StatefulWidget {
@@ -76,6 +79,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   List<Book> _books = [];
   List<CardModel> _cards = [];
   String? _currentFolderId;
+  List<Map<String, dynamic>>? _albums;
   NotebookEntry? _openedNote;
   bool _showTabView = true;
   String _searchKeyword = '';
@@ -204,6 +208,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       await _ensureArchivedFolder();
       await _ensureLibraryFolder();
       await _db.ensureCardBoxFolder();
+      await _db.ensureAlbumFolder();
       await _migrateOrphanBooks();
 
       _cache.invalidate(_cacheKeyNodes);
@@ -256,6 +261,11 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     } catch (e) {
       print('加载数据失败: $e');
     }
+    try {
+      _albums = await _db.getAllBoardAlbums();
+    } catch (e) {
+      debugPrint('[wisdom] 画册加载失败: $e');
+    }
     if (!mounted) return;
     isLoading = false;
   }
@@ -296,6 +306,18 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
     if (node.id.isEmpty) return false;
     return node.systemTag == 'cardbox' && node.isFolder && node.parentId == null;
+  }
+    // B8：当前 folder 是画册
+  bool get _isInAlbum {
+    if (_currentFolderId == null) return false;
+    final node = _nodes.firstWhere(
+      (n) => n.id == _currentFolderId,
+      orElse: () => Node.empty,
+    );
+    if (node.id.isEmpty) return false;
+    return node.systemTag == 'album' &&
+        node.isFolder &&
+        node.parentId == null;
   }
 
   List<Node> get _siblingFolders {
@@ -404,6 +426,13 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             'node': node,
             'type': 'review',
             'count': _nodes.where((n) => n.parentId == node.id && !n.isFolder).length,
+          });
+          break;
+                case 'album':
+          result.add({
+            'node': node,
+            'type': 'album',
+            'count': _albums?.length ?? 0,
           });
           break;
       }
@@ -980,6 +1009,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   Widget _buildFolderView() {
+    if (_isInAlbum) return _buildAlbumView();
     final children = _filteredNodes;
     final folderStats = _getFolderStats();
     final systemFolders = _systemFolders;
@@ -1023,7 +1053,153 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       ],
     );
   }
+  // ─── B8：画册视图 ───
+  Widget _buildAlbumView() {
+    final albums = _albums ?? [];
+    if (albums.isEmpty) {
+      return const Center(child: Text('画册暂无内容'));
+    }
+    final width = MediaQuery.of(context).size.width;
+    final crossAxisCount = (width / 180).floor().clamp(1, 1000).toInt();
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        childAspectRatio: 1.2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: albums.length,
+      itemBuilder: (ctx, i) {
+        final a = albums[i];
+        final b64 = a['thumbnail_base64'] as String?;
+        return GestureDetector(
+          onTap: () => _openAlbumFullView(a),
+          onLongPress: () => _showAlbumMenu(a),
+          child: Column(
+            children: [
+              Expanded(
+                child: b64 == null
+                    ? Container(
+                        color: Colors.grey.shade200,
+                        child: const Icon(Icons.image_not_supported),
+                      )
+                    : Image.memory(
+                        base64Decode(b64),
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                      ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                (a['title'] as String?) ?? '未命名',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
+  void _openAlbumFullView(Map<String, dynamic> album) {
+    final strokesJson = album['strokes_json'] as String? ?? '[]';
+    final strokes = (jsonDecode(strokesJson) as List)
+        .map((e) => ClueStroke.fromJson(e as Map<String, dynamic>))
+        .toList();
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(painter: _AlbumPainter(strokes: strokes)),
+            ),
+            Positioned(
+              top: 12,
+              right: 12,
+              child: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAlbumMenu(Map<String, dynamic> album) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('复制到线索墙'),
+              onTap: () => Navigator.pop(ctx, 'copy'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('删除', style: TextStyle(color: Colors.red)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('取消'),
+              onTap: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'copy') {
+      await _copyAlbumToBoard(album);
+    } else if (action == 'delete') {
+      await _deleteAlbum(album);
+    }
+  }
+
+  Future<void> _copyAlbumToBoard(Map<String, dynamic> album) async {
+    final strokesJson = album['strokes_json'] as String? ?? '[]';
+    final strokes = (jsonDecode(strokesJson) as List)
+        .map((e) => ClueStroke.fromJson(e as Map<String, dynamic>))
+        .toList();
+    if (strokes.isEmpty) return;
+    final groupId = 'group_${DateTime.now().millisecondsSinceEpoch}';
+    const offset = Offset(100, 100);
+    final now = DateTime.now();
+    for (int i = 0; i < strokes.length; i++) {
+      final s = strokes[i];
+      final newStroke = s.copyWith(
+        id: 'stroke_${now.microsecondsSinceEpoch}_$i',
+        points: s.points.map((p) => p + offset).toList(),
+        viewId: 'global',
+        groupId: groupId,
+      );
+      await _db.insertBoardStroke(newStroke.toMap('global'));
+    }
+    BoardRevision.bump();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已复制到线索墙')),
+      );
+    }
+  }
+
+  Future<void> _deleteAlbum(Map<String, dynamic> album) async {
+    final id = album['id'] as String?;
+    if (id == null) return;
+    await _db.deleteBoardAlbum(id);
+    if (!mounted) return;
+    _albums = await _db.getAllBoardAlbums();
+    setState(() {});
+  }
   Widget _buildBreadcrumb() {
     final path = _breadcrumbPath;
     if (path.isEmpty) return const SizedBox.shrink();
@@ -2149,4 +2325,58 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
   }
   
+}
+class _AlbumPainter extends CustomPainter {
+  final List<ClueStroke> strokes;
+  _AlbumPainter({required this.strokes});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.white,
+    );
+    if (strokes.isEmpty) return;
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = -double.infinity, maxY = -double.infinity;
+    for (final s in strokes) {
+      for (final q in s.points) {
+        if (q.dx < minX) minX = q.dx;
+        if (q.dy < minY) minY = q.dy;
+        if (q.dx > maxX) maxX = q.dx;
+        if (q.dy > maxY) maxY = q.dy;
+      }
+    }
+    final w = maxX - minX;
+    final h = maxY - minY;
+    if (w <= 0 || h <= 0) return;
+    final scale = (size.width / w) < (size.height / h)
+        ? size.width / w
+        : size.height / h;
+    canvas.save();
+    canvas.translate(
+      (size.width - w * scale) / 2,
+      (size.height - h * scale) / 2,
+    );
+    canvas.scale(scale);
+    canvas.translate(-minX, -minY);
+    for (final s in strokes) {
+      if (s.points.length < 2) continue;
+      final paint = Paint()
+        ..color = s.color
+        ..strokeWidth = s.width / scale
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final path = Path()..moveTo(s.points.first.dx, s.points.first.dy);
+      for (int i = 1; i < s.points.length; i++) {
+        path.lineTo(s.points[i].dx, s.points[i].dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_AlbumPainter old) => old.strokes != strokes;
 }
