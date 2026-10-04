@@ -22,7 +22,9 @@ import '../models/note.dart';           // ✅ 新增：NotebookEntry
 import '../services/pet_service.dart';  // ✅ 新增：PetService
 import '../models/pet.dart';            // ✅ 新增：Pet 模型
 import '../models/node.dart';           // ✅ 新增：Node 模型
-
+import 'package:file_picker/file_picker.dart';
+import '../core/platform_config.dart';
+import '../services/markdown_import_service.dart';
 class ProfilePage extends StatefulWidget {
   final VoidCallback? onLoginSuccess;
 
@@ -166,6 +168,96 @@ class _ProfilePageState extends State<ProfilePage>
     } catch (e) {
       _showSnackBar('❌ 导出失败：$e');
     }
+  }
+  Future<void> _importMarkdown() async {
+    if (!PlatformConfig.isDesktop) {
+      _showSnackBar('导入 Markdown 仅桌面端支持');
+      return;
+    }
+    try {
+      final dirPath = await FilePicker.getDirectoryPath(
+        dialogTitle: '选择 OneNote 导出的 Markdown 根目录',
+      );
+      if (dirPath == null || dirPath.isEmpty) return;
+      if (!mounted) return;
+
+      const folderName = '导入的 Markdown';
+      final service = MarkdownImportService();
+      final progressNotifier =
+          ValueNotifier<_ImportProgress>(const _ImportProgress.initial());
+
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => _MarkdownImportProgressDialog(
+          progress: progressNotifier,
+          onCancel: () => service.cancel(),
+        ),
+      );
+
+      final result = await service.importDirectory(
+        sourceDir: dirPath,
+        targetFolderName: folderName,
+        onProgress: (phase, cur, total, label) {
+          progressNotifier.value = _ImportProgress(
+            phase: phase,
+            current: cur,
+            total: total,
+            label: label,
+          );
+        },
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _showImportResult(result);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).maybePop();
+      _showSnackBar('❌ 导入失败：$e');
+    }
+  }
+
+  void _showImportResult(MarkdownImportResult r) {
+    final failed = r.failed;
+    final head =
+        '导入完成：成功 ${r.success} / 跳过 ${r.skipped} / 失败 ${failed.length}';
+    final listBuf = StringBuffer();
+    final shown = failed.take(20).toList();
+    for (int i = 0; i < shown.length; i++) {
+      listBuf.writeln('${i + 1}. ${shown[i].path} —— ${shown[i].reason}');
+    }
+    if (failed.length > 20) {
+      listBuf.writeln('… 共 ${failed.length} 条 —— 完整见日志');
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('导入结果'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(head, style: const TextStyle(fontWeight: FontWeight.bold)),
+              if (listBuf.length > 0) ...[
+                const SizedBox(height: 12),
+                const Text('失败列表：'),
+                Text(listBuf.toString(),
+                    style: const TextStyle(fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showSnackBar(String msg) {
@@ -1187,6 +1279,17 @@ class _ProfilePageState extends State<ProfilePage>
             onTap: _exportMarkdown,
           ),
           const SizedBox(height: 12),
+          if (PlatformConfig.isDesktop) ...[
+            _buildDataCard(
+              icon: Icons.file_download_outlined,
+              title: '📥 导入 Markdown',
+              subtitle: '从 OneNote 导出的 Markdown 目录导入笔记（桌面端）',
+              buttonText: '导入',
+              color: Colors.green,
+              onTap: _importMarkdown,
+            ),
+            const SizedBox(height: 12),
+          ],
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -1470,6 +1573,64 @@ class _ProfilePageState extends State<ProfilePage>
           ),
         ),
         ...children,
+      ],
+    );
+  }
+  
+}
+class _ImportProgress {
+  final String phase;
+  final int current;
+  final int total;
+  final String label;
+  const _ImportProgress({
+    required this.phase,
+    required this.current,
+    required this.total,
+    required this.label,
+  });
+  const _ImportProgress.initial()
+      : phase = '',
+        current = 0,
+        total = 0,
+        label = '';
+}
+
+class _MarkdownImportProgressDialog extends StatelessWidget {
+  final ValueNotifier<_ImportProgress> progress;
+  final VoidCallback onCancel;
+  const _MarkdownImportProgressDialog({
+    required this.progress,
+    required this.onCancel,
+  });
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('导入中'),
+      content: ValueListenableBuilder<_ImportProgress>(
+        valueListenable: progress,
+        builder: (ctx, p, _) {
+          final ratio = p.total > 0 ? p.current / p.total : 0.0;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              LinearProgressIndicator(value: ratio),
+              const SizedBox(height: 12),
+              Text('${p.phase} ${p.current}/${p.total}'),
+              if (p.label.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(p.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12)),
+              ],
+            ],
+          );
+        },
+      ),
+      actions: [
+        TextButton(onPressed: onCancel, child: const Text('取消')),
       ],
     );
   }
