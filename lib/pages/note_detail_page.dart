@@ -1123,6 +1123,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ],
             const SizedBox(height: 12),
             Text(
+              '创建于 ${_entry.createdAt?.toLocal().toString().substring(0, 16) ?? "—"} · '
               '更新于 ${_entry.updatedAt.toLocal().toString().substring(0, 16)}',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
             ),
@@ -1623,6 +1624,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             _buildNoteCardsSection(),
             const SizedBox(height: 12),
             Text(
+              '创建于 ${_entry.createdAt?.toLocal().toString().substring(0, 16) ?? "—"} · '
               '更新于 ${_entry.updatedAt.toLocal().toString().substring(0, 16)}',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
             ),
