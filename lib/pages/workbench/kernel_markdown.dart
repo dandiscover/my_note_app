@@ -58,9 +58,11 @@ class MarkdownKernel extends EditorKernel {
   @override
   EditorContext get ctx => _ctx;
 
-  @override
-  Widget build(BuildContext context) => _MarkdownBody(kernel: this);
-
+ @override
+Widget build(BuildContext context) => _MarkdownBody(
+  key: ObjectKey(this),
+  kernel: this,
+);
   @override
   Future<bool> save({bool isAuto = false}) async =>
       await _state?.save(isAuto: isAuto) ?? false;
@@ -103,7 +105,7 @@ class MarkdownKernel extends EditorKernel {
 class _MarkdownBody extends StatefulWidget {
   final MarkdownKernel kernel;
 
-  const _MarkdownBody({required this.kernel});
+  const _MarkdownBody({super.key, required this.kernel});
 
   @override
   State<_MarkdownBody> createState() => _MarkdownBodyState();
@@ -146,11 +148,15 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
 
   // ✅ 完整笔记状态
   late NotebookEntry _entry;
-
-  @override
-  void initState() {
-    super.initState();
-    _entry = widget.kernel.ctx.entry;
+@override
+void initState() {
+  super.initState();
+  final prev = widget.kernel._state;
+  if (prev != null && prev != this) {
+    debugPrint('🚨 [MarkdownBody] 双 state 共存 —— '
+        'kernel=${widget.kernel.hashCode} prev=${prev.hashCode} new=${hashCode}');
+  }
+  _entry = widget.kernel.ctx.entry;
     _isMarkdown = _entry.editorMode == 'markdown';
     _tags = List.from(_entry.tags);
 
@@ -398,12 +404,15 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   }
 
   // B8：点 💫 —— 弹编辑框
-  Future<void> _onSparkTap() async {
-    final result = await showDialog<SparkDialogResult>(
-      context: context,
-      builder: (_) => const SparkDialog(),
-    );
-    if (result == null || result.content.isEmpty) return;
+ Future<void> _onSparkTap() async {
+  if (!mounted) return;
+  final result = await showDialog<SparkDialogResult>(
+    context: context,
+    builder: (_) => const SparkDialog(),
+  );
+  if (!mounted) return;
+  if (result == null || result.content.isEmpty) return;
+    
     final noteId = _entry.id;
     final offset = _contentController.selection.baseOffset.toString();
     switch (result.action) {
@@ -756,19 +765,24 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   void createReviewCardExternal() => _createReviewCard();
 
   /// 外部 entry 更新——由 kernel.updateEntry 转发
-  void updateEntry(NotebookEntry newEntry) {
-    setState(() {
-      _entry = newEntry;
-      _contentController.text = newEntry.content;
-      _titleController.text = newEntry.title;
-      // B8：切笔记 —— spark 缓存清（kernel 复用 —— 必清）
-      _sparkOffsets.clear();
-      _showSparkCursor = false;
-      _sparkAnchorOffset = null;
-    });
-    _sparkOverlayEntry?.markNeedsBuild();
-    _loadPendingSparks();
-  }
+void updateEntry(NotebookEntry newEntry) {
+  if (!mounted) return;
+  setState(() {
+    _entry = newEntry;
+    _contentController.text = newEntry.content;
+    _titleController.text = newEntry.title;
+    _sparkOffsets.clear();
+    _showSparkCursor = false;
+    _sparkAnchorOffset = null;
+  });
+  _loadPendingSparks();
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    final e = _sparkOverlayEntry;
+    if (e == null || !e.mounted) return;
+    e.markNeedsBuild();
+  });
+}
 
   @override
   Widget build(BuildContext context) {

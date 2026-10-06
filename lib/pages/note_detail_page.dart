@@ -382,7 +382,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
       setState(() {
         _entry = updated;
-        _isReadMode = true;
+        if (!auto) _isReadMode = true;   // C 块 7：自动保存不切阅读
       });
 
       if (mounted) {

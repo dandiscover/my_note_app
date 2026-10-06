@@ -116,11 +116,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   void _onReopen() {
-    if (mounted) {
-      setState(() => _showTabView = true);
-      _syncNoteViewActive();
-    }
-  }
+  // C 块 7 修：从列表重开同一笔记 —— activeTabId 可能未变 ——
+  // 但数据库已更新 —— 必须重读，否则 _openedNote 是旧值
+  _onActiveTabChanged();
+}
   /// 命令面板调用 —— 打开标记汇总
   void openMarkSummary() => _openMarkSummary();
   
@@ -955,10 +954,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               onFolderTap: _navigateToFolder,
             ),
           OpenTabsBar(
-            onTabTap: () {
-              setState(() => _showTabView = true);
-              _syncNoteViewActive();
-            },
+  onTabTap: () {
+    // C 块 7 修：点顶部标签栏重开 —— 同改 1 —— 必须重读
+    _onActiveTabChanged();
+  },
             onBack: (_showTabView && _openedNote != null)
                 ? () {
                     setState(() => _showTabView = false);

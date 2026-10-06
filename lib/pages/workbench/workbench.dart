@@ -36,8 +36,13 @@ class _WorkbenchState extends State<Workbench> {
   void didUpdateWidget(Workbench oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 批：焦点归属——Workbench 不介入焦点
+    // C 块 7 修：build 期不调 updateEntry —— 延后一帧
     if (oldWidget.entry != widget.entry) {
-      widget.kernel.updateEntry(widget.entry);
+      final kernel = widget.kernel;
+      final entry = widget.entry;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) kernel.updateEntry(entry);
+      });
     }
   }
 

@@ -361,15 +361,16 @@ class _MultiPanePageState extends State<MultiPanePage> {
     }
     // 批：保存后切阅读态——找对应 pane
     if (mounted) {
+      final auto = isAuto ?? false;          // C 块 7
       setState(() {
         for (var i = 0; i < _panes.length; i++) {
           final p = _panes[i];
           if (p is _NotePane && p.note.id == entry.id) {
-            p.kernel.updateEntry(updated);   // ← 关键：kernel entry 同步
+            p.kernel.updateEntry(updated);
             _panes[i] = _NotePane(
               note: updated,
-              kernel: p.kernel,              // 复用 kernel——不重建
-              isReadMode: true,
+              kernel: p.kernel,
+              isReadMode: auto ? p.isReadMode : true,   // C 块 7：自动保留原态
             );
           }
         }
