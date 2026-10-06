@@ -2000,6 +2000,10 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       );
       subtitle = note.content.length > 80 ? '${note.content.substring(0, 80)}...' : note.content;
       if (subtitle.isEmpty) subtitle = '无内容';
+      final createdAt = note.createdAt;
+      if (createdAt != null) {
+        subtitle = '$subtitle\n创建于 ${createdAt.toLocal().toString().substring(0, 16)}';
+      }
     } else if (node.nodeType == 'book') {
       leadingIcon = Icons.book;
       iconColor = Colors.green;

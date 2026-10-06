@@ -64,3 +64,5 @@ android/build/
 # Android 构建产物
 android/build/
 
+# core dump
+_core_dump*.txt
