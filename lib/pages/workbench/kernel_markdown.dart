@@ -62,7 +62,8 @@ class MarkdownKernel extends EditorKernel {
   Widget build(BuildContext context) => _MarkdownBody(kernel: this);
 
   @override
-  Future<bool> save() async => await _state?.save() ?? false;
+  Future<bool> save({bool isAuto = false}) async =>
+      await _state?.save(isAuto: isAuto) ?? false;
 
   @override
   void insertText(String text) => _state?.insertText(text);
@@ -204,7 +205,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
     _resetTypingTimer();
     _autoSaveDebouncer.run(() {
       if (mounted && _isDirty && !_isSavingLocal) {
-        save();
+        save(isAuto: true);
       }
     });
   }
@@ -1122,7 +1123,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   }
 
   /// 保存——原 _handleSave，去 pop，返回 bool 给外壳
-  Future<bool> save() async {
+  Future<bool> save({bool isAuto = false}) async {
     if (_isSavingLocal) return false;
     setState(() => _isSavingLocal = true);
     widget.kernel.savingNotifier.value = true;
@@ -1152,6 +1153,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
         updatedEntry.tags,
         updatedEntry.inquiryQuestion,
         updatedEntry.exploreTasks,
+        isAuto: isAuto,
       );
       if (success && mounted) {
         setState(() => _isDirty = false);

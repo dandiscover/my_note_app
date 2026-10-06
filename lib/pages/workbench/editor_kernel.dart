@@ -11,8 +11,9 @@ typedef SaveCallback = Future<bool> Function(
   String editorMode,
   List<String> tags,
   String? inquiryQuestion,
-  List<ExploreTask> exploreTasks,
-);
+  List<ExploreTask> exploreTasks, {
+  bool? isAuto,
+});
 
 /// 内核上下文——字段对齐 FullscreenEditor 全部 final 字段
 /// （fullscreen_editor.dart:25-40）

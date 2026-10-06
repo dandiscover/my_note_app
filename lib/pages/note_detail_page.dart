@@ -320,8 +320,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     String editorMode,
     List<String> tags,
     String? inquiryQuestion,
-    List<ExploreTask> exploreTasks,
-  ) async {
+    List<ExploreTask> exploreTasks, {
+    bool? isAuto,
+  }) async {
+    final auto = isAuto ?? false;
     if (_isSaving) return false;
 
     setState(() {
@@ -392,7 +394,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         );
       }
 
-      if (widget.shouldPopOnSave && mounted) {
+      if (widget.shouldPopOnSave && !auto && mounted) {
         if (widget.embedded) {
           OpenTabsManager.instance.close(_entry.id);
         } else {

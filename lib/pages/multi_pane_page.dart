@@ -339,8 +339,11 @@ class _MultiPanePageState extends State<MultiPanePage> {
     String editorMode,
     List<String> tags,
     String? inquiryQuestion,
-    List<ExploreTask> exploreTasks,
-  ) async {
+    List<ExploreTask> exploreTasks, {
+    bool? isAuto,
+  }) async {
+    // isAuto 收参但不用 —— multi_pane 保存后不 pop
+    // 仅为满足 SaveCallback 类型签名
     final updated = entry.copyWith(
       title: title,
       content: content,
