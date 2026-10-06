@@ -30,7 +30,7 @@ import '../services/epub_export/epub_exporter.dart';
 import '../services/epub_export/epub_platform_saver.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
-
+import '../utils/debouncer.dart';
 class RichtextEditorPage extends StatefulWidget {
   final NotebookEntry entry;
 
@@ -52,6 +52,8 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
   String? _initError;
 
   bool _isSaving = false;
+    final Debouncer _autoSaveDebouncer = Debouncer(const Duration(seconds: 3));
+  bool _isDirty = false;
   bool _showMaterialPanel = false;
   List<MaterialItem> _materialItems = [];
 
@@ -82,6 +84,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
         document: quill.Document.fromJson(result.delta),
         selection: const TextSelection.collapsed(offset: 0),
       );
+      _quillController!.addListener(_onQuillContentChanged);
     } catch (e) {
       // T-213：不静默回退。记错误，build 走错误页。
       // 用户看不到空白编辑器，也不会误保存覆盖原内容。
@@ -142,10 +145,22 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
   }
   @override
   void dispose() {
+    _autoSaveDebouncer.cancel();
+    _quillController?.removeListener(_onQuillContentChanged);
     _titleController.removeListener(_onTitleChanged);
     _titleController.dispose();
     _quillController?.dispose();
     super.dispose();
+  }
+  void _onQuillContentChanged() {
+    if (!mounted) return;
+    if (_isDirty) return;
+    setState(() => _isDirty = true);
+    _autoSaveDebouncer.run(() {
+      if (mounted && _isDirty && !_isSaving) {
+        _save();
+      }
+    });
   }
 
   Future<void> _save() async {
