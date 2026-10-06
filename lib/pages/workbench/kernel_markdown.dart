@@ -17,7 +17,7 @@ import 'editor_kernel.dart';
 import '../../widgets/spark_cursor.dart';
 import '../../widgets/spark_dialog.dart';
 import '../../services/spark_service.dart';
-
+import '../../utils/debouncer.dart';
 /// Markdown 内核——D 批块 2a
 ///
 /// 骨架（乙模式）：
@@ -30,7 +30,9 @@ class MarkdownKernel extends EditorKernel {
 
   // B8：火花编辑框全局触发入口
   static VoidCallback? onSparkRequested;
-
+  // C2：状态监听 —— WorkbenchBody 底栏读
+  final ValueNotifier<bool> dirtyNotifier = ValueNotifier(false);
+  final ValueNotifier<bool> savingNotifier = ValueNotifier(false);
   late final TextEditingController titleController =
       TextEditingController(text: _ctx.entry.title);
   late final TextEditingController contentController =
@@ -92,6 +94,8 @@ class MarkdownKernel extends EditorKernel {
     contentController.dispose();
     tagController.dispose();
     subtaskController.dispose();
+    dirtyNotifier.dispose();    // C2
+    savingNotifier.dispose();   // C2
   }
 }
 
@@ -135,6 +139,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   bool _hasShownPrompt = false;
   bool _isInquiryEditing = false;
   Timer? _typingTimer;
+    final Debouncer _autoSaveDebouncer = Debouncer(const Duration(seconds: 3));
   late TextEditingController _inquiryController;
   late FocusNode _inquiryFocusNode;
 
@@ -169,6 +174,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
 
   @override
   void dispose() {
+    _autoSaveDebouncer.cancel();                     // C3
     _contentController.removeListener(_onControllerChanged);
     _contentFocus.removeListener(_onFocusChanged);
     _sparkRecalcThrottle?.cancel();
@@ -194,7 +200,13 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
       }
       _isDirty = true;
     });
+    widget.kernel.dirtyNotifier.value = true;
     _resetTypingTimer();
+    _autoSaveDebouncer.run(() {
+      if (mounted && _isDirty && !_isSavingLocal) {
+        save();
+      }
+    });
   }
 
   // B8：从 FocusNode 找 EditableTextState
@@ -1113,6 +1125,7 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   Future<bool> save() async {
     if (_isSavingLocal) return false;
     setState(() => _isSavingLocal = true);
+    widget.kernel.savingNotifier.value = true;
     try {
       final title = _titleController.text.trim();
       final content = _contentController.text.trim();
@@ -1142,10 +1155,14 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
       );
       if (success && mounted) {
         setState(() => _isDirty = false);
+        widget.kernel.dirtyNotifier.value = false;
       }
       return success;
     } finally {
-      if (mounted) setState(() => _isSavingLocal = false);
+      if (mounted) {
+        setState(() => _isSavingLocal = false);
+        widget.kernel.savingNotifier.value = false;
+      }
     }
   }
 

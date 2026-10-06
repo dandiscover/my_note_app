@@ -84,6 +84,17 @@ class WorkbenchBody extends StatefulWidget {
 }
 
 class _WorkbenchBodyState extends State<WorkbenchBody> {
+  late final Listenable _statusListenable;
+
+  @override
+  void initState() {
+    super.initState();
+    _statusListenable = Listenable.merge([
+      widget.kernel.dirtyNotifier,
+      widget.kernel.savingNotifier,
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final kernel = widget.kernel;
@@ -145,33 +156,37 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
         // ── 底栏 ──
         if (widget.showBottomBar) ...[
           const Divider(height: 8),
-          EditorBottomBar(
-            paneWidth: widget.paneWidth,
-            wordCount: kernel.wordCount,
-            lineCount: kernel.lineCount,
-            tagCount: kernel.tags.length,
-            isMarkdown: kernel.isMarkdown,
-            onMarkdownChanged: (v) {
-              kernel.toggleMarkdown(v);
-              setState(() {});
-            },
-            isSaving: kernel.isSaving,
-            onSave: () async {
-              final ok = await kernel.save();
-              if (mounted) {
+          AnimatedBuilder(
+            animation: _statusListenable,
+            builder: (ctx, _) => EditorBottomBar(
+              paneWidth: widget.paneWidth,
+              wordCount: kernel.wordCount,
+              lineCount: kernel.lineCount,
+              tagCount: kernel.tags.length,
+              isMarkdown: kernel.isMarkdown,
+              onMarkdownChanged: (v) {
+                kernel.toggleMarkdown(v);
                 setState(() {});
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(ok ? '✅ 已保存' : '❌ 保存失败')),
-                );
-              }
-            },
-            onCancel: widget.onCancel,
-            onGenerateCard: kernel.createReviewCard,
-            isGeneratingCard: kernel.isGeneratingCard,
-            saveLabel: widget.saveLabel,
-            isFromCollection: widget.isFromCollection,
-            compact: widget.compact,
-            appBarHasCardAction: widget.appBarHasCardAction,
+              },
+              isSaving: kernel.savingNotifier.value,
+              isDirty: kernel.dirtyNotifier.value,
+              onSave: () async {
+                final ok = await kernel.save();
+                if (mounted) {
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(ok ? '✅ 已保存' : '❌ 保存失败')),
+                  );
+                }
+              },
+              onCancel: widget.onCancel,
+              onGenerateCard: kernel.createReviewCard,
+              isGeneratingCard: kernel.isGeneratingCard,
+              saveLabel: widget.saveLabel,
+              isFromCollection: widget.isFromCollection,
+              compact: widget.compact,
+              appBarHasCardAction: widget.appBarHasCardAction,
+            ),
           ),
         ],
       ],

@@ -8,6 +8,7 @@ class EditorBottomBar extends StatelessWidget {
   final bool isMarkdown;
   final ValueChanged<bool> onMarkdownChanged;
   final bool isSaving;
+  final bool isDirty;
   final VoidCallback onSave;
   final VoidCallback? onCancel;
   final VoidCallback? onGenerateCard;
@@ -28,6 +29,7 @@ class EditorBottomBar extends StatelessWidget {
     required this.isMarkdown,
     required this.onMarkdownChanged,
     required this.isSaving,
+      this.isDirty = false,
     required this.onSave,
     this.onCancel,
     this.onGenerateCard,
@@ -69,6 +71,18 @@ class EditorBottomBar extends StatelessWidget {
           if (!compact)
             Row(
               children: [
+                Text(
+                  isSaving
+                      ? '⏳ 保存中'
+                      : (isDirty ? '✏️ 未保存' : '✅ 已保存'),
+                  style: TextStyle(
+                    color: isSaving
+                        ? Colors.blue
+                        : (isDirty ? Colors.orange : Colors.grey),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(width: 16),
                 Text('📝 $wordCount 字',
                     style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 const SizedBox(width: 16),
