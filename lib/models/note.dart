@@ -80,7 +80,10 @@ class NotebookEntry {
       id: map['id'] ?? '',
       title: map['title'] ?? '',
       content: map['content'] ?? '',
-      updatedAt: DateTime.parse(map['updatedAt']),
+      updatedAt: (map['updatedAt'] is String
+        ? DateTime.tryParse(map['updatedAt'] as String)
+        : null) ??
+    DateTime.fromMillisecondsSinceEpoch(0),
       status: map['status'] ?? 'raw',
       editorMode: map['editorMode'] ?? 'plain',
       tags: (map['tags'] as List?)?.cast<String>() ?? [],

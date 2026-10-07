@@ -58,9 +58,15 @@ class Node {
       targetId: map['targetId'],
       sortOrder: map['sortOrder'] ?? 0,
       tags: (map['tags'] as List?)?.cast<String>() ?? [],
-      systemTag: map['systemTag'] as String?,    // 批 BUG-003
-      createdAt: DateTime.parse(map['createdAt']),
-      updatedAt: DateTime.parse(map['updatedAt']),
+systemTag: map['systemTag'] as String?,
+createdAt: (map['createdAt'] is String
+        ? DateTime.tryParse(map['createdAt'] as String)
+        : null) ??
+    DateTime.fromMillisecondsSinceEpoch(0),
+updatedAt: (map['updatedAt'] is String
+        ? DateTime.tryParse(map['updatedAt'] as String)
+        : null) ??
+    DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
 

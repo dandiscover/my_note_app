@@ -210,8 +210,12 @@ class DatabaseService {
       'sort_order': map['sortOrder'] ?? 0,
       'tags': tagsStr,
       'system_tag': map['systemTag'],           // 批 BUG-003
-      'created_at': map['createdAt'],
-      'updated_at': map['updatedAt'],
+    'created_at': (map['createdAt'] is String && (map['createdAt'] as String).isNotEmpty)
+    ? map['createdAt']
+    : DateTime.now().toIso8601String(),
+'updated_at': (map['updatedAt'] is String && (map['updatedAt'] as String).isNotEmpty)
+    ? map['updatedAt']
+    : DateTime.now().toIso8601String(),
     };
   }
 
@@ -557,7 +561,9 @@ class DatabaseService {
       'inquiry_conclusion': map['inquiryConclusion'] as String?,
       'explore_tasks': tasksStr,
       'content_format': map['contentFormat'] ?? 'markdown',
-      'created_at': map['createdAt'],
+      'created_at': (map['createdAt'] is String && (map['createdAt'] as String).isNotEmpty)
+    ? map['createdAt']
+    : DateTime.now().toIso8601String(),
     };
   }
 

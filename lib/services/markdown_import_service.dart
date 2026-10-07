@@ -137,15 +137,17 @@ class MarkdownImportService {
       final folderId =
           'folder_${DateTime.now().microsecondsSinceEpoch}_${key.hashCode}';
       await _db.insertNode({
-        'id': folderId,
-        'title': _cleanFileName(d),
-        'parentId': currentParent,
-        'isFolder': 1,
-        'nodeType': 'folder',
-        'targetId': null,
-        'sortOrder': 0,
-        'tags': <String>[],
-      });
+  'id': folderId,
+  'title': _cleanFileName(d),
+  'parentId': currentParent,
+  'isFolder': 1,
+  'nodeType': 'folder',
+  'targetId': null,
+  'sortOrder': 0,
+  'tags': <String>[],
+  'createdAt': DateTime.now().toIso8601String(),
+  'updatedAt': DateTime.now().toIso8601String(),
+});
       _folderCache[key] = folderId;
       currentParent = folderId;
     }
@@ -387,15 +389,17 @@ class MarkdownImportService {
       'contentFormat': 'markdown',
     };
     final nodeMap = {
-      'id': 'node_$id',
-      'title': p.title,
-      'parentId': folderId,
-      'isFolder': 0,
-      'nodeType': 'note',
-      'targetId': id,
-      'sortOrder': 0,
-      'tags': <String>[],
-    };
+  'id': 'node_$id',
+  'title': p.title,
+  'parentId': folderId,
+  'isFolder': 0,
+  'nodeType': 'note',
+  'targetId': id,
+  'sortOrder': 0,
+  'tags': <String>[],
+  'createdAt': p.createdAt.toIso8601String(),
+  'updatedAt': p.updatedAt.toIso8601String(),
+};
     await _db.insertNoteAndNodeTx(noteMap: noteMap, nodeMap: nodeMap);
   }
 }
