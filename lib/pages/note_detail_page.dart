@@ -1,7 +1,8 @@
 // lib/pages/note_detail_page.dart
 // 笔记详情页 — 阅读模式 + 修改模式 + 生成卡片
 // （顶部注释略 —— 原文件头部注释保留不动）
-
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2282,5 +2283,48 @@ class _DividerEmbedBuilder extends quill.EmbedBuilder {
   @override
   Widget build(BuildContext context, quill.EmbedContext embedContext) {
     return const Divider(thickness: 1);
+  }
+}
+class _WikiLinkSyntax extends md.InlineSyntax {
+  _WikiLinkSyntax() : super(r'\[\[([^\]]+)\]\]');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    parser.addNode(md.Element.text('wikilink', match.group(1)!));
+    return true;
+  }
+}
+
+class _HashtagSyntax extends md.InlineSyntax {
+  _HashtagSyntax() : super(r'(?<!\S)#([\u4e00-\u9fa5a-zA-Z0-9_]+)');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    parser.addNode(md.Element.text('hashtag', match.group(1)!));
+    return true;
+  }
+}
+
+class _WikiLinkBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitText(md.Text text, TextStyle? preferredStyle) {
+    return Text(
+      text.text,
+      style: preferredStyle?.copyWith(
+        color: Colors.blue.shade700,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+}
+
+class _HashtagBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitText(md.Text text, TextStyle? preferredStyle) {
+    return Text(
+      '#${text.text}',
+      style: preferredStyle?.copyWith(
+        color: Colors.teal.shade700,
+        fontWeight: FontWeight.w500,
+      ),
+    );
   }
 }

@@ -40,7 +40,7 @@ import 'pages/note_detail_page.dart';
 import 'pages/wisdom_page.dart';
 import 'pages/insight_page.dart';
 import 'pages/creation_page.dart' as creation;
-
+import 'services/image_path_service.dart';
 // ✅ Spike：弹窗/底部面板可见时隐藏宠物
 final ValueNotifier<bool> _popupVisible = ValueNotifier(false);
 
@@ -85,7 +85,7 @@ void main() async {
 
   // ✅ 迁移笔记旧字段到多任务模型
   await DatabaseService().ensureExploreMigration();
-
+await ImagePathService.instance.init();   // R-3：图片路径
   await OpenTabsManager.instance.load();
 
   runApp(const MyApp());

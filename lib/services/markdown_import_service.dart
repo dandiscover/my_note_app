@@ -6,7 +6,10 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../database_service.dart';
 import '../models/note.dart';
-
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'image_path_service.dart';
+import 'package:flutter/foundation.dart';
 class MarkdownImportResult {
   final int success;
   final int skipped;
@@ -49,12 +52,13 @@ class MarkdownImportService {
   final DatabaseService _db = DatabaseService();
   bool _cancelled = false;
   final Map<String, String> _folderCache = {};
-
+String? _currentSourceRoot;
   void cancel() => _cancelled = true;
-  void reset() {
-    _cancelled = false;
-    _folderCache.clear();
-  }
+ void reset() {
+  _cancelled = false;
+  _folderCache.clear();
+  _currentSourceRoot = null;
+}
 
   Future<MarkdownImportResult> importDirectory({
     required String sourceDir,
@@ -68,7 +72,7 @@ class MarkdownImportService {
 
     final dir = Directory(sourceDir);
     if (!await dir.exists()) throw Exception('目录不存在: $sourceDir');
-
+_currentSourceRoot = sourceDir;
     final files = _scanMdFiles(dir, sourceDir);
     final total = files.length;
 
@@ -377,10 +381,14 @@ class MarkdownImportService {
   Future<void> _insertOne(ParsedMd p, String folderId, int index) async {
     final now = DateTime.now();
     final id = '${now.microsecondsSinceEpoch}_$index';
+    final rewrittenContent = await _copyResourcesAndRewrite(
+  rawContent: p.content,
+  sourceRoot: _currentSourceRoot,
+);
     final noteMap = {
       'id': id,
       'title': p.title,
-      'content': p.content,
+      'content': rewrittenContent,
       'updatedAt': p.updatedAt.toIso8601String(),
       'createdAt': p.createdAt.toIso8601String(),
       'status': 'active',
@@ -402,4 +410,50 @@ class MarkdownImportService {
 };
     await _db.insertNoteAndNodeTx(noteMap: noteMap, nodeMap: nodeMap);
   }
+  /// R-3：复制 md 引用的图片到 App Documents/note_images/
+///      并把 content 里的 ../../resources/xxx 改成 note_images/xxx
+Future<String> _copyResourcesAndRewrite({
+  required String rawContent,
+  required String? sourceRoot,
+}) async {
+  if (sourceRoot == null || rawContent.isEmpty) return rawContent;
+
+  final imgRegex =
+      RegExp(r'!\[([^\]]*)\]\((?:\.\./)+resources/([^)]+)\)');
+
+  final matches = imgRegex.allMatches(rawContent).toList();
+  if (matches.isEmpty) return rawContent;
+
+  final targetDir = Directory(ImagePathService.instance.imageDir);
+  if (!await targetDir.exists()) {
+    await targetDir.create(recursive: true);
+  }
+
+  final copied = <String>{};
+  for (final m in matches) {
+    final filename = m.group(2)!;
+    if (copied.contains(filename)) continue;
+    copied.add(filename);
+
+    final src = File(p.join(sourceRoot, 'resources', filename));
+    final dst = File(ImagePathService.instance.targetPath(filename));
+
+    if (await dst.exists()) continue;
+    if (!await src.exists()) {
+      debugPrint('⚠️ R-3：图片源缺失 —— $filename');
+      continue;
+    }
+    try {
+      await src.copy(dst.path);
+    } catch (e) {
+      debugPrint('⚠️ R-3：图片复制失败 —— $filename —— $e');
+    }
+  }
+
+  return rawContent.replaceAllMapped(imgRegex, (m) {
+    final alt = m.group(1)!;
+    final filename = m.group(2)!;
+    return '![$alt](${ImagePathService.imageSubDir}/$filename)';
+  });
+}
 }

@@ -3,7 +3,7 @@
 // 拆源：fullscreen_editor.dart（_FullscreenEditorState 全量搬）
 // 静态成员不搬——由 EditorKernel（块 1）接管
 // 替换清单见块 2a 方案 §三
-
+import '../../utils/markdown_image_builder.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -1128,9 +1128,12 @@ void updateEntry(NotebookEntry newEntry) {
                             color: Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(4)),
                       ),
+                      sizedImageBuilder: (config) =>
+                          buildMarkdownImage(config.uri),
                     ),
                   ),
           ),
+          
         ),
       ],
     );
