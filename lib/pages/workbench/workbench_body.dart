@@ -10,6 +10,7 @@ import 'editor_title_bar.dart';
 import 'kernel_markdown.dart';
 import 'workbench.dart';
 import '../../utils/markdown_image_builder.dart';
+import '../../utils/markdown_custom_syntax.dart';
 /// 拼好的工作台——工作台组合件 · 丁方案
 ///
 /// = 标题 + 探究 + 正文 + 底栏 [+ 右侧素材槽]
@@ -261,7 +262,10 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
                 entry.editorMode == 'markdown'
                     ? MarkdownBody(
     data: entry.content,
-    imageBuilder: (uri, title, alt) => buildMarkdownImage(uri),
+    extensionSet: buildMarkdownExtensionSet(),
+    sizedImageBuilder: (config) =>
+        buildMarkdownImage(config.uri),
+    builders: buildMarkdownBuilders(),
   )
                     : SelectableText(entry.content,
                         style:

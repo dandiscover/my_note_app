@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'image_path_service.dart';
 import 'package:flutter/foundation.dart';
+
 class MarkdownImportResult {
   final int success;
   final int skipped;
@@ -186,6 +187,7 @@ _currentSourceRoot = sourceDir;
 
     final body = _stripYamlHeader(raw);
     String translated = _htmlTableToMd(body);
+    translated = _stripInlineHtml(translated);
     translated = _unescape(translated);
 
     return ParsedMd(
@@ -247,7 +249,167 @@ _currentSourceRoot = sourceDir;
     if (n.startsWith('# ')) n = n.substring(2);
     return n.trim();
   }
+  /// R-1b：剥无意义 inline HTML
+  String _stripInlineHtml(String content) {
+    if (!content.contains('<')) return content;
 
+    var s = content;
+
+    s = s.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+
+    s = s.replaceAllMapped(
+      RegExp(r'<(strong|b)\b[^>]*>(.*?)</\1>',
+          caseSensitive: false, dotAll: true),
+      (m) => '**${m.group(2)}**',
+    );
+
+    s = s.replaceAllMapped(
+      RegExp(r'<(em|i)\b[^>]*>(.*?)</\1>',
+          caseSensitive: false, dotAll: true),
+      (m) => '*${m.group(2)}*',
+    );
+
+    s = s.replaceAllMapped(
+      RegExp(r'''<a\s+[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>''',
+          caseSensitive: false, dotAll: true),
+      (m) => '[${m.group(2)}](${m.group(1)})',
+    );
+
+    s = s.replaceAllMapped(
+      RegExp(r'<blockquote[^>]*>(.*?)</blockquote>',
+          caseSensitive: false, dotAll: true),
+      (m) {
+        final inner = m.group(1)!.trim();
+        if (inner.isEmpty) return '';
+        return inner.split('\n').map((l) => '> $l').join('\n');
+      },
+    );
+
+    s = s.replaceAllMapped(
+      RegExp(r'<li[^>]*>(.*?)</li>', caseSensitive: false, dotAll: true),
+      (m) => '- ${m.group(1)!.trim()}\n',
+    );
+
+    s = s.replaceAll(
+      RegExp(r'</?(ol|ul|input|section|sup|h[1-6])\b[^>]*>',
+          caseSensitive: false),
+      '',
+    );
+
+    s = s.replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '\n\n');
+    s = s.replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n');
+
+    s = _processSpans(s);
+
+    s = s.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+
+    return s;
+  }
+
+  String _processSpans(String content) {
+    final regex = RegExp(
+      r'''<span\s+style\s*=\s*["']([^"']+)["']\s*>(.*?)</span>''',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    var prev = '';
+    var current = content;
+    int iter = 0;
+    while (current != prev && iter < 8) {
+      prev = current;
+      current = current.replaceAllMapped(regex, (m) {
+        final style = m.group(1)!;
+        final inner = m.group(2)!;
+        final result = _filterStyle(style);
+        if (result == null) return inner;
+        if (result == 'bold') return '**$inner**';
+        return "<span style='$result'>$inner</span>";
+      });
+      iter++;
+    }
+    return current;
+  }
+
+  String? _filterStyle(String style) {
+    final props = <String, String>{};
+    for (final part in style.split(';')) {
+      final p = part.trim();
+      if (p.isEmpty) continue;
+      final idx = p.indexOf(':');
+      if (idx < 0) continue;
+      final k = p.substring(0, idx).trim().toLowerCase();
+      final v = p.substring(idx + 1).trim();
+      if (v.isEmpty) continue;
+      props[k] = v;
+    }
+
+    final kept = <String>[];
+
+    final color = props['color'];
+    if (color != null && _isMeaningfulColor(color, isBackground: false)) {
+      kept.add('color:$color');
+    }
+
+    final bg = props['background'];
+    if (bg != null && _isMeaningfulColor(bg, isBackground: true)) {
+      kept.add('background:$bg');
+    }
+
+    final fw = props['font-weight']?.toLowerCase();
+    final isBold =
+        fw == 'bold' || fw == '700' || fw == '800' || fw == '900';
+
+    if (kept.isEmpty && isBold) return 'bold';
+    if (kept.isEmpty) return null;
+    return kept.join(';');
+  }
+
+  bool _isMeaningfulColor(String color, {required bool isBackground}) {
+    final c = color.trim().toLowerCase();
+    if (c.isEmpty) return false;
+    if (c == 'transparent') return false;
+
+    const whiteNames = {'white', '#ffffff', '#fff'};
+    const blackNames = {'black', '#000000', '#000'};
+
+    if (isBackground) {
+      if (whiteNames.contains(c)) return false;
+      if (c == 'silver' || c == '#c0c0c0') return false;
+      const lightGrays = {
+        '#fafbfc', '#eeeeee', '#f0f0f0',
+        '#f5f5f5', '#f8f8f8', '#fafafa', '#f9f9f9',
+        '#e0e0e0', '#e5e5e5', '#e8e8e8', '#efefef',
+      };
+      if (lightGrays.contains(c)) return false;
+      return true;
+    } else {
+      if (blackNames.contains(c)) return false;
+      if (c == 'white' || c == '#ffffff') return false;
+      final rgb = _parseHexRgb(c);
+      if (rgb != null) {
+        final maxCh = [rgb.$1, rgb.$2, rgb.$3].reduce((a, b) => a > b ? a : b);
+        if (maxCh < 120) return false;
+      }
+      return true;
+    }
+  }
+
+  (int, int, int)? _parseHexRgb(String c) {
+    var s = c;
+    if (!s.startsWith('#')) return null;
+    s = s.substring(1);
+    if (s.length == 3) {
+      s = '${s[0]}${s[0]}${s[1]}${s[1]}${s[2]}${s[2]}';
+    }
+    if (s.length != 6) return null;
+    try {
+      final v = int.parse(s, radix: 16);
+      return ((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    } catch (_) {
+      return null;
+    }
+  }
   String _htmlTableToMd(String content) {
     if (!content.contains('<table')) return content;
     final out = StringBuffer();
@@ -324,8 +486,24 @@ _currentSourceRoot = sourceDir;
       if (cells.isEmpty) continue;
       buffer.write('|');
       for (final c in cells) {
-        var t = c.group(1) ?? '';
+               var t = c.group(1) ?? '';
+        // R-1b：先替 span 为占位符 —— 只剥其他标签
+        final spanPlaceholders = <String>[];
+        t = t.replaceAllMapped(
+          RegExp(
+              r'''<span\s+style\s*=\s*["']([^"']+)["']\s*>(.*?)</span>''',
+              caseSensitive: false,
+              dotAll: true),
+          (m) {
+            spanPlaceholders
+                .add("<span style='${m.group(1)}'>${m.group(2)}</span>");
+            return '@@SPAN${spanPlaceholders.length - 1}@@';
+          },
+        );
         t = t.replaceAll(RegExp(r'<[^>]+>'), '');
+        for (int i = 0; i < spanPlaceholders.length; i++) {
+          t = t.replaceAll('@@SPAN$i@@', spanPlaceholders[i]);
+        }
         t = t.trim().replaceAll('\n', ' ').replaceAll('|', r'\|');
         buffer.write(' $t |');
       }
