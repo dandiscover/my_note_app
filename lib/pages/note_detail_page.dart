@@ -34,7 +34,7 @@ import '../services/focus_mode_notifier.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
 import '../widgets/file_tree_panel.dart';
-
+import '../utils/markdown_image_builder.dart';
 import '../widgets/explore_task_summary_dialog.dart';
 
 import '../models/material_item.dart';
@@ -46,6 +46,7 @@ import '../services/note_book_link_service.dart';
 import 'inquiry_page.dart';
 import 'richtext_editor_page.dart';
 import 'package:flutter/gestures.dart';
+import '../utils/markdown_custom_syntax.dart';
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -79,6 +80,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   final CardService _cardService = CardService();
   bool _isSaving = false;
   String? _errorMessage;
+  String _selectedText = '';
   bool _isReadMode = true;
   late NotebookEntry _entry;
   late MarkdownKernel _kernel;
@@ -1081,34 +1083,52 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             if (_showNoteMap)
               _buildMapBody()
             else
-              SelectableText.rich(
-                TextSpan(
-                  children: _buildHighlightedSpans(
-                    _entry.content,
-                    const TextStyle(fontSize: 16, height: 1.6),
-                  ),
-                ),
-                contextMenuBuilder: (context, editableTextState) {
-                  final selectedText = editableTextState.textEditingValue.selection.textInside(
-                    editableTextState.textEditingValue.text,
-                  );
-                  if (selectedText.isEmpty) return const SizedBox.shrink();
+              SelectionArea(
+                onSelectionChanged: (content) {
+                  _selectedText = content?.plainText ?? '';
+                },
+                contextMenuBuilder: (context, state) {
+                  if (_selectedText.isEmpty) return const SizedBox.shrink();
                   return AdaptiveTextSelectionToolbar.buttonItems(
-                    anchors: editableTextState.contextMenuAnchors,
+                    anchors: state.contextMenuAnchors,
                     buttonItems: [
                       ContextMenuButtonItem(
                         label: '快捷索引',
-                        onPressed: () => _quickGenerateIndexCard(selectedText),
+                        onPressed: () => _quickGenerateIndexCard(_selectedText),
                       ),
                       ContextMenuButtonItem(
                         label: '完整制卡',
                         onPressed: () =>
-                            _showFullNoteCardDialog(selectedText: selectedText),
+                            _showFullNoteCardDialog(selectedText: _selectedText),
                       ),
-                      ...editableTextState.contextMenuButtonItems,
+                      ...state.contextMenuButtonItems,
                     ],
                   );
                 },
+                child: MarkdownBody(
+                  data: _entry.content,
+                  selectable: false,
+                  styleSheet: MarkdownStyleSheet(
+                    p: const TextStyle(fontSize: 16, height: 1.6),
+                    h1: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                    h2: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    h3: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    code: TextStyle(
+                      fontSize: 14,
+                      backgroundColor: Colors.grey.shade100,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  extensionSet: _mergeExtensionSets(),
+                  sizedImageBuilder: (config) =>
+                      buildMarkdownImage(config.uri),
+                  builders: {
+                    ...buildMarkdownBuilders(),
+                    'wikilink': _WikiLinkBuilder(onTap: _onWikilinkTap),
+                    'hashtag': _HashtagBuilder(),
+                    'cardref': _CardRefBuilder(onTap: _onCardRefTap),
+                  },
+                ),
               ),
             if (_entry.exploreTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -1157,6 +1177,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         SizedBox(width: 240, child: _buildFileTreePanel()),
         const VerticalDivider(width: 1),
         Expanded(child: withRight),
+      ],
+    );
+  }
+  md.ExtensionSet _mergeExtensionSets() {
+    _CardRefSyntax.reset();
+    final base = buildMarkdownExtensionSet();
+    return md.ExtensionSet(
+      base.blockSyntaxes,
+      [
+        _CardRefSyntax(),
+        _WikiLinkSyntax(),
+        _HashtagSyntax(),
+        ...base.inlineSyntaxes,
       ],
     );
   }
@@ -2303,14 +2336,38 @@ class _HashtagSyntax extends md.InlineSyntax {
   }
 }
 
-class _WikiLinkBuilder extends MarkdownElementBuilder {
+class _CardRefSyntax extends md.InlineSyntax {
+  static int _counter = 0;
+  _CardRefSyntax() : super(r'\[\d+\]\(card:([^)]+)\)', );
+  static void reset() => _counter = 0;
   @override
-  Widget? visitText(md.Text text, TextStyle? preferredStyle) {
-    return Text(
-      text.text,
-      style: preferredStyle?.copyWith(
-        color: Colors.blue.shade700,
-        fontWeight: FontWeight.w500,
+  bool onMatch(md.InlineParser parser, Match match) {
+    _counter++;
+    final cardId = match.group(1)!;
+    parser.addNode(md.Element.text('cardref', '$cardId|$_counter'));
+    return true;
+  }
+}
+
+class _WikiLinkBuilder extends MarkdownElementBuilder {
+  final void Function(String title, Offset position) onTap;
+  _WikiLinkBuilder({required this.onTap});
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final content = element.textContent;
+    return GestureDetector(
+      onTapUp: (d) => onTap(content, d.globalPosition),
+      child: Text(
+        '[[$content]]',
+        style: (preferredStyle ?? const TextStyle()).copyWith(
+          color: Colors.purple.shade700,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
@@ -2318,12 +2375,44 @@ class _WikiLinkBuilder extends MarkdownElementBuilder {
 
 class _HashtagBuilder extends MarkdownElementBuilder {
   @override
-  Widget? visitText(md.Text text, TextStyle? preferredStyle) {
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
     return Text(
-      '#${text.text}',
-      style: preferredStyle?.copyWith(
+      '#${element.textContent}',
+      style: (preferredStyle ?? const TextStyle()).copyWith(
         color: Colors.teal.shade700,
         fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+}
+
+class _CardRefBuilder extends MarkdownElementBuilder {
+  final void Function(String cardId, Offset position) onTap;
+  _CardRefBuilder({required this.onTap});
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final parts = element.textContent.split('|');
+    if (parts.length != 2) return null;
+    final cardId = parts[0];
+    final refNum = parts[1];
+    return GestureDetector(
+      onTapUp: (d) => onTap(cardId, d.globalPosition),
+      child: Text(
+        '[$refNum]',
+        style: (preferredStyle ?? const TextStyle()).copyWith(
+          color: Colors.orange.shade700,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

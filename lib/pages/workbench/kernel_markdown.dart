@@ -18,6 +18,7 @@ import '../../widgets/spark_cursor.dart';
 import '../../widgets/spark_dialog.dart';
 import '../../services/spark_service.dart';
 import '../../utils/debouncer.dart';
+import '../../utils/markdown_custom_syntax.dart';
 /// Markdown 内核——D 批块 2a
 ///
 /// 骨架（乙模式）：
@@ -1128,8 +1129,11 @@ void updateEntry(NotebookEntry newEntry) {
                             color: Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(4)),
                       ),
+                      extensionSet: buildMarkdownExtensionSet(),
                       sizedImageBuilder: (config) =>
                           buildMarkdownImage(config.uri),
+                       builders: buildMarkdownBuilders(),
+
                     ),
                   ),
           ),
