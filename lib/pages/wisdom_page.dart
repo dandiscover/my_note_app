@@ -60,6 +60,7 @@ import '../widgets/open_tabs_bar.dart';
 import 'dart:convert';
 import '../models/clue_stroke.dart';
 import '../services/board_revision.dart';
+import '../widgets/tree/node_tree_view.dart';
 enum WisdomViewMode { list, grid, large, split, cardWall, timeline, gallery }
 
 class WisdomPage extends StatefulWidget {
@@ -1361,23 +1362,45 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
   // ─── Split 视图左侧递归树 ──────────────────────────────
 
+ 
   Widget _buildSplitView(List<Node> children, Map<String, Map<String, int>> folderStats, List<Map<String, dynamic>> systemFolders) {
     // ✅ 应用书籍状态筛选
     final filteredChildren = _applyBookFilter(children);
 
     return Row(
       children: [
+        // ── R-4 批A：左栏树 ──
         Container(
           width: 220,
-          decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade200))),
-          child: ListView(
+          decoration: BoxDecoration(
+            border: Border(right: BorderSide(color: Colors.grey.shade200)),
+          ),
+          child: Column(
             children: [
-              ..._buildUserFolderTreeItems(),
+              Expanded(
+                child: NodeTreeView(
+                  nodes: _nodes,
+                  folderOnly: true,
+                  showSystemFolders: false,
+                  currentNodeId: _currentFolderId,
+                  onTap: (node) => _navigateToFolder(node.id),
+                  onDragDrop: (draggedId, targetId) async {
+                    await _db.moveNode(draggedId, targetId);
+                    _cache.invalidate(_cacheKeyNodes);
+                    _folderStatsCache = null;
+                    await _loadData();
+                  },
+                ),
+              ),
               if (_systemFolders.isNotEmpty) ...[
-                const Divider(),
+                const Divider(height: 1),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: Text('系统', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.grey)),
+                  child: Text('系统',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey)),
                 ),
                 ..._systemFolders.map((sys) {
                   final node = sys['node'] as Node;
@@ -1389,6 +1412,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             ],
           ),
         ),
+        // ── 右内容区 ──
         Expanded(
           child: filteredChildren.isEmpty
               ? Center(
@@ -1406,7 +1430,6 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       ],
     );
   }
-
   List<Widget> _buildUserFolderTreeItems() {
     final items = <Widget>[];
     for (final folder in _userFolders) {
