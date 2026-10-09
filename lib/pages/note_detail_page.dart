@@ -36,7 +36,8 @@ import '../services/richtext_adapter/shared/attributes.dart';
 import '../widgets/file_tree_panel.dart';
 import '../utils/markdown_image_builder.dart';
 import '../widgets/explore_task_summary_dialog.dart';
-
+import 'dart:async';
+import '../utils/debouncer.dart';
 import '../models/material_item.dart';
 import '../widgets/quick_switch_dialog.dart';
 import '../widgets/note_card_dialog.dart';
@@ -81,6 +82,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _isSaving = false;
   String? _errorMessage;
   String _selectedText = '';
+  final Debouncer _rebuildDebouncer = Debouncer(const Duration(seconds: 3));
+  String? _pendingRebuildNoteId;
+  String? _pendingRebuildContent;
   bool _isReadMode = true;
   late NotebookEntry _entry;
   late MarkdownKernel _kernel;
@@ -161,8 +165,20 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-  @override
+ @override
   void dispose() {
+    // R-性能：若 pending 重建未跑 —— 立即跑 —— 不丢
+    if (_rebuildDebouncer.isActive &&
+        _pendingRebuildNoteId != null &&
+        _pendingRebuildContent != null) {
+      final id = _pendingRebuildNoteId!;
+      final content = _pendingRebuildContent!;
+      _rebuildDebouncer.cancel();
+      unawaited(_doRebuildLinks(id, content));
+    } else {
+      _rebuildDebouncer.cancel();
+    }
+
     for (final r in _wikilinkRecognizers) {
       r.dispose();
     }
@@ -405,18 +421,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         }
       }
 
-      try {
-        await NoteBookLinkService().rebuildWikiLinks(
-          noteId: updated.id,
-          content: updated.content,
-        );
-        await NoteBookLinkService().rebuildNoteNoteLinks(
-          noteId: updated.id,
-          content: updated.content,
-        );
-      } catch (e) {
-        debugPrint('rebuildWikiLinks 失败: $e');
-      }
+      // R-性能：防抖 —— 停 3 秒再重建 —— 不阻塞保存返回
+      // dispose 时若 pending —— flush —— 不丢
+      _pendingRebuildNoteId = updated.id;
+      _pendingRebuildContent = updated.content;
+      _rebuildDebouncer.run(() {
+        unawaited(_doRebuildLinks(updated.id, updated.content));
+      });
 
       OpenTabsManager.instance.updateTitle(
         updated.id,
@@ -441,7 +452,20 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       return false;
     }
   }
-
+  Future<void> _doRebuildLinks(String noteId, String content) async {
+    try {
+      await NoteBookLinkService().rebuildWikiLinks(
+        noteId: noteId,
+        content: content,
+      );
+      await NoteBookLinkService().rebuildNoteNoteLinks(
+        noteId: noteId,
+        content: content,
+      );
+    } catch (e) {
+      debugPrint('rebuildLinks 失败: $e');
+    }
+  }
   // ─── 快捷索引 ────
   Future<void> _quickGenerateIndexCard(String selectedText) async {
     final text = selectedText.trim();

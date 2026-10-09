@@ -655,11 +655,23 @@ class DatabaseService {
   }
 
   Future<void> updateNote(Map<String, dynamic> noteMap) async {
-    final notes = await _getAllNotesInternal(includeDeleted: false);
-    final index = notes.indexWhere((n) => n['id'] == noteMap['id']);
-    if (index != -1) {
-      notes[index] = noteMap;
-      await _saveNotes(notes);
+    if (_isWeb) {
+      // Web：SharedPreferences 键值存储 —— 无 where 支持 —— 保留全量写
+      final notes = await _getAllNotesInternal(includeDeleted: false);
+      final index = notes.indexWhere((n) => n['id'] == noteMap['id']);
+      if (index != -1) {
+        notes[index] = noteMap;
+        await _saveNotes(notes);
+      }
+    } else {
+      // 桌面 / 移动：直写单条 —— 不读全表
+      final db = await _getDatabase();
+      await db.update(
+        'notes',
+        _prepareNoteForDb(noteMap),
+        where: 'id = ?',
+        whereArgs: [noteMap['id']],
+      );
     }
 
     await _syncSearchIndexForNote(noteMap);

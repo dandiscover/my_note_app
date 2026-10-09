@@ -102,38 +102,42 @@ class NoteBookLinkService {
     final matches = regex.allMatches(content).toList();
     if (matches.isEmpty) return;
 
-    // 3. 逐条匹配
+        // 3. 一次查 books —— 建 title → List<id> 索引
+    final allBooks = await db.query(
+      'books',
+      columns: ['id', 'title'],
+    );
+    final byTitle = <String, List<String>>{};
+    for (final row in allBooks) {
+      final t = (row['title'] as String? ?? '').trim();
+      if (t.isEmpty) continue;
+      byTitle.putIfAbsent(t, () => []).add(row['id'] as String);
+    }
+
+    // 4. 逐条 [[X]] —— O(1) 查索引
     int counter = 0;
     for (final m in matches) {
       final title = m.group(1)?.trim() ?? '';
       if (title.isEmpty) continue;
 
-      final rows = await db.query(
-        'books',
-        columns: ['id'],
-        where: 'title = ?',
-        whereArgs: [title],
-        limit: 2,
-      );
-
+      final ids = byTitle[title];
       // B3：多命中不取
-      if (rows.length != 1) continue;
+      if (ids == null || ids.length != 1) continue;
 
-      final bookId = rows.first['id'] as String;
+      final bookId = ids.first;
       final context = _extractContext(content, m.start, m.end);
 
       await db.insert(
         'note_book_links',
-                 {
-            // 后缀 counter：同微秒多次匹配不撞主键
-            'id': '${DateTime.now().microsecondsSinceEpoch}_${counter++}',
-            'note_id': noteId,
-            'book_id': bookId,
-            'link_type': linkTypeWikilink,
-            'link_text': title,
-            'context': context,
-            'created_at': DateTime.now().toIso8601String(),
-          },
+        {
+          'id': '${DateTime.now().microsecondsSinceEpoch}_${counter++}',
+          'note_id': noteId,
+          'book_id': bookId,
+          'link_type': linkTypeWikilink,
+          'link_text': title,
+          'context': context,
+          'created_at': DateTime.now().toIso8601String(),
+        },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     }
