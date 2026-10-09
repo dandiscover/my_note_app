@@ -399,13 +399,16 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         ));
       }
 
-      setState(() {
-        _entry = updated;
-        if (!auto) _isReadMode = true;   // C 块 7：自动保存不切阅读
-      });
-
       if (mounted) {
-        setState(() => _isSaving = false);
+        setState(() {
+          _entry = updated;
+          _isSaving = false;
+          if (!auto) _isReadMode = true;   // C 块 7：自动保存不切阅读
+        });
+      }
+
+      if (mounted && !auto) {
+        // R-性能 3：自动保存静默 —— 不弹 SnackBar
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(widget.isFromCollection ? '✅ 已收入智库' : '✅ 已保存'),

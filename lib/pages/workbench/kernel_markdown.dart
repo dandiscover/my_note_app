@@ -202,12 +202,11 @@ void initState() {
   // ─── 深度笔记入口交互 ─────────────────────────────
 
   void _onContentChanged(String value) {
-    setState(() {
-      if (_showInquiryPrompt) {
-        _showInquiryPrompt = false;
-      }
-      _isDirty = true;
-    });
+    // R-性能 3：只在「提示需消失」时 setState —— 其他不走 —— 不重建整页
+    if (_showInquiryPrompt) {
+      setState(() => _showInquiryPrompt = false);
+    }
+    _isDirty = true;
     widget.kernel.dirtyNotifier.value = true;
     _resetTypingTimer();
     _autoSaveDebouncer.run(() {
