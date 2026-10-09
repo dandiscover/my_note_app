@@ -239,11 +239,21 @@ class DatabaseService {
   }
 
   Future<void> updateNode(Node node) async {
-    final maps = await _getAllNodesInternal();
-    final index = maps.indexWhere((n) => n['id'] == node.id);
-    if (index != -1) {
-      maps[index] = node.toMap();
-      await _saveNodes(maps);
+    if (_isWeb) {
+      final maps = await _getAllNodesInternal();
+      final index = maps.indexWhere((n) => n['id'] == node.id);
+      if (index != -1) {
+        maps[index] = node.toMap();
+        await _saveNodes(maps);
+      }
+    } else {
+      final db = await _getDatabase();
+      await db.update(
+        'nodes',
+        _prepareNodeForDb(node.toMap()),
+        where: 'id = ?',
+        whereArgs: [node.id],
+      );
     }
   }
 
@@ -424,13 +434,28 @@ class DatabaseService {
   /// note 与 node 分离存储——node.targetId 指向 note.id
   /// 全表扫描——nodes 表小——可接受
   Future<Node?> getNodeByNoteId(String noteId) async {
-    final nodes = await getAllNodes();
-    try {
-      return nodes.firstWhere(
-        (n) => n.nodeType == 'note' && n.targetId == noteId,
+    if (_isWeb) {
+      final nodes = await getAllNodes();
+      try {
+        return nodes.firstWhere(
+          (n) => n.nodeType == 'note' && n.targetId == noteId,
+        );
+      } catch (_) {
+        return null;
+      }
+    } else {
+      final db = await _getDatabase();
+      final rows = await db.query(
+        'nodes',
+        where: 'node_type = ? AND target_id = ?',
+        whereArgs: ['note', noteId],
+        orderBy: 'sort_order ASC, created_at ASC',
+        limit: 1,
       );
-    } catch (_) {
-      return null;
+      if (rows.isEmpty) return null;
+      return Node.fromMap(
+        _cleanNodeMap(_mapNodeDbRowToCamel(rows.first)),
+      );
     }
   }
 
