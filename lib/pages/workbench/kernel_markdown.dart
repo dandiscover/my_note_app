@@ -931,7 +931,7 @@ void updateEntry(NotebookEntry newEntry) {
                   const SizedBox(height: 8),
                 ],
               ),
-              const Divider(height: 16),
+              const SizedBox(height: 12),
 
               // ─── 正文 ──────────────────────────────
               Expanded(
@@ -1022,7 +1022,7 @@ void updateEntry(NotebookEntry newEntry) {
                   ),
                 ),
 
-              const Divider(height: 8),
+              const SizedBox(height: 12),
 
               if (isExploreMode) ...[
                 Row(
@@ -1055,7 +1055,7 @@ void updateEntry(NotebookEntry newEntry) {
                     ),
                   ],
                 ),
-                const Divider(height: 8),
+                const SizedBox(height: 8),
               ],
             ],
           ),

@@ -143,7 +143,7 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
           controller: kernel.titleController,
           onChanged: () => setState(() {}),
         ),
-        const Divider(height: 8),
+        const SizedBox(height: 8),
         // ── 正文 ──
         Expanded(
           child: widget.onDropItem != null
@@ -156,7 +156,6 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
         ),
         // ── 底栏 ──
         if (widget.showBottomBar) ...[
-          const Divider(height: 8),
           AnimatedBuilder(
             animation: _statusListenable,
             builder: (ctx, _) => EditorBottomBar(
