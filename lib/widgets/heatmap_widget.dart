@@ -200,7 +200,7 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
               }
 
               final count = _cachedData[date] ?? 0;
-              final colorIndex = _getHeatmapColorIndex(count);
+              final colorIndex = _getHeatmapColorIndex(count).clamp(0, heatmapColors.length - 1);
               final isFirstDayOfMonth = dayIndex == 0;
 
               return GestureDetector(
