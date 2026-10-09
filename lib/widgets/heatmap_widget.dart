@@ -81,76 +81,69 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
     return LayoutBuilder(
       builder: (context, constraints) {
         // 固定子项高度：月标签 10 + 2 + 2 + 图例 8 = 22
-        const fixedHeight = 22.0;
+        const fixedHeight = 36.0;
         // 网格可用高度：上限 98 = 7 行 ×（cellSize 12 + 2×margin 1）
         final gridAvail = constraints.maxHeight.isFinite
             ? (constraints.maxHeight - fixedHeight).clamp(0.0, 98.0)
             : 98.0;
         final rowAvail = gridAvail / 7.0;
         const cellMargin = 1.0;
-        final cellSize = (rowAvail - cellMargin * 2).clamp(6.0, 12.0);
-        final cellTotal = cellSize + cellMargin * 2;
+        final cellSize = (rowAvail - cellMargin * 2).clamp(5.0, 12.0);
 
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildMonthLabels(year, cellTotal),
-              const SizedBox(height: 2),
-              _buildGrid(now, year, cellSize, cellMargin, cellTotal, isWordMode),
-              const SizedBox(height: 2),
-              _buildLegend(isWordMode, totalCount),
-            ],
-          ),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildMonthLabels(year),
+            const SizedBox(height: 2),
+            _buildGrid(now, year, cellSize, cellMargin, isWordMode),
+            const SizedBox(height: 2),
+            _buildLegend(isWordMode, totalCount),
+          ],
         );
       },
     );
   }
 
-  Widget _buildMonthLabels(int year, double cellTotal) {
+  Widget _buildMonthLabels(int year) {
     final months = List.generate(12, (i) => DateTime(year, i + 1, 1));
 
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         const SizedBox(width: 14),
         ...months.asMap().entries.map((entry) {
           final index = entry.key;
           final month = entry.value;
           final isFirstMonth = index == 0;
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!isFirstMonth)
-                Container(
-                  width: 1,
-                  height: 10,
-                  color: Colors.grey.shade300,
-                  margin: const EdgeInsets.symmetric(horizontal: 1),
+          return Expanded(
+            child: Row(
+              children: [
+                if (!isFirstMonth)
+                  Container(
+                    width: 1,
+                    height: 10,
+                    color: Colors.grey.shade300,
+                    margin: const EdgeInsets.symmetric(horizontal: 1),
+                  ),
+                Expanded(
+                  child: Text(
+                    '${month.month}月',
+                    style: TextStyle(fontSize: 5, color: Colors.grey.shade500),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-              SizedBox(
-                width: cellTotal,
-                child: Text(
-                  '${month.month}月',
-                  style: TextStyle(fontSize: 5, color: Colors.grey.shade500),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
+              ],
+            ),
           );
         }),
       ],
     );
   }
-
   Widget _buildGrid(
     DateTime now,
     int year,
     double cellSize,
     double cellMargin,
-    double cellTotal,
     bool isWordMode,
   ) {
     final heatmapColors = _cachedColors;
@@ -159,7 +152,6 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
       mainAxisSize: MainAxisSize.min,
       children: List.generate(7, (row) {
         return Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
               width: 14,
@@ -181,47 +173,45 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
               final dayIndex = row - startOffset;
 
               if (dayIndex < 0 || dayIndex >= daysInMonth) {
-                return Container(
-                  width: cellTotal,
-                  height: cellTotal,
-                  margin: EdgeInsets.all(cellMargin),
-                  decoration: const BoxDecoration(color: Colors.transparent),
+                return const Expanded(
+                  child: SizedBox(height: 0),
                 );
               }
 
               final date = DateTime(month.year, month.month, dayIndex + 1);
               if (date.isAfter(DateTime(now.year, now.month, now.day))) {
-                return Container(
-                  width: cellTotal,
-                  height: cellTotal,
-                  margin: EdgeInsets.all(cellMargin),
-                  decoration: const BoxDecoration(color: Colors.transparent),
+                return const Expanded(
+                  child: SizedBox(height: 0),
                 );
               }
 
               final count = _cachedData[date] ?? 0;
-              final colorIndex = _getHeatmapColorIndex(count).clamp(0, heatmapColors.length - 1);
+              final colorIndex = _getHeatmapColorIndex(count)
+                  .clamp(0, heatmapColors.length - 1);
               final isFirstDayOfMonth = dayIndex == 0;
 
-              return GestureDetector(
-                onTap: () => widget.onDayTap(date, []),
-                child: Tooltip(
-                  message: '${date.month}/${date.day}: ${isWordMode ? '$count 字' : '$count 条'}',
-                  child: Container(
-                    width: cellSize,
-                    height: cellSize,
-                    margin: EdgeInsets.all(cellMargin),
-                    decoration: BoxDecoration(
-                      color: heatmapColors[colorIndex],
-                      borderRadius: BorderRadius.circular(2),
-                      border: isFirstDayOfMonth
-                          ? Border(
-                              bottom: BorderSide(
-                                color: Colors.grey.shade400,
-                                width: 1,
-                              ),
-                            )
-                          : null,
+              return Expanded(
+                child: Center(
+                  child: GestureDetector(
+                    onTap: () => widget.onDayTap(date, []),
+                    child: Tooltip(
+                      message: '${date.month}/${date.day}: ${isWordMode ? '$count 字' : '$count 条'}',
+                      child: Container(
+                        width: cellSize,
+                        height: cellSize,
+                        decoration: BoxDecoration(
+                          color: heatmapColors[colorIndex],
+                          borderRadius: BorderRadius.circular(2),
+                          border: isFirstDayOfMonth
+                              ? Border(
+                                  bottom: BorderSide(
+                                    color: Colors.grey.shade400,
+                                    width: 1,
+                                  ),
+                                )
+                              : null,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -232,13 +222,14 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
       }),
     );
   }
-
   Widget _buildLegend(bool isWordMode, int totalCount) {
     final heatmapColors = _cachedColors;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
+   return SizedBox(
+      height: 8,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
         const Text('少', style: TextStyle(fontSize: 5, color: Colors.grey)),
         ...heatmapColors.map((c) => Container(
           width: 8,
@@ -258,6 +249,7 @@ class _HeatmapWidgetState extends State<HeatmapWidget> {
           style: TextStyle(fontSize: 5, color: Colors.grey.shade500),
         ),
       ],
+    ),
     );
   }
 
