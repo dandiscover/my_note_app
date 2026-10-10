@@ -61,6 +61,8 @@ import 'dart:convert';
 import '../models/clue_stroke.dart';
 import '../services/board_revision.dart';
 import '../widgets/tree/node_tree_view.dart';
+import 'dart:io';
+import 'package:flutter/gestures.dart';
 enum WisdomViewMode { list, grid, large, split, cardWall, timeline, gallery }
 
 class WisdomPage extends StatefulWidget {
@@ -90,8 +92,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   bool _isSelectMode = false;
   final Set<String> _selectedIds = {};
   bool _showSearchBar = false;
-  final Set<String> _expandedFolderIds = <String>{};
-
+  bool _systemGroupExpanded = true;
   WisdomViewMode _viewMode = WisdomViewMode.grid;
   Set<String> _selectedTags = {};
   bool _fabExpanded = false;
@@ -1394,20 +1395,38 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               ),
               if (_systemFolders.isNotEmpty) ...[
                 const Divider(height: 1),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: Text('系统',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey)),
+                InkWell(
+                  onTap: () => setState(
+                      () => _systemGroupExpanded = !_systemGroupExpanded),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _systemGroupExpanded
+                              ? Icons.expand_more
+                              : Icons.chevron_right,
+                          size: 16,
+                          color: Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 4),
+                        const Text('系统',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey)),
+                      ],
+                    ),
+                  ),
                 ),
-                ..._systemFolders.map((sys) {
-                  final node = sys['node'] as Node;
-                  final type = sys['type'] as String;
-                  final count = sys['count'] as int;
-                  return _buildSystemFolderTile(node, type, count);
-                }).toList(),
+                if (_systemGroupExpanded)
+                  ..._systemFolders.map((sys) {
+                    final node = sys['node'] as Node;
+                    final type = sys['type'] as String;
+                    final count = sys['count'] as int;
+                    return _buildSystemFolderTile(node, type, count);
+                  }).toList(),
               ],
             ],
           ),
@@ -1430,73 +1449,9 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       ],
     );
   }
-  List<Widget> _buildUserFolderTreeItems() {
-    final items = <Widget>[];
-    for (final folder in _userFolders) {
-      items.addAll(_buildFolderTreeItems(folder, 0));
-    }
-    return items;
-  }
+ 
 
-  List<Widget> _buildFolderTreeItems(Node folder, int depth) {
-    final items = <Widget>[];
-    final subFolders = _nodes.where((n) => n.isFolder && n.parentId == folder.id).toList();
-    final isExpanded = _expandedFolderIds.contains(folder.id);
-    final hasChildren = subFolders.isNotEmpty;
-    final isSelected = _currentFolderId == folder.id;
-
-    items.add(
-      ListTile(
-        dense: true,
-        leading: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(width: depth * 16.0),
-            if (hasChildren)
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    if (isExpanded) {
-                      _expandedFolderIds.remove(folder.id);
-                    } else {
-                      _expandedFolderIds.add(folder.id);
-                    }
-                  });
-                },
-                child: Icon(
-                  isExpanded ? Icons.expand_more : Icons.chevron_right,
-                  size: 18,
-                  color: Colors.grey.shade600,
-                ),
-              )
-            else
-              const SizedBox(width: 18),
-            const SizedBox(width: 4),
-            const Icon(Icons.folder, size: 18, color: Colors.orange),
-          ],
-        ),
-        title: Text(
-          folder.title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            color: isSelected ? Colors.purple : Colors.black87,
-          ),
-        ),
-        selected: isSelected,
-        onTap: () => _navigateToFolder(folder.id),
-      ),
-    );
-
-    if (isExpanded) {
-      for (final sub in subFolders) {
-        items.addAll(_buildFolderTreeItems(sub, depth + 1));
-      }
-    }
-
-    return items;
-  }
-
+ 
   Widget _buildSystemFolderTile(Node node, String type, int count) {
     IconData icon;
     Color color;
@@ -2077,14 +2032,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           ],
         ),
         onTap: isFolder ? () => _navigateToFolder(node.id) : () => _openNode(node),
-        onLongPress: () {
-          if (!_isSelectMode) {
-            setState(() {
-              _isSelectMode = true;
-              _selectedIds.add(node.id);
-            });
-          }
-        },
+        onLongPress: () => _showGridMenu(node, Offset.zero),
       ),
     );
   }
@@ -2186,12 +2134,406 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       );
     }
 
-    if (!_isSelectMode) {
-      return WisdomDraggable(node: node, child: cardContent, onDragEnd: () { _cache.invalidate(_cacheKeyNodes); _folderStatsCache = null; _loadData(); });
+    if (_isSelectMode) {
+      return cardContent;
     }
-    return cardContent;
+
+    final isDesktop = Platform.isWindows ||
+        Platform.isMacOS ||
+        Platform.isLinux;
+
+    if (isDesktop) {
+      // 桌面：左键拖 + 右键弹菜单
+      return Listener(
+        onPointerDown: (event) {
+          if (event.buttons == kSecondaryMouseButton) {
+            debugPrint('🚨 格子右键: ${node.title}');
+            _showGridMenu(node, event.position);
+          }
+        },
+        child: WisdomDraggable(
+          node: node,
+          child: cardContent,
+          onDragEnd: () {
+            _cache.invalidate(_cacheKeyNodes);
+            _folderStatsCache = null;
+            _loadData();
+          },
+        ),
+      );
+    }
+
+    // 触屏：长按弹菜单 —— 不拖
+    return GestureDetector(
+      onLongPressStart: (d) {
+        debugPrint('🚨 格子长按: ${node.title}');
+        _showGridMenu(node, d.globalPosition);
+      },
+      child: cardContent,
+    );
+  }
+  // ─── R-4 批D-2：格子右键 / 长按菜单 ──────────────
+
+  bool _isInSystemTree(Node node) {
+    if (node.isSystemFolder) return true;
+    String? cur = node.parentId;
+    final visited = <String>{};
+    while (cur != null) {
+      if (visited.contains(cur)) return false;
+      visited.add(cur);
+      final p = _nodes.firstWhere((n) => n.id == cur,
+          orElse: () => Node.empty);
+      if (p.id.isEmpty) return false;
+      if (p.isSystemFolder) return true;
+      cur = p.parentId;
+    }
+    return false;
   }
 
+  Size _overlaySize(BuildContext context) {
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) return MediaQuery.of(context).size;
+    final ro = overlay.context.findRenderObject();
+    if (ro is RenderBox) return ro.size;
+    return MediaQuery.of(context).size;
+  }
+
+  Future<void> _showGridMenu(Node node, Offset position) async {
+    final isFolder = node.isFolder;
+    final systemTag = node.systemTag;
+    final isTopSystem = node.isSystemFolder;
+    final inSystemTree = _isInSystemTree(node);
+    debugPrint('🚨 _showGridMenu 入口: ${node.title} isTopSystem=$isTopSystem inSystemTree=$inSystemTree');
+
+    // 兜底位置
+    final Size size = MediaQuery.of(context).size;
+    final pos = position == Offset.zero
+        ? Offset(size.width / 2, size.height / 2)
+        : position;
+
+    final isFullBlocked = isTopSystem &&
+        (systemTag == 'cardbox' ||
+            systemTag == 'album' ||
+            systemTag == 'review');
+
+    if (isFullBlocked) {
+      debugPrint('🚨 isFullBlocked —— 弹提示 return');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('此项不可操作'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+      return;
+    }
+
+    final allowNewFolder = isFolder &&
+        (!isTopSystem || systemTag == 'library' || systemTag == 'archived');
+    final allowNewNote = isFolder && !inSystemTree;
+    final allowRename = !isTopSystem;
+    final allowDelete = !isTopSystem && (!isFolder || !inSystemTree);
+    final allowMove = !isTopSystem && (!isFolder || !inSystemTree);
+
+    final items = <PopupMenuEntry<String>>[];
+
+    if (allowNewFolder) {
+      items.add(const PopupMenuItem(
+        value: 'new_folder',
+        child: Text('📁 新建子文件夹'),
+      ));
+    }
+    if (allowNewNote) {
+      items.add(const PopupMenuItem(
+        value: 'new_note',
+        child: Text('📝 新建笔记'),
+      ));
+    }
+    if (allowRename) {
+      items.add(const PopupMenuItem(
+        value: 'rename',
+        child: Text('✏️ 重命名'),
+      ));
+    }
+    if (allowDelete) {
+      items.add(const PopupMenuItem(
+        value: 'delete',
+        child: Text('🗑️ 删除', style: TextStyle(color: Colors.red)),
+      ));
+    }
+    if (allowMove) {
+      items.add(const PopupMenuItem(
+        value: 'move',
+        child: Text('📦 移动到...'),
+      ));
+    }
+
+    if (items.isEmpty) {
+      debugPrint('🚨 items 空 —— return');
+      return;
+    }
+
+    String? action;
+    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+      action = await showMenu<String>(
+        context: context,
+        position: RelativeRect.fromRect(
+          Rect.fromLTWH(pos.dx, pos.dy, 0, 0),
+          Offset.zero & _overlaySize(context),
+        ),
+        items: items,
+      );
+    } else {
+      action = await showModalBottomSheet<String>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(node.title,
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              const Divider(height: 1),
+              ...items.map((item) {
+                if (item is PopupMenuItem<String>) {
+                  return ListTile(
+                    title: item.child,
+                    onTap: () => Navigator.pop(ctx, item.value),
+                  );
+                }
+                return const SizedBox.shrink();
+              }),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (action == null || !mounted) return;
+
+    switch (action) {
+      case 'new_folder':
+        await _gridNewFolder(node);
+        break;
+      case 'new_note':
+        await _gridNewNote(node);
+        break;
+      case 'rename':
+        await _gridRename(node);
+        break;
+      case 'delete':
+        await _gridDelete(node);
+        break;
+      case 'move':
+        await _gridMove(node);
+        break;
+    }
+  }
+
+  Future<void> _gridNewFolder(Node parent) async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新建子文件夹'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '文件夹名称'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    final t = (name ?? '').trim();
+    if (t.isEmpty || !mounted) return;
+
+    await _db.createFolder(title: t, parentId: parent.id);
+    _cache.invalidate(_cacheKeyNodes);
+    _folderStatsCache = null;
+    await _loadData();
+  }
+
+  Future<void> _gridNewNote(Node parent) async {
+    final now = DateTime.now();
+    final noteId = now.millisecondsSinceEpoch.toString();
+    final entry = NotebookEntry(
+      id: noteId,
+      title: '无标题笔记',
+      content: '',
+      updatedAt: now,
+      status: 'raw',
+      editorMode: 'plain',
+    );
+    await _db.insertNote(entry.toMap());
+    await _db.attachNoteToNode(
+      noteId: noteId,
+      title: entry.title,
+      parentId: parent.id,
+    );
+    _cache.invalidate(_cacheKeyNodes);
+    _cache.invalidate(_cacheKeyNotes);
+    _folderStatsCache = null;
+    await _loadData();
+  }
+
+  Future<void> _gridRename(Node node) async {
+    final ctrl = TextEditingController(text: node.title);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    final t = (name ?? '').trim();
+    if (t.isEmpty || !mounted) return;
+
+    await _db.updateNode(node.copyWith(title: t, updatedAt: DateTime.now()));
+    _cache.invalidate(_cacheKeyNodes);
+    await _loadData();
+  }
+
+  Future<void> _gridDelete(Node node) async {
+    int childCount = 0;
+    if (node.isFolder) {
+      final visited = <String>{};
+      void walk(String id) {
+        if (visited.contains(id)) return;
+        visited.add(id);
+        for (final n in _nodes.where((n) => n.parentId == id)) {
+          if (n.id == node.id) continue;
+          childCount++;
+          if (n.isFolder) walk(n.id);
+        }
+      }
+      walk(node.id);
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text(
+          node.isFolder && childCount > 0
+              ? '删除「${node.title}」？\n此文件夹含 $childCount 个子项，全部将删除。\n此操作不可撤销。'
+              : '删除「${node.title}」？此操作不可撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    await _db.deleteNode(node.id);
+    _cache.invalidate(_cacheKeyNodes);
+    _cache.invalidate(_cacheKeyNotes);
+    _folderStatsCache = null;
+    await _loadData();
+  }
+
+  Future<void> _gridMove(Node node) async {
+    debugPrint('🚨 _gridMove 入口: ${node.title}');
+    final folders = _nodes.where((n) {
+      if (!n.isFolder) return false;
+      if (n.id == node.id) return false;
+      String? cur = n.parentId;
+      final visited = <String>{};
+      while (cur != null) {
+        if (visited.contains(cur)) break;
+        visited.add(cur);
+        if (cur == node.id) return false;
+        final p = _nodes.firstWhere((x) => x.id == cur,
+            orElse: () => Node.empty);
+        if (p.id.isEmpty) break;
+        cur = p.parentId;
+      }
+      final tag = n.systemTag;
+      if (tag != null && tag != 'library' && tag != 'archived') {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    final targetId = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('移动到...'),
+        content: SizedBox(
+          width: 320,
+          height: 320,
+          child: ListView.builder(
+            itemCount: folders.length + 1,
+            itemBuilder: (_, i) {
+              if (i == 0) {
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.home),
+                  title: const Text('根目录'),
+                  onTap: () => Navigator.pop(ctx, '__root__'),
+                );
+              }
+              final f = folders[i - 1];
+              return ListTile(
+                dense: true,
+                leading: const Icon(Icons.folder, color: Colors.amber),
+                title: Text(f.title),
+                onTap: () => Navigator.pop(ctx, f.id),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+
+    if (targetId == null || !mounted) return;
+    final newParent = targetId == '__root__' ? null : targetId;
+    await _db.moveNode(node.id, newParent);
+    _cache.invalidate(_cacheKeyNodes);
+    _folderStatsCache = null;
+    await _loadData();
+  }
   Widget _buildCardBoxView() {
     return WisdomCardBox(
       cards: _cards,
