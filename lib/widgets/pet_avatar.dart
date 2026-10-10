@@ -107,7 +107,7 @@ class _PetAvatarState extends State<PetAvatar>
         final actualImageName = isBlinking ? 'pet_blink' : baseImageName;
 
         return Stack(
-          alignment: Alignment.center,
+          alignment: Alignment.bottomCenter,
           clipBehavior: Clip.none,
           children: [
             // 光晕层（glowing / brain）
@@ -116,6 +116,7 @@ class _PetAvatarState extends State<PetAvatar>
             // 主图（stage 决定尺寸）
             Transform.scale(
               scale: stageScale,
+              alignment: Alignment.bottomCenter,
               child: Image.asset(
                 'assets/images/pet/$actualImageName.png',
                 width: size,
