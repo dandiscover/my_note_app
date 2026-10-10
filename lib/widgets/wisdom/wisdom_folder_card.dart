@@ -1,5 +1,5 @@
 // lib/widgets/wisdom/wisdom_folder_card.dart
-// 智库 - 文件夹卡片（修复 DragTarget 参数类型）
+// 智库 - 文件夹卡片
 
 import 'package:flutter/material.dart';
 import '../../database_service.dart';
@@ -63,21 +63,21 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
         final cardContent = MouseRegion(
           onEnter: (_) => setState(() => _isHovered = true),
           onExit: (_) => setState(() => _isHovered = false),
-          child: DragTarget<Node>(
-            onWillAccept: (data) {
-              if (data == null) return false;
-              // ✅ data 本身就是 Node
-              if (data.id == widget.node.id) return false;
-              if (widget.isDescendantOf(data.id, widget.node.id)) return false;
+          child: DragTarget<String>(
+  onWillAccept: (data) {
+    if (data == null) return false;
+    // ✅ data 是 node.id（String）
+    if (data == widget.node.id) return false;
+    if (widget.isDescendantOf(data, widget.node.id)) return false;
 
-              if (_isCardBox) {
-                return false;
-              }
-              return true;
-            },
-            onAccept: (data) async {
-              // ✅ data 本身就是 Node
-              await _db.moveNode(data.id, widget.node.id);
+    if (_isCardBox) {
+      return false;
+    }
+    return true;
+  },
+  onAccept: (data) async {
+    // ✅ data 是 node.id（String）
+    await _db.moveNode(data, widget.node.id);
               WisdomLightToast.show(context, '✅ 已移动到「${widget.node.title}」');
               widget.onDataChanged?.call();
               widget.onEnterFolder();

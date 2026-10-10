@@ -18,8 +18,8 @@ class WisdomDraggable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Draggable<Node>(
-      data: node,
+    return Draggable<String>(
+      data: node.id,
       feedback: Material(
         color: Colors.transparent,
         child: Transform.scale(
