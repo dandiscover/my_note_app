@@ -1,13 +1,14 @@
-// lib/widgets/wisdom/wisdom_note_card.dart
+﻿// lib/widgets/wisdom/wisdom_note_card.dart
 // 智库 - 笔记卡片（只接收 node，内部查询数据）
 // ✅ 新增可选参数 hasExplore，用于轻量标记“探究中”状态
 // ✅ 保持卡片主体视觉不变，仅右上角增加紫色小圆点
 
 import 'package:flutter/material.dart';
 import '../../models/node.dart';
+import '../../utils/app_string_utils.dart';
 import 'wisdom_draggable.dart';
 import 'wisdom_checkbox.dart';
-
+import '../../utils/app_string_utils.dart';
 class WisdomNoteCard extends StatelessWidget {
   final Node node;
   final bool isSelectMode;
@@ -50,8 +51,10 @@ class WisdomNoteCard extends StatelessWidget {
                 children: [
                   const Icon(Icons.note, size: 28, color: Colors.blue),
                   const SizedBox(height: 4),
-                  Text(node.title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-                    textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(AppStringUtils.displayNoteTitle(node.title, null),
+  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+  textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+),
                   if (node.tags.isNotEmpty)
                     Text(node.tags.join(', '), style: TextStyle(fontSize: 8, color: Colors.grey.shade500),
                       maxLines: 1, overflow: TextOverflow.ellipsis),

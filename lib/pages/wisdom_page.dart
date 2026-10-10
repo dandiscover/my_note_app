@@ -1,4 +1,4 @@
-// lib/pages/wisdom_page.dart
+﻿// lib/pages/wisdom_page.dart
 // 📚 智库页面 — 统一“已归档”文件夹 + 修复卡片盒 UI 更新 + 空列表安全
 // ✅ 新增：创建最小一步拐杖卡（异步保存）
 // ✅ 新增：卡片详情弹窗支持删除卡片
@@ -2679,7 +2679,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
                   ? Colors.grey.shade700
                   : Theme.of(context).primaryColor,
               shape: const CircleBorder(),
-              elevation: 4,
+              elevation: 0,
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: () => setState(() => _fabExpanded = !_fabExpanded),

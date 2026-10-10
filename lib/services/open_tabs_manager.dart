@@ -1,4 +1,4 @@
-// lib/services/open_tabs_manager.dart
+﻿// lib/services/open_tabs_manager.dart
 // 已开笔记标签管理器 —— A2 标签条数据源
 
 import 'package:flutter/foundation.dart';
@@ -43,6 +43,10 @@ class OpenTabsManager {
       final validIds = allNotes.map((m) => m['id'] as String).toSet();
       final filtered = loaded
           .where((t) => validIds.contains(t.noteId))
+          .map((t) => OpenTab(
+                noteId: t.noteId,
+                title: t.title.replaceFirst(RegExp(r'^#+\s*'), ''),
+              ))
           .toList();
       tabs.value = filtered;
       if (filtered.isNotEmpty) {
@@ -109,3 +113,4 @@ class OpenTabsManager {
     await prefs.setString(_prefsKey, json);
   }
 }
+

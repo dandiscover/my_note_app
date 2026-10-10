@@ -1,4 +1,4 @@
-// lib/main.dart
+﻿// lib/main.dart
 // ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步 + 系统人格
 // ✅ 新增：迁移旧探究数据到多任务模型
 // ✅ Spike：全局悬浮宠物加 3 个隐藏边界（弹窗/键盘/全屏阅读）+ 暂隐（双击 30 秒）
@@ -165,7 +165,7 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   static const Duration _temporaryHideDuration = Duration(seconds: 30);
 
   // ✅ 小云尺寸调整：底部安全间隙（原 clamp 纵向 -150 里的 80 抽出来）
-  static const double _petBottomMargin = 16.0;
+  static const double _petBottomMargin = 1.0;
 
   // ✅ 小云尺寸调整：断点 600 dp，手机 100 / Pad 280
   double get _petSize {
