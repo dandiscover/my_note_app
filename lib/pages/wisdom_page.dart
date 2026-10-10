@@ -2001,7 +2001,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       child: ListTile(
         leading: Icon(leadingIcon, color: iconColor, size: 32),
         title: Text(
-          node.title,
+          AppStringUtils.displayNoteTitle(node.title, null),
           style: const TextStyle(fontWeight: FontWeight.w500),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -2644,7 +2644,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             child: GestureDetector(
               onTap: _closeFab,
               behavior: HitTestBehavior.translucent,
-              child: Container(color: Colors.black.withOpacity(0.3)),
+              child: Container(color: Colors.transparent),
             ),
           ),
         Column(
@@ -2722,6 +2722,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: Colors.grey.shade300),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
