@@ -52,8 +52,8 @@ class AppStringUtils {
 
   /// 笔记显示标题
   static String displayNoteTitle(String? title, String? content) {
-    final t = (title ?? '').trim();
-    if (t.isNotEmpty) return t;
-    return virtualNoteTitle(content);
-  }
+  final t = (title ?? '').trim().replaceFirst(RegExp(r'^#+\s*'), '');
+  if (t.isNotEmpty) return t;
+  return virtualNoteTitle(content);
+}
 }

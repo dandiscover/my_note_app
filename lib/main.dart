@@ -165,7 +165,7 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   static const Duration _temporaryHideDuration = Duration(seconds: 30);
 
   // ✅ 小云尺寸调整：底部安全间隙（原 clamp 纵向 -150 里的 80 抽出来）
-  static const double _petBottomMargin = 80.0;
+  static const double _petBottomMargin = 16.0;
 
   // ✅ 小云尺寸调整：断点 600 dp，手机 100 / Pad 280
   double get _petSize {

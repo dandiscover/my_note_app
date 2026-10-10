@@ -1127,7 +1127,12 @@ void updateEntry(NotebookEntry newEntry) {
                         codeblockDecoration: BoxDecoration(
                             color: Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(4)),
+                        listBullet: const TextStyle(fontSize: 15),
+                        listIndent: 24,
+                        listBulletPadding:
+                            const EdgeInsets.only(right: 8),
                       ),
+                      
                       extensionSet: buildMarkdownExtensionSet(),
                       sizedImageBuilder: (config) =>
                           buildMarkdownImage(config.uri),

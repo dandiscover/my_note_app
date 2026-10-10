@@ -2629,15 +2629,15 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         ],
       ),
     );
-  }
-
-  Widget _buildFab() {
+  }  
+    Widget _buildFab() {
     if (_isCardBoxView) return const SizedBox.shrink();
     if (focusModeNotifier.value && _showTabView && _openedNote != null) {
       return const SizedBox.shrink();
     }
     return Stack(
-      alignment: Alignment.bottomCenter,
+      alignment: Alignment.bottomRight,
+      clipBehavior: Clip.none,
       children: [
         if (_fabExpanded)
           Positioned.fill(
@@ -2647,52 +2647,99 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               child: Container(color: Colors.black.withOpacity(0.3)),
             ),
           ),
-        AnimatedOpacity(
-          opacity: _fabExpanded ? 1.0 : 0.0,
-          duration: const Duration(milliseconds: 200),
-          child: Visibility(
-            visible: _fabExpanded,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildFabOption(icon: Icons.edit_note, label: '新建笔记', color: Colors.blue, onTap: _createNote),
-                const SizedBox(height: 8),
-                // ✅ 第三轮：新建富文本笔记（老白裁 2 + 图标 Icons.article_outlined）
-                _buildFabOption(icon: Icons.article_outlined, label: '新建富文本笔记', color: Colors.teal, onTap: _createRichtextNote),
-                const SizedBox(height: 8),
-                _buildFabOption(icon: Icons.create_new_folder, label: '新建文件夹', color: Colors.orange, onTap: _createFolder),
-                const SizedBox(height: 12),
-              ],
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (_fabExpanded) ...[
+              _buildFabOption(
+                icon: Icons.edit_note,
+                label: '新建笔记',
+                iconColor: Colors.blue,
+                onTap: _createNote,
+              ),
+              const SizedBox(height: 8),
+              _buildFabOption(
+                icon: Icons.article_outlined,
+                label: '新建富文本笔记',
+                iconColor: Colors.teal,
+                onTap: _createRichtextNote,
+              ),
+              const SizedBox(height: 8),
+              _buildFabOption(
+                icon: Icons.create_new_folder,
+                label: '新建文件夹',
+                iconColor: Colors.orange,
+                onTap: _createFolder,
+              ),
+              const SizedBox(height: 12),
+            ],
+            Material(
+              color: _fabExpanded
+                  ? Colors.grey.shade700
+                  : Theme.of(context).primaryColor,
+              shape: const CircleBorder(),
+              elevation: 4,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => setState(() => _fabExpanded = !_fabExpanded),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    transitionBuilder: (child, anim) => RotationTransition(
+                      turns:
+                          Tween<double>(begin: 0.75, end: 1.0).animate(anim),
+                      child: FadeTransition(opacity: anim, child: child),
+                    ),
+                    child: Icon(
+                      _fabExpanded ? Icons.close : Icons.add,
+                      key: ValueKey(_fabExpanded),
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-        ),
-        FloatingActionButton(
-          heroTag: 'wisdom_fab',
-          onPressed: () => setState(() => _fabExpanded = !_fabExpanded),
-          mini: true,
-          backgroundColor: _fabExpanded ? Colors.grey.shade700 : Theme.of(context).primaryColor,
-          child: AnimatedIcon(
-            icon: AnimatedIcons.menu_close,
-            progress: _fabExpanded ? const AlwaysStoppedAnimation(1) : const AlwaysStoppedAnimation(0),
-            color: Colors.white,
-          ),
-          tooltip: '创建',
+          ],
         ),
       ],
     );
   }
-
-  Widget _buildFabOption({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
+  
+    Widget _buildFabOption({
+    required IconData icon,
+    required String label,
+    required Color iconColor,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 2))]),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 20, color: color), const SizedBox(width: 8), Text(label, style: TextStyle(fontSize: 14, color: color))]),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: iconColor),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
+            ),
+          ],
+        ),
       ),
     );
   }
-  
+
+
+
 }
 class _AlbumPainter extends CustomPainter {
   final List<ClueStroke> strokes;

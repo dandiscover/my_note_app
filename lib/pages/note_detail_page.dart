@@ -1145,6 +1145,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       backgroundColor: Colors.grey.shade100,
                       fontFamily: 'monospace',
                     ),
+                    listBullet: const TextStyle(fontSize: 16, height: 1.6),
+                    listIndent: 24,
+                    listBulletPadding: const EdgeInsets.only(right: 8),
                   ),
                   extensionSet: _mergeExtensionSets(),
                   sizedImageBuilder: (config) =>
