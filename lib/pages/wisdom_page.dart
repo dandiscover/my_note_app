@@ -28,6 +28,7 @@ import '../models/node.dart';
 import '../models/card.dart';
 import '../services/note_opener.dart';
 import '../utils/app_string_utils.dart';
+import '../widgets/wisdom/wisdom_breadcrumb.dart';
 import '../services/card_service.dart';
 import '../services/cache_manager.dart';
 import '../services/sync/cloud_sync_service.dart';
@@ -1204,26 +1205,25 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   Widget _buildBreadcrumb() {
     final path = _breadcrumbPath;
     if (path.isEmpty) return const SizedBox.shrink();
-    return Container(
-      height: 36, padding: const EdgeInsets.symmetric(horizontal: 12),
-      alignment: Alignment.centerLeft,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            GestureDetector(onTap: () => _navigateToFolder(null), child: const Text('📚 根目录', style: TextStyle(fontSize: 12, color: Colors.blue))),
-            ...path.map((node) => Row(
-              children: [
-                const Text(' / ', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                GestureDetector(
-                  onTap: () => _navigateToFolder(node.id),
-                  child: Text(node.title, style: TextStyle(fontSize: 12, color: node.id == _currentFolderId ? Colors.black87 : Colors.blue, fontWeight: node.id == _currentFolderId ? FontWeight.w600 : FontWeight.normal)),
-                ),
-              ],
-            )),
-          ],
-        ),
-      ),
+    return WisdomBreadcrumb(
+      breadcrumb: path,
+      onMoveNode: (nodeId, newParentId) async {
+        await _db.moveNode(nodeId, newParentId);
+        _cache.invalidate(_cacheKeyNodes);
+        _folderStatsCache = null;
+        await _loadData();
+      },
+      onGoRoot: () => _navigateToFolder(null),
+      onGoToBreadcrumb: (index) => _navigateToFolder(path[index].id),
+      isDescendantOf: (nodeId, ancestorId) {
+        final map = {for (var n in _nodes) n.id: n};
+        String? cur = map[nodeId]?.parentId;
+        while (cur != null) {
+          if (cur == ancestorId) return true;
+          cur = map[cur]?.parentId;
+        }
+        return false;
+      },
     );
   }
 
