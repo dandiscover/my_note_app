@@ -52,8 +52,12 @@ class AppStringUtils {
 
   /// 笔记显示标题
   static String displayNoteTitle(String? title, String? content) {
-  final t = (title ?? '').trim().replaceFirst(RegExp(r'^#+\s*'), '');
-  if (t.isNotEmpty) return t;
-  return virtualNoteTitle(content);
-}
+    var t = (title ?? '').trim();
+    t = t.replaceFirst(
+        RegExp(r'''^['"'\u2018\u2019\u201C\u201D]*#*\s*'''), '');
+    t = t.replaceFirst(
+        RegExp(r'''['"'\u2018\u2019\u201C\u201D]+$'''), '');
+    if (t.isNotEmpty) return t;
+    return virtualNoteTitle(content);
+  }
 }
