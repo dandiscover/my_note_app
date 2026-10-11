@@ -45,7 +45,9 @@ class OpenTabsManager {
           .where((t) => validIds.contains(t.noteId))
           .map((t) => OpenTab(
                 noteId: t.noteId,
-                title: t.title.replaceFirst(RegExp(r'^#+\s*'), ''),
+                title: t.title
+                    .replaceFirst(RegExp(r'''^['"]*#*\s*'''), '')
+                    .replaceFirst(RegExp(r'''['"]+$'''), ''),
               ))
           .toList();
       tabs.value = filtered;
@@ -61,7 +63,15 @@ class OpenTabsManager {
     final current = tabs.value;
     final exists = current.any((t) => t.noteId == tab.noteId);
     if (!exists) {
-      tabs.value = [...current, tab];
+      final cleaned = OpenTab(
+        noteId: tab.noteId,
+        title: tab.title
+            .replaceFirst(
+                RegExp(r'''^['"'\u2018\u2019\u201C\u201D]*#*\s*'''), '')
+            .replaceFirst(
+                RegExp(r'''['"'\u2018\u2019\u201C\u201D]+$'''), ''),
+      );
+      tabs.value = [...current, cleaned];
     }
     activeTabId.value = tab.noteId;
     reopenTick.value++;
@@ -87,9 +97,12 @@ class OpenTabsManager {
     final current = tabs.value;
     final index = current.indexWhere((t) => t.noteId == noteId);
     if (index == -1) return;
-    if (current[index].title == newTitle) return;
+    final stripped = newTitle
+        .replaceFirst(RegExp(r'''^['"]*#*\s*'''), '')
+        .replaceFirst(RegExp(r'''['"]+$'''), '');
+    if (current[index].title == stripped) return;
     final updated = List<OpenTab>.from(current);
-    updated[index] = OpenTab(noteId: noteId, title: newTitle);
+    updated[index] = OpenTab(noteId: noteId, title: stripped);
     tabs.value = updated;
     _persist();
   }
