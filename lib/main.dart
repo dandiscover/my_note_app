@@ -3,7 +3,6 @@
 // ✅ 新增：迁移旧探究数据到多任务模型
 // ✅ Spike：全局悬浮宠物加 3 个隐藏边界（弹窗/键盘/全屏阅读）+ 暂隐（双击 30 秒）
 // ✅ 小云尺寸调整：手机 100 / Pad 280（断点 600 dp）
-import 'services/open_tabs_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -14,7 +13,6 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'pages/workbench/editor_kernel.dart';
 import 'models/pet.dart';
 import 'dart:io';
-import 'services/note_opener.dart';
 import 'services/supabase_service.dart';
 import 'services/keyboard_shortcut_manager.dart';
 import 'services/pet_service.dart';
@@ -38,6 +36,9 @@ import 'models/node.dart';
 import 'widgets/quick_switch_dialog.dart';
 import 'pages/note_detail_page.dart';
 import 'pages/wisdom_page.dart';
+import 'services/pet_action_notifier.dart';
+import 'widgets/insight/writing_log_popup.dart';
+import 'widgets/focus/white_noise_widget.dart';
 import 'pages/insight_page.dart';
 import 'pages/creation_page.dart' as creation;
 import 'services/image_path_service.dart';
@@ -54,6 +55,10 @@ class _PetNavigatorObserver extends NavigatorObserver {
 
 // ✅ Spike：单例，生命周期与 app 一致，避免 StatelessWidget rebuild 漂移
 final _PetNavigatorObserver _petObserver = _PetNavigatorObserver();
+
+// ✅ 写作专注批：全局 Navigator key —— `_FloatingPetOverlay` 在 Navigator 外
+final GlobalKey<NavigatorState> rootNavigatorKey =
+    GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -99,6 +104,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: '云脑计划',
       debugShowCheckedModeBanner: false,
+      navigatorKey: rootNavigatorKey,       // ✅ 写作专注批：供 Navigator 外 context 用
       navigatorObservers: [_petObserver],   // ✅ Spike：弹窗/底部面板隐藏宠物
 
       // ✅ Quill 本地化配置（flutter_quill 渲染工具栏 / 编辑器的界面文字需要）
@@ -164,6 +170,11 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   Timer? _hideTimer;
   static const Duration _temporaryHideDuration = Duration(seconds: 30);
 
+  // 写作专注批：订阅 + 浮层
+  StreamSubscription<PetAction>? _petSub;
+  OverlayEntry? _logEntry;
+  OverlayEntry? _noiseEntry;
+
   // ✅ 小云尺寸调整：底部安全间隙（原 clamp 纵向 -150 里的 80 抽出来）
   static const double _petBottomMargin = 1.0;
 
@@ -176,11 +187,28 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
   @override
   void initState() {
     super.initState();
+    _petSub = PetActionNotifier.stream.listen((a) {
+      if (!mounted) return;
+      if (a == PetAction.openLog) {
+        _showLogPopup();
+      } else if (a == PetAction.openNoise) {
+        _showNoisePopup();
+      }
+    });
     _loadPet();
   }
 
   @override
   void dispose() {
+    _petSub?.cancel();
+    if (_logEntry != null && _logEntry!.mounted) {
+      _logEntry!.remove();
+    }
+    _logEntry = null;
+    if (_noiseEntry != null && _noiseEntry!.mounted) {
+      _noiseEntry!.remove();
+    }
+    _noiseEntry = null;
     _hideTimer?.cancel();
     super.dispose();
   }
@@ -241,6 +269,118 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
     setState(() => _isDragging = false);
   }
 
+  void _showLogPopup() {
+    if (_noiseEntry != null && _noiseEntry!.mounted) {
+      _noiseEntry!.remove();
+    }
+    _noiseEntry = null;
+    if (_logEntry != null && _logEntry!.mounted) {
+      _logEntry!.remove();
+    }
+    _logEntry = null;
+
+    final overlay = rootNavigatorKey.currentState?.overlay;
+    if (overlay == null) return;
+
+    _logEntry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        right: 20,
+        bottom: 120,
+        child: WritingLogPopup(
+          onClose: () {
+            if (_logEntry != null && _logEntry!.mounted) {
+              _logEntry!.remove();
+            }
+            _logEntry = null;
+          },
+        ),
+      ),
+    );
+    overlay.insert(_logEntry!);
+  }
+
+  void _showNoisePopup() {
+    if (_logEntry != null && _logEntry!.mounted) {
+      _logEntry!.remove();
+    }
+    _logEntry = null;
+    if (_noiseEntry != null && _noiseEntry!.mounted) {
+      _noiseEntry!.remove();
+    }
+    _noiseEntry = null;
+
+    final overlay = rootNavigatorKey.currentState?.overlay;
+    if (overlay == null) return;
+
+    _noiseEntry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        right: 20,
+        bottom: 120,
+        child: WhiteNoiseWidget(
+          onClose: () {
+            if (_noiseEntry != null && _noiseEntry!.mounted) {
+              _noiseEntry!.remove();
+            }
+            _noiseEntry = null;
+          },
+        ),
+      ),
+    );
+    overlay.insert(_noiseEntry!);
+  }
+
+  void _showPetMenu() {
+    final pos = _position;
+    final navContext = rootNavigatorKey.currentContext;
+    if (navContext == null) return;
+    final size = MediaQuery.of(navContext).size;
+    showMenu<String>(
+      context: navContext,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(pos.dx, pos.dy + _petSize, 0, 0),
+        Offset.zero & size,
+      ),
+      items: [
+        if (OpenTabsManager.activeTabId.value != null) ...[
+          const PopupMenuItem(value: 'focus', child: Text('🧘 专注模式')),
+          const PopupMenuItem(value: 'pomodoro', child: Text('🍅 番茄钟')),
+        ],
+        const PopupMenuItem(value: 'noise', child: Text('🌧️ 白噪音')),
+        const PopupMenuItem(value: 'log', child: Text('📓 写作日志')),
+      ],
+    ).then((v) {
+      if (v == null || !mounted) return;
+      switch (v) {
+        case 'focus':
+          _triggerFocusMode();
+          break;
+        case 'pomodoro':
+          if (_triggerFocusMode()) {
+            PetActionNotifier.trigger(PetAction.openPomodoro);
+          }
+          break;
+        case 'noise':
+          PetActionNotifier.trigger(PetAction.openNoise);
+          break;
+        case 'log':
+          PetActionNotifier.trigger(PetAction.openLog);
+          break;
+      }
+    });
+  }
+
+  bool _triggerFocusMode() {
+    final active = OpenTabsManager.activeTabId.value;
+    if (active == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先打开一篇笔记')),
+      );
+      return false;
+    }
+    focusModeNotifier.value = true;
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     // ✅ Spike：监听 全屏阅读计数 + 弹窗可见，二者合并（一层包裹）
@@ -281,6 +421,8 @@ class _FloatingPetOverlayState extends State<_FloatingPetOverlay> {
               size: _petSize,                  // ✅ 小云尺寸调整：手机 100 / Pad 280
               onTap: _interact,
               onDoubleTap: _hideTemporarily,   // ✅ Spike
+              onSecondaryTapUp: _showPetMenu,
+              onLongPress: _showPetMenu,
               onPanStart: _onPanStart,
               onPanUpdate: _onPanUpdate,
               onPanEnd: _onPanEnd,
