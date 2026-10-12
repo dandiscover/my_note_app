@@ -2,33 +2,27 @@ name: my_note_app
 description: "云端计划 - 个人知识管理工具"
 publish_to: 'none'
 version: 1.0.0+1
-
 environment:
   sdk: ^3.12.2
-
 dependencies:
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
   intl: any
-
+  just_audio: ^0.9.40
+  just_audio_windows: ^0.2.3
+  http: ^1.2.0
   flutter_quill: ^11.5.1
   # 本地存储
   sqflite: ^2.3.0
   path: ^1.9.0
   shared_preferences: ^2.2.0
   sqflite_common_ffi: ^2.3.0
-
   # 文件选择
   file_picker: 12.2.0
-
-  # 网络请求
-  http: ^1.1.0
-
   # 路径和文件操作
   path_provider: ^2.1.0
-
   # Markdown 支持
   flutter_markdown: ^0.7.0
   markdown: ^7.3.1
@@ -90,4 +84,6 @@ dependency_overrides:
 flutter:
   uses-material-design: true
   assets:
-    - assets/images/pet/          # ✅ 小云形象替换轮：PNG 图目录（pet_happy / pet_sad / pet_blink）
+    - assets/images/pet/
+    - assets/audio/          # ✅ 小云形象替换轮：PNG 图目录（pet_happy / pet_sad / pet_blink）
+  
