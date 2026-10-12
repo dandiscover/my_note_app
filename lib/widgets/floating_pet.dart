@@ -5,6 +5,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import '../models/pet.dart';
 import 'pet_avatar.dart';
 
@@ -17,6 +18,8 @@ class FloatingPet extends StatefulWidget {
   final VoidCallback onPanEnd;
   /// ✅ Spike：双击回调（用于暂隐）
   final VoidCallback? onDoubleTap;
+  final VoidCallback? onSecondaryTapUp;
+  final VoidCallback? onLongPress;
 
   const FloatingPet({
     super.key,
@@ -27,6 +30,8 @@ class FloatingPet extends StatefulWidget {
     required this.onPanStart,
     required this.onPanEnd,
     this.onDoubleTap,
+    this.onSecondaryTapUp,
+    this.onLongPress,
   });
 
   @override
@@ -61,51 +66,59 @@ class FloatingPetState extends State<FloatingPet> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onPanStart: (details) => widget.onPanStart(),
-      onPanUpdate: (details) => widget.onPanUpdate(details.delta),
-      onPanEnd: (details) => widget.onPanEnd(),
-      onTap: widget.onTap,
-      onDoubleTap: widget.onDoubleTap,   // ✅ Spike：双击暂隐
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          PetAvatar(
-            pet: widget.pet,
-            size: widget.size,
-          ),
-          // ✅ 文字气泡（在宠物上方显示）
-          if (_message != null && _message!.isNotEmpty)
-            Positioned(
-              bottom: widget.size + 8,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                  border: Border.all(color: Colors.grey.shade300, width: 0.5),
-                ),
-                child: Text(
-                  _message!,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
+    return Listener(
+      onPointerDown: (event) {
+        if (event.buttons == kSecondaryMouseButton) {
+          widget.onSecondaryTapUp?.call();
+        }
+      },
+      child: GestureDetector(
+        onPanStart: (details) => widget.onPanStart(),
+        onPanUpdate: (details) => widget.onPanUpdate(details.delta),
+        onPanEnd: (details) => widget.onPanEnd(),
+        onTap: widget.onTap,
+        onDoubleTap: widget.onDoubleTap,
+        onLongPress: widget.onLongPress,   // ✅ Spike：长按弹菜单
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            PetAvatar(
+              pet: widget.pet,
+              size: widget.size,
+            ),
+            // ✅ 文字气泡（在宠物上方显示）
+            if (_message != null && _message!.isNotEmpty)
+              Positioned(
+                bottom: widget.size + 8,
+                left: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                    border: Border.all(color: Colors.grey.shade300, width: 0.5),
                   ),
-                  textAlign: TextAlign.center,
+                  child: Text(
+                    _message!,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
