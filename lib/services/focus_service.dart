@@ -2,8 +2,10 @@
 // 专注计时服务 — 修复异步问题
 
 import 'package:shared_preferences/shared_preferences.dart';
-
 class FocusService {
+  static final FocusService _instance = FocusService._internal();
+  factory FocusService() => _instance;
+  FocusService._internal();
   static const String _keySessions = 'focus_sessions';
   static const String _keySettings = 'focus_settings';
   static const String _keyTodayTotal = 'focus_today_total';

@@ -41,6 +41,12 @@ class UserSettings {
   String petName;
   bool petInFocusMode;
   int rawNoteRetentionDays;  // ✅ 这个字段必须有
+  int dailyWordTarget;
+  bool typewriterSound;
+  double whiteNoiseVolume;
+  bool restReminderOn;
+  int restReminderMinutes;
+  List<Map<String, dynamic>> customNoiseSources;
 
   UserSettings({
     this.nickname = '小云同学',
@@ -67,6 +73,12 @@ class UserSettings {
     this.petName = '小云',
     this.petInFocusMode = true,
     this.rawNoteRetentionDays = 15,  // ✅ 必须有默认值
+    this.dailyWordTarget = 0,
+    this.typewriterSound = false,
+    this.whiteNoiseVolume = 0.5,
+    this.restReminderOn = false,
+    this.restReminderMinutes = 45,
+    this.customNoiseSources = const <Map<String, dynamic>>[],
   });
 
   Map<String, dynamic> toMap() => {
@@ -93,8 +105,15 @@ class UserSettings {
     'petSkin': petSkin,
     'petName': petName,
     'petInFocusMode': petInFocusMode,
-    'rawNoteRetentionDays': rawNoteRetentionDays,  // ✅ 必须有
-  };
+       'rawNoteRetentionDays': rawNoteRetentionDays,
+    'dailyWordTarget': dailyWordTarget,
+    'typewriterSound': typewriterSound,
+    'whiteNoiseVolume': whiteNoiseVolume,
+    'restReminderOn': restReminderOn,
+    'restReminderMinutes': restReminderMinutes,
+    'customNoiseSources': customNoiseSources,
+  };  // ✅ 必须有
+  
 
   factory UserSettings.fromMap(Map<String, dynamic> map) {
     return UserSettings(
@@ -130,7 +149,17 @@ class UserSettings {
       petSkin: map['petSkin'] ?? 'default',
       petName: map['petName'] ?? '小云',
       petInFocusMode: map['petInFocusMode'] ?? true,
-      rawNoteRetentionDays: map['rawNoteRetentionDays'] ?? 15,  // ✅ 必须有
+            rawNoteRetentionDays: map['rawNoteRetentionDays'] ?? 15,
+      dailyWordTarget: map['dailyWordTarget'] ?? 0,
+      typewriterSound: map['typewriterSound'] ?? false,
+      whiteNoiseVolume: (map['whiteNoiseVolume'] ?? 0.5).toDouble(),
+      restReminderOn: map['restReminderOn'] ?? false,
+      restReminderMinutes: map['restReminderMinutes'] ?? 45,
+      customNoiseSources: (map['customNoiseSources'] as List?)
+              ?.map((e) => Map<String, dynamic>.from(e as Map))
+              .toList() ??
+          <Map<String, dynamic>>[],
+      // ✅ 必须有
     );
   }
 
@@ -214,6 +243,12 @@ class UserSettings {
     String? petName,
     bool? petInFocusMode,
     int? rawNoteRetentionDays,
+    int? dailyWordTarget,
+    bool? typewriterSound,
+    double? whiteNoiseVolume,
+    bool? restReminderOn,
+    int? restReminderMinutes,
+    List<Map<String, dynamic>>? customNoiseSources,
   }) {
     return UserSettings(
       nickname: nickname ?? this.nickname,
@@ -240,6 +275,12 @@ class UserSettings {
       petName: petName ?? this.petName,
       petInFocusMode: petInFocusMode ?? this.petInFocusMode,
       rawNoteRetentionDays: rawNoteRetentionDays ?? this.rawNoteRetentionDays,
+      dailyWordTarget: dailyWordTarget ?? this.dailyWordTarget,
+      typewriterSound: typewriterSound ?? this.typewriterSound,
+      whiteNoiseVolume: whiteNoiseVolume ?? this.whiteNoiseVolume,
+      restReminderOn: restReminderOn ?? this.restReminderOn,
+      restReminderMinutes: restReminderMinutes ?? this.restReminderMinutes,
+      customNoiseSources: customNoiseSources ?? this.customNoiseSources,
     );
   }
 }
