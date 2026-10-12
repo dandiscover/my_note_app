@@ -7,6 +7,9 @@
 import '../services/note_opener.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'dart:async';
+import '../services/pet_action_notifier.dart';
+import '../services/writing_session_service.dart';
 import 'package:collection/collection.dart';
 import '../database_service.dart';
 import '../models/node.dart';
@@ -84,6 +87,7 @@ class InsightPageState extends State<InsightPage>
   List<MarkSummaryItem> _markItems = [];
 
   late TabController _tabController;
+  StreamSubscription<PetAction>? _petSub;
   final Set<String> _hoveredNodeIds = {};
 
   static const String _cacheKeyNodes = 'insight_nodes';
@@ -111,10 +115,16 @@ class InsightPageState extends State<InsightPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       if (_tabController.index == 1 && !_isGraphReady && !_isLoading) {
         _prepareGraph();
+      }
+    });
+    _petSub = PetActionNotifier.stream.listen((a) {
+      if (!mounted) return;
+      if (a == PetAction.openLog) {
+        _tabController.animateTo(3);
       }
     });
     _loadData();
@@ -122,6 +132,7 @@ class InsightPageState extends State<InsightPage>
 
   @override
   void dispose() {
+    _petSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -750,6 +761,7 @@ class InsightPageState extends State<InsightPage>
               Tab(icon: Icon(Icons.dashboard), text: '概览'),
               Tab(icon: Icon(Icons.bubble_chart), text: '知识图谱'),
               Tab(icon: Icon(Icons.psychology), text: '复习'),
+              Tab(icon: Icon(Icons.edit_note), text: '写作日志'),
             ],
           ),
         ),
@@ -774,6 +786,7 @@ class InsightPageState extends State<InsightPage>
             Tab(icon: Icon(Icons.dashboard), text: '概览'),
             Tab(icon: Icon(Icons.bubble_chart), text: '知识图谱'),
             Tab(icon: Icon(Icons.psychology), text: '复习'),
+            Tab(icon: Icon(Icons.edit_note), text: '写作日志'),
           ],
         ),
       ),
@@ -784,6 +797,7 @@ class InsightPageState extends State<InsightPage>
           _buildOverviewTab(),
           _buildGraphTab(),
           _buildReviewTab(),
+          _buildWritingLogTab(),
         ],
       ),
     );
@@ -1530,6 +1544,33 @@ class InsightPageState extends State<InsightPage>
   }
 
   // ─── 复习 Tab ─────────────────────────────────────────────────
+
+  Widget _buildWritingLogTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: WritingSessionService().getDailyLogs(30),
+      builder: (ctx, snap) {
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final logs = snap.data!;
+        if (logs.isEmpty) {
+          return const Center(child: Text('还没有写作记录'));
+        }
+        return ListView.builder(
+          itemCount: logs.length,
+          itemBuilder: (ctx, i) {
+            final log = logs[i];
+            final min = (log['duration'] as int) ~/ 60;
+            return ListTile(
+              title: Text(log['date'] as String),
+              subtitle: Text(
+                  '$min 分钟 · ${log['words']} 字 · ${log['sessions']} 次'),
+            );
+          },
+        );
+      },
+    );
+  }
 
   Widget _buildReviewTab() {
     return FutureBuilder<Map<String, dynamic>>(

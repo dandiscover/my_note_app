@@ -20,6 +20,11 @@ class EditorBottomBar extends StatelessWidget {
 
   /// pane 实宽——null = 无上下文（单栏 / 老调用）——markdown 全显
   final double? paneWidth;
+  final int wordSpeed;
+  final int todayWordCount;
+  final int dailyWordTarget;
+  final bool typewriterOn;
+  final VoidCallback? onTypewriterToggle;
 
   const EditorBottomBar({
     super.key,
@@ -39,6 +44,11 @@ class EditorBottomBar extends StatelessWidget {
     this.compact = false,
     this.appBarHasCardAction = false,
     this.paneWidth,
+    this.wordSpeed = 0,
+    this.todayWordCount = 0,
+    this.dailyWordTarget = 0,
+    this.typewriterOn = false,
+    this.onTypewriterToggle,
   });
 
   /// markdown 容器满宽——Switch 50 + right padding 8
@@ -85,6 +95,29 @@ class EditorBottomBar extends StatelessWidget {
                 const SizedBox(width: 16),
                 Text('📝 $wordCount 字',
                     style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                if (wordSpeed > 0) ...[
+                  const SizedBox(width: 16),
+                  Text('⚡ $wordSpeed 字/分',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+                if (todayWordCount > 0) ...[
+                  const SizedBox(width: 16),
+                  Text('今日 $todayWordCount 字',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  if (dailyWordTarget > 0) ...[
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      width: 40,
+                      height: 4,
+                      child: LinearProgressIndicator(
+                        value: (todayWordCount / dailyWordTarget)
+                            .clamp(0.0, 1.0)
+                            .toDouble(),
+                        backgroundColor: Colors.grey.shade200,
+                      ),
+                    ),
+                  ],
+                ],
                 const SizedBox(width: 16),
                 if (isMarkdown)
                   Text('📄 $lineCount 行',
@@ -145,6 +178,16 @@ class EditorBottomBar extends StatelessWidget {
                       ),
                     ),
                   ),
+                ),
+              if (onTypewriterToggle != null)
+                IconButton(
+                  icon: Icon(
+                    typewriterOn ? Icons.keyboard : Icons.keyboard_outlined,
+                    size: 20,
+                    color: typewriterOn ? Colors.blue : Colors.grey,
+                  ),
+                  onPressed: onTypewriterToggle,
+                  tooltip: '打字机音效',
                 ),
               if (onCancel != null)
                 TextButton(

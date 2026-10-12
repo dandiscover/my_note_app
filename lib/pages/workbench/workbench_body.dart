@@ -59,6 +59,13 @@ class WorkbenchBody extends StatefulWidget {
   // ── 批：阅读态顶部「编辑」按钮回调（null = 不显，单栏用）──
   final VoidCallback? onEditRequest;
 
+  // ── 写作专注批：底栏透传 ──
+  final int wordSpeed;
+  final int todayWordCount;
+  final int dailyWordTarget;
+  final bool typewriterOn;
+  final VoidCallback? onTypewriterToggle;
+
   const WorkbenchBody({
     super.key,
     required this.kernel,
@@ -78,6 +85,11 @@ class WorkbenchBody extends StatefulWidget {
     this.isReadMode = false,
     this.paneWidth,
     this.onEditRequest,
+    this.wordSpeed = 0,
+    this.todayWordCount = 0,
+    this.dailyWordTarget = 0,
+    this.typewriterOn = false,
+    this.onTypewriterToggle,
   });
 
   @override
@@ -186,6 +198,11 @@ class _WorkbenchBodyState extends State<WorkbenchBody> {
               isFromCollection: widget.isFromCollection,
               compact: widget.compact,
               appBarHasCardAction: widget.appBarHasCardAction,
+              wordSpeed: widget.wordSpeed,
+              todayWordCount: widget.todayWordCount,
+              dailyWordTarget: widget.dailyWordTarget,
+              typewriterOn: widget.typewriterOn,
+              onTypewriterToggle: widget.onTypewriterToggle,
             ),
           ),
         ],

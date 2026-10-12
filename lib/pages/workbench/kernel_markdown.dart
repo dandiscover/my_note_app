@@ -6,6 +6,9 @@
 import '../../utils/markdown_image_builder.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../services/writing_session_service.dart';
+import '../../services/word_speed_service.dart';
+import '../../services/typewriter_sound_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../models/note.dart';
 import '../../models/card.dart';
@@ -70,6 +73,9 @@ Widget build(BuildContext context) => _MarkdownBody(
 
   @override
   void insertText(String text) => _state?.insertText(text);
+
+  void setTypewriterEnabled(bool v) =>
+      _state?.setTypewriterEnabledExternal(v);
 
     @override
   void updateEntry(NotebookEntry entry) {
@@ -137,6 +143,11 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   bool _isSavingLocal = false;
   bool _isDirty = false;
   bool get isDirty => _isDirty;
+
+  // ─── 写作专注批 ───────────────────────
+  final WritingSessionService _writingSession = WritingSessionService();
+  final WordSpeedService _wordSpeed = WordSpeedService();
+  final TypewriterSoundService _typewriterSound = TypewriterSoundService();
   // ─── 深度笔记入口状态 ─────────────────────────────
   String? _inquiryQuestion;
   bool _showInquiryPrompt = false;
@@ -178,6 +189,7 @@ void initState() {
     _contentController.addListener(_onControllerChanged);
     _lastSelection = _contentController.selection;
     _loadPendingSparks();
+    _typewriterSound.init();
   }
 
   @override
@@ -196,6 +208,9 @@ void initState() {
       widget.kernel._state = null;
       MarkdownKernel.onSparkRequested = null;
     }
+    unawaited(_writingSession.endSession());
+    unawaited(_typewriterSound.dispose());
+    _wordSpeed.dispose();
     super.dispose();
   }
 
@@ -209,11 +224,22 @@ void initState() {
     _isDirty = true;
     widget.kernel.dirtyNotifier.value = true;
     _resetTypingTimer();
+    // 写作专注批：输入副作用
+    _writingSession.onInput(
+      _contentController.text.length,
+      noteId: widget.kernel._ctx.entry.id,
+    );
+    _wordSpeed.onInput(_contentController.text.length);
+    _typewriterSound.playKey();
     _autoSaveDebouncer.run(() {
       if (mounted && _isDirty && !_isSavingLocal) {
         save(isAuto: true);
       }
     });
+  }
+
+  void setTypewriterEnabledExternal(bool v) {
+    _typewriterSound.setEnabled(v);
   }
 
   // B8：从 FocusNode 找 EditableTextState

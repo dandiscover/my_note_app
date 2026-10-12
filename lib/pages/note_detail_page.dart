@@ -31,6 +31,11 @@ import '../models/node.dart';
 import '../services/card_service.dart';
 import '../services/material_service.dart';
 import '../services/focus_mode_notifier.dart';
+import '../widgets/focus/focus_top_bar.dart';
+import '../services/rest_reminder_service.dart';
+import '../services/settings_service.dart';
+import '../models/user_settings.dart';
+import '../widgets/floating_pet.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
 import '../widgets/file_tree_panel.dart';
@@ -112,6 +117,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   // 专注模式
   bool _focusMode = false;
+  final RestReminderService _restReminder = RestReminderService();
+  UserSettings? _userSettings;
 
   // 批 1b：关联的书
   List<Map<String, dynamic>> _linkedBooks = [];
@@ -146,10 +153,31 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     _loadLinkedBooks();
     _loadBacklinks();
     CardService.revision.addListener(_onCardsChanged);
+    _loadUserSettings();
   }
 
   void _onCardsChanged() {
     if (mounted && _showMaterialPanel) _loadMaterialItems();
+  }
+
+  Future<void> _loadUserSettings() async {
+    final s = await SettingsService().load();
+    if (!mounted) return;
+    setState(() => _userSettings = s);
+    _kernel.setTypewriterEnabled(s.typewriterSound);
+    if (s.restReminderOn) {
+      _restReminder.start(s.restReminderMinutes, _showRestReminder);
+    }
+  }
+
+  void _showRestReminder() {
+    if (!mounted) return;
+    if (focusModeNotifier.value) return;
+    final m = _userSettings?.restReminderMinutes ?? 45;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('⏰ 写了 $m 分钟——起来走走')),
+    );
+    floatingPetKey.currentState?.showMessage('休息一下吧～');
   }
 
   @override
@@ -167,6 +195,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
  @override
   void dispose() {
+    _restReminder.stop();
     // R-性能：若 pending 重建未跑 —— 立即跑 —— 不丢
     if (_rebuildDebouncer.isActive &&
         _pendingRebuildNoteId != null &&
@@ -2053,19 +2082,38 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
 
     if (_focusMode) {
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: WorkbenchBody(
-          kernel: _kernel,
-          entry: _entry,
-          showBottomBar: true,
-          onCancel: null,
-          saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
-          isFromCollection: widget.isFromCollection,
-          onDropItem: _handleDropItem,
-          materialItems: null,
-          appBarHasCardAction: false,
-        ),
+      return Column(
+        children: [
+          FocusTopBar(
+            onExit: _toggleFocusMode,
+            onToggleMaterial: _toggleMaterialPanel,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: WorkbenchBody(
+                kernel: _kernel,
+                entry: _entry,
+                showBottomBar: true,
+                onCancel: null,
+                saveLabel: widget.isFromCollection ? '📥 收入智库' : '💾 保存',
+                isFromCollection: widget.isFromCollection,
+                onDropItem: _handleDropItem,
+                materialItems: _showMaterialPanel ? _materialItems : null,
+                appBarHasCardAction: false,
+                typewriterOn: _userSettings?.typewriterSound ?? false,
+                onTypewriterToggle: () async {
+                  final s = await SettingsService().load();
+                  s.typewriterSound = !s.typewriterSound;
+                  await SettingsService().save(s);
+                  if (!mounted) return;
+                  setState(() => _userSettings = s);
+                  _kernel.setTypewriterEnabled(s.typewriterSound);
+                },
+              ),
+            ),
+          ),
+        ],
       );
     }
 

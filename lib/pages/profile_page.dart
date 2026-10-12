@@ -804,6 +804,73 @@ class _ProfilePageState extends State<ProfilePage>
               ),
             ],
           ),
+                      _buildSettingSection(
+              title: '✍️ 写作设置',
+              children: [
+                ListTile(
+                  title: const Text('每日字数目标'),
+                  subtitle: Text(settings.dailyWordTarget > 0
+                      ? '${settings.dailyWordTarget} 字 / 天'
+                      : '未设置'),
+                  trailing: SizedBox(
+                    width: 100,
+                    child: TextFormField(
+                      initialValue: settings.dailyWordTarget == 0
+                          ? ''
+                          : settings.dailyWordTarget.toString(),
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(isDense: true),
+                      onFieldSubmitted: (v) async {
+                        final n = int.tryParse(v) ?? 0;
+                        setState(() => _settingsData!.dailyWordTarget = n);
+                        await _saveSettings();
+                      },
+                    ),
+                  ),
+                ),
+                SwitchListTile(
+                  title: const Text('打字机音效'),
+                  subtitle: const Text('按键时播放打字机声音'),
+                  value: settings.typewriterSound,
+                  onChanged: (v) async {
+                    setState(() => _settingsData!.typewriterSound = v);
+                    await _saveSettings();
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildSettingSection(
+              title: '⏰ 休息提醒',
+              children: [
+                SwitchListTile(
+                  title: const Text('启用休息提醒'),
+                  value: settings.restReminderOn,
+                  onChanged: (v) async {
+                    setState(() => _settingsData!.restReminderOn = v);
+                    await _saveSettings();
+                  },
+                ),
+                ListTile(
+                  title: const Text('提醒间隔'),
+                  subtitle: Text('${settings.restReminderMinutes} 分钟'),
+                  trailing: DropdownButton<int>(
+                    value: settings.restReminderMinutes,
+                    items: const [
+                      DropdownMenuItem(value: 30, child: Text('30 分钟')),
+                      DropdownMenuItem(value: 45, child: Text('45 分钟')),
+                      DropdownMenuItem(value: 60, child: Text('60 分钟')),
+                      DropdownMenuItem(value: 90, child: Text('90 分钟')),
+                    ],
+                    onChanged: (v) async {
+                      if (v == null) return;
+                      setState(() => _settingsData!.restReminderMinutes = v);
+                      await _saveSettings();
+                    },
+                  ),
+                ),
+              ],
+            ),
           const Divider(),
           _buildSettingSection(
             title: '📊 热力图设置',
