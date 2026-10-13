@@ -104,10 +104,9 @@ class ClueBoardState extends State<ClueBoard> {
   String? _expandedNodeId;
   final Map<String, GlobalKey> _nodeBoardKeys = {};
   final Map<String, List<ClueStroke>> _nodeStrokes = {};
-  final Map<String, bool> _nodePenMode = {};
+
   final Map<String, List<Offset>?> _nodeCurrentStroke = {};
-  Color _nodePenColor = Colors.red;
-  double _nodePenWidth = 3.0;
+
   static const double _expandedWidth = 400;
   static const double _expandedHeight = 600;
   Timer? _nodeSaveDebounce;
@@ -116,6 +115,7 @@ class ClueBoardState extends State<ClueBoard> {
 
   // B8：笔画数据
   List<ClueStroke> _strokes = [];
+  int _strokesRevision = 0;
   Color _penColor = Colors.black;
   double _penWidth = 4.0;
   bool _rulerOn = false;
@@ -265,6 +265,7 @@ class ClueBoardState extends State<ClueBoard> {
       _edges.clear();
       _edges.addAll(loadedEdges);
       _strokes = loadedStrokes;
+      _strokesRevision++;
     });
   }
 
@@ -473,6 +474,7 @@ class ClueBoardState extends State<ClueBoard> {
       _edges.clear();
       _edges.addAll(snap.edges);
       _strokes = snap.strokes;
+      _strokesRevision++;
       _currentStrokePoints = null;
       _rulerStart = null;
     });
@@ -481,11 +483,32 @@ class ClueBoardState extends State<ClueBoard> {
 
   // ─── B8：画布手势 ───
   void _onCanvasPanStart(DragStartDetails d) {
-    if (_drawMode != DrawMode.pen && _drawMode != DrawMode.eraser) return;
     _eraseChanged = false;
-    if (_drawMode == DrawMode.eraser) {
-      return;
+
+    // R-12a：展开节点笔模式——判断起笔点是否在节点内
+    final exp = _expandedNodeId;
+    if (exp != null && _drawMode == DrawMode.pen) {
+      final node = _nodes.firstWhere(
+          (n) => n.id == exp,
+          orElse: () => ClueNode(id: '', label: '', position: Offset.zero));
+      if (node.id.isNotEmpty) {
+        final boardLocal = _globalToLocal(d.globalPosition);
+        final nodeLeftTop = node.position -
+            const Offset(_expandedWidth / 2, _expandedHeight / 2);
+        final nodeLocal = boardLocal - nodeLeftTop;
+        if (nodeLocal.dx >= 0 &&
+            nodeLocal.dx <= _expandedWidth &&
+            nodeLocal.dy >= 0 &&
+            nodeLocal.dy <= _expandedHeight) {
+          _nodeCurrentStroke[exp] = [nodeLocal];
+          setState(() {});
+          return;
+        }
+      }
     }
+
+    if (_drawMode != DrawMode.pen && _drawMode != DrawMode.eraser) return;
+    if (_drawMode == DrawMode.eraser) return;
     final local = _globalToLocal(d.globalPosition);
     _currentStrokePoints = [local];
     if (_rulerOn) _rulerStart = local;
@@ -493,6 +516,23 @@ class ClueBoardState extends State<ClueBoard> {
   }
 
   void _onCanvasPanUpdate(DragUpdateDetails d) {
+    // 续笔跟起点归属——_nodeCurrentStroke 已启才走节点路径
+    final exp = _expandedNodeId;
+    if (exp != null && _nodeCurrentStroke[exp] != null) {
+      final node = _nodes.firstWhere(
+          (n) => n.id == exp,
+          orElse: () => ClueNode(id: '', label: '', position: Offset.zero));
+      if (node.id.isNotEmpty) {
+        final boardLocal = _globalToLocal(d.globalPosition);
+        final nodeLeftTop = node.position -
+            const Offset(_expandedWidth / 2, _expandedHeight / 2);
+        final nodeLocal = boardLocal - nodeLeftTop;
+        final cur = _nodeCurrentStroke[exp]!;
+        setState(() => _nodeCurrentStroke[exp] = [...cur, nodeLocal]);
+        return;
+      }
+    }
+
     if (_drawMode != DrawMode.pen && _drawMode != DrawMode.eraser) return;
     final local = _globalToLocal(d.globalPosition);
     if (_drawMode == DrawMode.eraser) {
@@ -513,6 +553,33 @@ class ClueBoardState extends State<ClueBoard> {
 
   void _onCanvasPanEnd(DragEndDetails d) {
     _eraseChanged = false;
+
+    // 起笔点定归属——仅当起点在框内（_nodeCurrentStroke 已启）才走节点路径
+    final exp = _expandedNodeId;
+    if (exp != null &&
+        _drawMode == DrawMode.pen &&
+        _nodeCurrentStroke[exp] != null) {
+      final pts = _nodeCurrentStroke[exp];
+      if (pts != null && pts.length >= 2) {
+        final stroke = ClueStroke(
+          id: 'ns_${DateTime.now().microsecondsSinceEpoch}',
+          viewId: exp,
+          points: pts,
+          color: _penColor,
+          width: _penWidth,
+          createdAt: DateTime.now(),
+        );
+        _nodeStrokes.putIfAbsent(exp, () => []).add(stroke);
+        _nodeCurrentStroke[exp] = null;
+        _scheduleNodeSave(exp);
+        setState(() {});
+        return;
+      }
+      _nodeCurrentStroke[exp] = null;
+      setState(() {});
+      return;
+    }
+
     if (_drawMode != DrawMode.pen) {
       _currentStrokePoints = null;
       _rulerStart = null;
@@ -539,6 +606,7 @@ class ClueBoardState extends State<ClueBoard> {
     );
     setState(() {
       _strokes = List.from(_strokes)..add(stroke);
+      _strokesRevision++;
       _currentStrokePoints = null;
       _rulerStart = null;
     });
@@ -551,50 +619,45 @@ class ClueBoardState extends State<ClueBoard> {
     return box.globalToLocal(global);
   }
 
-  // ─── R-12a：节点笔迹（节点本地坐标）────────
+  // ─── R-12a：渲染合并——画布笔迹 + 展开节点笔迹（坐标转画布）──
 
-  Offset _nodeGlobalToLocal(Offset global, String nodeId) {
-    final key = _nodeBoardKeys[nodeId];
-    final box = key?.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) return global;
-    return box.globalToLocal(global);
-  }
-
-  void _onNodeStrokeStart(DragStartDetails d, String nodeId) {
-    if (!(_nodePenMode[nodeId] ?? false)) return;
-    final local = _nodeGlobalToLocal(d.globalPosition, nodeId);
-    _nodeCurrentStroke[nodeId] = [local];
-    setState(() {});
-  }
-
-  void _onNodeStrokeUpdate(DragUpdateDetails d, String nodeId) {
-    if (!(_nodePenMode[nodeId] ?? false)) return;
-    final local = _nodeGlobalToLocal(d.globalPosition, nodeId);
-    final cur = _nodeCurrentStroke[nodeId];
-    if (cur == null) return;
-    setState(() => _nodeCurrentStroke[nodeId] = [...cur, local]);
-  }
-
-  void _onNodeStrokeEnd(DragEndDetails d, String nodeId) {
-    final pts = _nodeCurrentStroke[nodeId];
-    if (pts == null || pts.length < 2) {
-      _nodeCurrentStroke[nodeId] = null;
-      setState(() {});
-      return;
+  List<ClueStroke> _strokesForRender() {
+    final result = <ClueStroke>[..._strokes];
+    final exp = _expandedNodeId;
+    if (exp != null) {
+      final node = _nodes.firstWhere(
+          (n) => n.id == exp,
+          orElse: () => ClueNode(id: '', label: '', position: Offset.zero));
+      if (node.id.isNotEmpty) {
+        final offset = node.position -
+            const Offset(_expandedWidth / 2, _expandedHeight / 2);
+        for (final s in _nodeStrokes[exp] ?? <ClueStroke>[]) {
+          result.add(s.copyWith(
+            points: s.points.map((p) => p + offset).toList(),
+          ));
+        }
+      }
     }
-    final stroke = ClueStroke(
-      id: 'ns_${DateTime.now().microsecondsSinceEpoch}',
-      viewId: nodeId,
-      points: pts,
-      color: _nodePenColor,
-      width: _nodePenWidth,
-      createdAt: DateTime.now(),
-    );
-    _nodeStrokes.putIfAbsent(nodeId, () => []).add(stroke);
-    _nodeCurrentStroke[nodeId] = null;
-    setState(() {});
-    _scheduleNodeSave(nodeId);
+    return result;
   }
+
+  List<Offset>? _currentStrokeForRender() {
+    final exp = _expandedNodeId;
+    if (exp != null && _drawMode == DrawMode.pen) {
+      final node = _nodes.firstWhere(
+          (n) => n.id == exp,
+          orElse: () => ClueNode(id: '', label: '', position: Offset.zero));
+      if (node.id.isNotEmpty) {
+        final offset = node.position -
+            const Offset(_expandedWidth / 2, _expandedHeight / 2);
+        final cur = _nodeCurrentStroke[exp];
+        return cur?.map((p) => p + offset).toList();
+      }
+    }
+    return _currentStrokePoints;
+  }
+
+  // ─── R-12a：节点笔迹（节点本地坐标）────────
 
   void _eraseAt(Offset p) {
     if (_strokes.isEmpty) return;
@@ -626,7 +689,10 @@ class ClueBoardState extends State<ClueBoard> {
         _pushSnapshot();
         _eraseChanged = true;
       }
-      setState(() => _strokes = List.from(_strokes)..removeAt(removeIdx!));
+      setState(() {
+        _strokes = List.from(_strokes)..removeAt(removeIdx!);
+        _strokesRevision++;
+      });
       _scheduleSave();
     }
   }
@@ -707,6 +773,9 @@ class ClueBoardState extends State<ClueBoard> {
   }
 
   Future<void> _flushToDbWith(String viewId, Set<String> validCardIds) async {
+    // 丁案：取 revision 计数快照——替代内容比对
+    final revSnapshot = _strokesRevision;
+
     // ✅ T-007：写库全链路 try-catch 兜底，避免 dispose 场景异常静默丢失。
     try {
       final validNodes = _nodes.where((n) {
@@ -731,9 +800,14 @@ class ClueBoardState extends State<ClueBoard> {
       await _db.replaceBoardTexts(viewId, textNodes.map((n) => _nodeToMap(n, viewId)).toList());
       await _db.replaceBoardStrokes(
           viewId, _strokes.map((s) => s.toMap(viewId)).toList());
-      _hasPendingChanges = false;
+
+      // 丁案：revision 未变——复位 pending
+      if (_strokesRevision == revSnapshot) {
+        _hasPendingChanges = false;
+      }
     } catch (e, st) {
       debugPrint('ClueBoard _flushToDbWith 失败: $e\n$st');
+      _hasPendingChanges = false;
     }
   }
 
@@ -786,7 +860,11 @@ class ClueBoardState extends State<ClueBoard> {
     _saveDebounce?.cancel();
     final exp = _expandedNodeId;
     if (exp != null) {
-      _saveNodeStrokes(exp);
+      unawaited(_saveNodeStrokes(exp).catchError(
+        (Object e, StackTrace st) {
+          debugPrint('[clue_board] dispose 保存节点笔迹失败: $e\n$st');
+        },
+      ));
     }
     _nodeSaveDebounce?.cancel();
     final viewId = widget.viewId;
@@ -888,7 +966,7 @@ class ClueBoardState extends State<ClueBoard> {
       debugPrint('[clue_board] 删节点批注失败: $e');
     });
     _nodeStrokes.remove(deleting);
-    _nodePenMode.remove(deleting);
+
     if (_expandedNodeId == deleting) _expandedNodeId = null;
     setState(() {
       _nodes.removeWhere((n) => n.id == deleting);
@@ -904,7 +982,11 @@ class ClueBoardState extends State<ClueBoard> {
   void _collapseCurrent() {
     final prev = _expandedNodeId;
     if (prev == null) return;
-    _saveNodeStrokes(prev);
+    unawaited(_saveNodeStrokes(prev).catchError(
+      (Object e, StackTrace st) {
+        debugPrint('[clue_board] _collapseCurrent 保存节点笔迹失败: $e\n$st');
+      },
+    ));
     _expandedNodeId = null;
     _nodeBoardKeys.remove(prev);
   }
@@ -912,7 +994,7 @@ class ClueBoardState extends State<ClueBoard> {
   Future<void> _expandNode(ClueNode node) async {
     _expandedNodeId = node.id;
     _nodeBoardKeys[node.id] = GlobalKey();
-    _nodePenMode[node.id] = false;
+
     try {
       final raw = await _db.loadNodeAnnotation(node.id);
       _nodeStrokes[node.id] =
@@ -1277,7 +1359,8 @@ class ClueBoardState extends State<ClueBoard> {
   }
 
   Widget _buildBoard() {
-    final drawing = _drawMode == DrawMode.pen || _drawMode == DrawMode.eraser;
+    final drawing =
+        _drawMode == DrawMode.pen || _drawMode == DrawMode.eraser;
     return GestureDetector(
       onTap: () {
         if (drawing) return;
@@ -1304,16 +1387,6 @@ class ClueBoardState extends State<ClueBoard> {
                 ),
               ),
             ),
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _StrokePainter(
-                  strokes: _strokes,
-                  current: _currentStrokePoints,
-                  currentColor: _penColor,
-                  currentWidth: _penWidth,
-                ),
-              ),
-            ),
             IgnorePointer(
               ignoring: drawing,
               child: Stack(
@@ -1324,10 +1397,28 @@ class ClueBoardState extends State<ClueBoard> {
                   return Positioned(
                     left: node.position.dx - w / 2,
                     top: node.position.dy - h / 2,
-                    child: GestureDetector(
-                      onPanStart: (details) => _onPanStart(details, node.id),
-                      onPanUpdate: (details) => _onPanUpdate(details, node.id),
-                      onPanEnd: (details) => _onPanEnd(details, node.id),
+                                          child: GestureDetector(
+                        onPanStart: (details) {
+                          if (_expandedNodeId == node.id &&
+                              _drawMode == DrawMode.pen) {
+                            return;
+                          }
+                          _onPanStart(details, node.id);
+                        },
+                        onPanUpdate: (details) {
+                          if (_expandedNodeId == node.id &&
+                              _drawMode == DrawMode.pen) {
+                            return;
+                          }
+                          _onPanUpdate(details, node.id);
+                        },
+                        onPanEnd: (details) {
+                          if (_expandedNodeId == node.id &&
+                              _drawMode == DrawMode.pen) {
+                            return;
+                          }
+                          _onPanEnd(details, node.id);
+                        },
                       onDoubleTap: () {
                         if (node.type == 'text') _editTextNode(node.id);
                       },
@@ -1350,6 +1441,19 @@ class ClueBoardState extends State<ClueBoard> {
                 }).toList(),
               ),
             ),
+            // R-12a：笔迹层移到节点后——不被节点框遮
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _StrokePainter(
+                    strokes: _strokesForRender(),
+                    current: _currentStrokeForRender(),
+                    currentColor: _penColor,
+                    currentWidth: _penWidth,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1359,9 +1463,7 @@ class ClueBoardState extends State<ClueBoard> {
   // ─── R-12a：展开节点渲染 ──────────────────
 
   Widget _buildExpandedNode(ClueNode node, bool isSelected) {
-    final penOn = _nodePenMode[node.id] ?? false;
-    final strokes = _nodeStrokes[node.id] ?? [];
-    final current = _nodeCurrentStroke[node.id];
+    final penOn = _drawMode == DrawMode.pen;
 
     Widget content;
     if (node.type == 'note' && node.data is NotebookEntry) {
@@ -1437,41 +1539,13 @@ class ClueBoardState extends State<ClueBoard> {
             Positioned.fill(
               child: IgnorePointer(ignoring: penOn, child: content),
             ),
-            if (penOn)
-              Positioned.fill(
-                child: GestureDetector(
-                  onPanStart: (d) => _onNodeStrokeStart(d, node.id),
-                  onPanUpdate: (d) => _onNodeStrokeUpdate(d, node.id),
-                  onPanEnd: (d) => _onNodeStrokeEnd(d, node.id),
-                  behavior: HitTestBehavior.opaque,
-                  child: CustomPaint(
-                    painter: _StrokePainter(
-                      strokes: strokes,
-                      current: current,
-                      currentColor: _nodePenColor,
-                      currentWidth: _nodePenWidth,
-                    ),
-                  ),
-                ),
-              ),
+            // R-12a：笔迹层已提画布级——此处不渲染——可跨边界
             Positioned(
               top: 4,
               right: 4,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(
-                    icon: Icon(penOn ? Icons.edit : Icons.pan_tool_alt,
-                        size: 18,
-                        color: penOn ? Colors.red : Colors.grey.shade600),
-                    tooltip: penOn ? '切到手（读）' : '切到笔（画）',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () {
-                      setState(() => _nodePenMode[node.id] = !penOn);
-                    },
-                  ),
-                  const SizedBox(width: 4),
                   IconButton(
                     icon: const Icon(Icons.close, size: 18, color: Colors.grey),
                     tooltip: '收起',

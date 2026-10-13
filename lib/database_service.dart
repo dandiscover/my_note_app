@@ -1307,7 +1307,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 27, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 28, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1651,6 +1651,24 @@ class DatabaseService {
           debugPrint('board_albums 26→27 迁移失败: $e');
         }
       }
+          // R-12a：28 —— 节点批注表（画布节点展开后的笔迹）
+    if (oldVersion < 28) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS node_annotations(
+            id TEXT PRIMARY KEY,
+            node_id TEXT NOT NULL,
+            strokes_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_na_node ON node_annotations(node_id)');
+      } catch (e) {
+        debugPrint('node_annotations 27→28 迁移失败: $e');
+      }
+    }
   }
 
     /// 批 1a：L2 → L3 迁移
@@ -1894,6 +1912,19 @@ class DatabaseService {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks(status)');
 
+    // R-12a：节点批注表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS node_annotations(
+        id TEXT PRIMARY KEY,
+        node_id TEXT NOT NULL,
+        strokes_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_na_node ON node_annotations(node_id)');
+
       for (final sql in SearchIndexService.getCreateTableSql()) {
         await db.execute(sql);
       }
@@ -2080,7 +2111,48 @@ class DatabaseService {
       'createdAt': row['created_at'],
     }).toList();
   }
+  // ─── R-12a：节点批注 DAO ──────────────────────
 
+  Future<void> saveNodeAnnotation(
+      String nodeId, List<Map<String, dynamic>> strokesJson) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete('node_annotations',
+          where: 'node_id = ?', whereArgs: [nodeId]);
+      await txn.insert('node_annotations', {
+        'id': 'na_$nodeId',
+        'node_id': nodeId,
+        'strokes_json': jsonEncode(strokesJson),
+        'created_at': now,
+        'updated_at': now,
+      });
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> loadNodeAnnotation(String nodeId) async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('node_annotations',
+        where: 'node_id = ?', whereArgs: [nodeId], limit: 1);
+    if (rows.isEmpty) return [];
+    final raw = rows.first['strokes_json'] as String;
+    try {
+      return (jsonDecode(raw) as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> deleteNodeAnnotation(String nodeId) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.delete('node_annotations',
+        where: 'node_id = ?', whereArgs: [nodeId]);
+  }
   Future<List<Map<String, dynamic>>> getAllBoardAlbums() async {
     if (_isWeb) return [];
     final db = await _getDatabase();
