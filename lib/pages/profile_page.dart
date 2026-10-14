@@ -15,6 +15,8 @@ import '../database_service.dart';
 import '../services/supabase_service.dart';
 import '../services/book_service.dart';
 import '../services/sync/sync_manager.dart';
+import '../services/writing_session_service.dart';
+import '../services/focus_service.dart';
 import '../services/file_service.dart';
 import '../models/book.dart';
 import '../models/book_note.dart';
@@ -384,6 +386,16 @@ class _ProfilePageState extends State<ProfilePage>
 
     // 任务和卡片（从各自服务获取）
     // 简化：仅同步图书和笔记
+    final writingSessions =
+        await DatabaseService().getAllWritingSessions();
+    final focusSessions =
+        await DatabaseService().getAllFocusSessions();
+    final wsList = writingSessions
+        .map((m) => WritingSession.fromMap(m))
+        .toList();
+    final fsList =
+        focusSessions.map((m) => FocusSession.fromMap(m)).toList();
+
     final success = await _syncManager.syncAll(
       notes: notes,
       nodes: nodes,
@@ -393,6 +405,8 @@ class _ProfilePageState extends State<ProfilePage>
       subtasks: [], // 暂不同步子任务
       pet: await PetService().getOrCreatePet(),
       settings: await SettingsService().load(),
+      writingSessions: wsList,
+      focusSessions: fsList,
     );
 
     if (success) {

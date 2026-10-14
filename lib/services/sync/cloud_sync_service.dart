@@ -12,6 +12,8 @@ import '../../models/book.dart';
 import '../../models/pet.dart';
 import '../../models/book_note.dart';
 import '../../models/user_settings.dart';
+import '../writing_session_service.dart';
+import '../focus_service.dart';
 
 class CloudSyncService {
   static final CloudSyncService _instance = CloudSyncService._internal();
@@ -644,6 +646,76 @@ class CloudSyncService {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // 10. 写作会话 / 番茄钟同步（R-7-3a 单B）
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<void> syncWritingSessions(List<WritingSession> sessions) async {
+    if (!isLoggedIn || _userId == null) return;
+    for (final s in sessions) {
+      try {
+        await _client.from('writing_sessions').upsert({
+          'id': s.id,
+          'user_id': _userId!,
+          'note_id': s.noteId,
+          'start_at': s.startAt.toIso8601String(),
+          'end_at': s.endAt.toIso8601String(),
+          'word_count': s.wordCount,
+          'paused_seconds': s.pausedSeconds,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      } catch (_) {}
+    }
+  }
+
+  Future<List<WritingSession>> pullWritingSessions() async {
+    if (!isLoggedIn || _userId == null) return [];
+    final response = await _client
+        .from('writing_sessions')
+        .select()
+        .eq('user_id', _userId!)
+        .order('start_at', ascending: false);
+
+    return (response as List).map((m) => WritingSession(
+      id: m['id'],
+      noteId: m['note_id'],
+      startAt: DateTime.parse(m['start_at']),
+      endAt: DateTime.parse(m['end_at']),
+      wordCount: (m['word_count'] ?? 0) as int,
+      pausedSeconds: (m['paused_seconds'] ?? 0) as int,
+    )).toList();
+  }
+
+  Future<void> syncFocusSessions(List<FocusSession> sessions) async {
+    if (!isLoggedIn || _userId == null) return;
+    for (final s in sessions) {
+      try {
+        await _client.from('focus_sessions').upsert({
+          'id': s.id,
+          'user_id': _userId!,
+          'start_at': s.startAt.toIso8601String(),
+          'minutes': s.minutes,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      } catch (_) {}
+    }
+  }
+
+  Future<List<FocusSession>> pullFocusSessions() async {
+    if (!isLoggedIn || _userId == null) return [];
+    final response = await _client
+        .from('focus_sessions')
+        .select()
+        .eq('user_id', _userId!)
+        .order('start_at', ascending: false);
+
+    return (response as List).map((m) => FocusSession(
+      id: m['id'],
+      startAt: DateTime.parse(m['start_at']),
+      minutes: (m['minutes'] ?? 0) as int,
+    )).toList();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // 重试队列
   // ═══════════════════════════════════════════════════════════════
 
@@ -718,6 +790,8 @@ class CloudSyncService {
     required List<Subtask> subtasks,
     required Pet pet,
     required UserSettings settings,
+    required List<WritingSession> writingSessions,
+    required List<FocusSession> focusSessions,
   }) async {
     if (!isLoggedIn || _userId == null) throw Exception('请先登录');
 
@@ -730,6 +804,8 @@ class CloudSyncService {
       syncSubtasks(subtasks),
       syncPet(pet),
       syncSettings(settings),
+      syncWritingSessions(writingSessions),
+      syncFocusSessions(focusSessions),
     ]);
 
     await processRetryQueue();
@@ -747,6 +823,8 @@ class CloudSyncService {
       pullSubtasks(),
       pullPet(),
       pullSettings(),
+      pullWritingSessions(),
+      pullFocusSessions(),
     ]);
 
     return SyncResult(
@@ -758,6 +836,8 @@ class CloudSyncService {
       subtasks: results[5] as List<Subtask>,
       pet: results[6] as Pet?,
       settings: results[7] as UserSettings?,
+      writingSessions: results[8] as List<WritingSession>,
+      focusSessions: results[9] as List<FocusSession>,
     );
   }
 }
@@ -772,6 +852,8 @@ class SyncResult {
   final List<Subtask> subtasks;
   final Pet? pet;
   final UserSettings? settings;
+  final List<WritingSession> writingSessions;
+  final List<FocusSession> focusSessions;
 
   SyncResult({
     required this.notes,
@@ -782,5 +864,7 @@ class SyncResult {
     required this.subtasks,
     this.pet,
     this.settings,
+    this.writingSessions = const [],
+    this.focusSessions = const [],
   });
 }

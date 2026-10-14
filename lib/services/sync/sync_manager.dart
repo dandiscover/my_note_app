@@ -10,6 +10,8 @@ import '../../models/card.dart';
 import '../../models/book.dart';
 import '../../models/pet.dart';
 import '../../models/user_settings.dart';
+import '../writing_session_service.dart';
+import '../focus_service.dart';
 
 class SyncManager extends ChangeNotifier {
   static final SyncManager _instance = SyncManager._internal();
@@ -50,6 +52,8 @@ class SyncManager extends ChangeNotifier {
     required List<Subtask> subtasks,
     required Pet pet,
     required UserSettings settings,
+    required List<WritingSession> writingSessions,
+    required List<FocusSession> focusSessions,
   }) async {
     if (_isSyncing) return false;
     if (!_cloud.isLoggedIn) {
@@ -72,6 +76,8 @@ class SyncManager extends ChangeNotifier {
         subtasks: subtasks,
         pet: pet,
         settings: settings,
+        writingSessions: writingSessions,
+        focusSessions: focusSessions,
       );
       _lastSyncTime = DateTime.now();
       _pendingChanges = 0;
