@@ -2252,10 +2252,14 @@ class DatabaseService {
     return rows.cast<Map<String, dynamic>>();
   }
 
-  Future<void> clearFocusSessions() async {
+
+
+
+  Future<void> deleteFocusSessionsBefore(DateTime cutoff) async {
     if (_isWeb) return;
     final db = await _getDatabase();
-    await db.delete('focus_sessions');
+    await db.delete('focus_sessions',
+        where: 'start_at < ?', whereArgs: [cutoff.toIso8601String()]);
   }
   Future<List<Map<String, dynamic>>> getAllBoardAlbums() async {
     if (_isWeb) return [];

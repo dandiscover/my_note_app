@@ -1,8 +1,7 @@
 // lib/services/writing_session_service.dart
 
 import 'dart:async';
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database_service.dart';
 
 class WritingSession {
   final String id;
@@ -26,25 +25,24 @@ class WritingSession {
 
   Map<String, dynamic> toMap() => {
         'id': id,
-        'noteId': noteId,
-        'startAt': startAt.toIso8601String(),
-        'endAt': endAt.toIso8601String(),
-        'wordCount': wordCount,
-        'pausedSeconds': pausedSeconds,
+        'note_id': noteId,
+        'start_at': startAt.toIso8601String(),
+        'end_at': endAt.toIso8601String(),
+        'word_count': wordCount,
+        'paused_seconds': pausedSeconds,
       };
 
   factory WritingSession.fromMap(Map<String, dynamic> m) => WritingSession(
         id: m['id'] as String?,
-        noteId: m['noteId'] as String,
-        startAt: DateTime.parse(m['startAt'] as String),
-        endAt: DateTime.parse(m['endAt'] as String),
-        wordCount: m['wordCount'] as int? ?? 0,
-        pausedSeconds: m['pausedSeconds'] as int? ?? 0,
+        noteId: m['note_id'] as String,
+        startAt: DateTime.parse(m['start_at'] as String),
+        endAt: DateTime.parse(m['end_at'] as String),
+        wordCount: m['word_count'] as int? ?? 0,
+        pausedSeconds: m['paused_seconds'] as int? ?? 0,
       );
 }
 
 class WritingSessionService {
-  static const String _key = 'writing_sessions';
   static const int _retentionDays = 365;
 
   static final WritingSessionService _instance =
@@ -116,35 +114,17 @@ class WritingSessionService {
     _currentNoteId = null;
     _sessionStart = null;
 
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    final list = <Map<String, dynamic>>[];
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        for (final e in (jsonDecode(raw) as List)) {
-          list.add(Map<String, dynamic>.from(e as Map));
-        }
-      } catch (_) {}
-    }
-    list.add(session.toMap());
+    final db = DatabaseService();
+    await db.insertWritingSession(session.toMap());
     final cutoff =
         DateTime.now().subtract(const Duration(days: _retentionDays));
-    list.removeWhere((m) {
-      final d = DateTime.tryParse(m['startAt'] as String? ?? '');
-      return d != null && d.isBefore(cutoff);
-    });
-    await prefs.setString(_key, jsonEncode(list));
+    await db.deleteWritingSessionsBefore(cutoff);
   }
 
   Future<List<WritingSession>> _loadAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return [];
     try {
-      return (jsonDecode(raw) as List)
-          .map((e) =>
-              WritingSession.fromMap(Map<String, dynamic>.from(e as Map)))
-          .toList();
+      final rows = await DatabaseService().getAllWritingSessions();
+      return rows.map((m) => WritingSession.fromMap(m)).toList();
     } catch (_) {
       return [];
     }
@@ -184,7 +164,6 @@ class WritingSessionService {
   }
 
   Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
+    await DatabaseService().clearWritingSessions();
   }
 }
