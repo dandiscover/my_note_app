@@ -1307,7 +1307,7 @@ class DatabaseService {
     if (_database != null) return _database!;
     String path = join(await getDatabasesPath(), 'notebook.db');
     // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 28, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    _database = await openDatabase(path, version: 29, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _database!;
   }
 
@@ -1669,6 +1669,36 @@ class DatabaseService {
         debugPrint('node_annotations 27→28 迁移失败: $e');
       }
     }
+    if (oldVersion < 29) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS writing_sessions(
+            id TEXT PRIMARY KEY,
+            note_id TEXT NOT NULL,
+            start_at TEXT NOT NULL,
+            end_at TEXT NOT NULL,
+            word_count INTEGER NOT NULL DEFAULT 0,
+            paused_seconds INTEGER NOT NULL DEFAULT 0
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_ws_note ON writing_sessions(note_id)');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_ws_start ON writing_sessions(start_at)');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS focus_sessions(
+            id TEXT PRIMARY KEY,
+            start_at TEXT NOT NULL,
+            minutes INTEGER NOT NULL DEFAULT 0
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_fs_start ON focus_sessions(start_at)');
+      } catch (e) {
+        debugPrint('writing_sessions/focus_sessions 28→29 迁移失败: $e');
+      }
+    }
   }
 
     /// 批 1a：L2 → L3 迁移
@@ -1928,6 +1958,31 @@ class DatabaseService {
       for (final sql in SearchIndexService.getCreateTableSql()) {
         await db.execute(sql);
       }
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS writing_sessions(
+          id TEXT PRIMARY KEY,
+          note_id TEXT NOT NULL,
+          start_at TEXT NOT NULL,
+          end_at TEXT NOT NULL,
+          word_count INTEGER NOT NULL DEFAULT 0,
+          paused_seconds INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_ws_note ON writing_sessions(note_id)');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_ws_start ON writing_sessions(start_at)');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS focus_sessions(
+          id TEXT PRIMARY KEY,
+          start_at TEXT NOT NULL,
+          minutes INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_fs_start ON focus_sessions(start_at)');
     }
 
   Future<Map<String, dynamic>?> getIsbnCache(String isbn) async {
@@ -2152,6 +2207,55 @@ class DatabaseService {
     final db = await _getDatabase();
     await db.delete('node_annotations',
         where: 'node_id = ?', whereArgs: [nodeId]);
+  }
+
+  // ─── R-7-3a 单A：writing_sessions / focus_sessions DAO ───
+
+  Future<void> insertWritingSession(Map<String, dynamic> session) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.insert('writing_sessions', session,
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllWritingSessions() async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('writing_sessions', orderBy: 'start_at ASC');
+    return rows.cast<Map<String, dynamic>>();
+  }
+
+  Future<void> deleteWritingSessionsBefore(DateTime cutoff) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.delete('writing_sessions',
+        where: 'start_at < ?', whereArgs: [cutoff.toIso8601String()]);
+  }
+
+  Future<void> clearWritingSessions() async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.delete('writing_sessions');
+  }
+
+  Future<void> insertFocusSession(Map<String, dynamic> session) async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.insert('focus_sessions', session,
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllFocusSessions() async {
+    if (_isWeb) return [];
+    final db = await _getDatabase();
+    final rows = await db.query('focus_sessions', orderBy: 'start_at ASC');
+    return rows.cast<Map<String, dynamic>>();
+  }
+
+  Future<void> clearFocusSessions() async {
+    if (_isWeb) return;
+    final db = await _getDatabase();
+    await db.delete('focus_sessions');
   }
   Future<List<Map<String, dynamic>>> getAllBoardAlbums() async {
     if (_isWeb) return [];
