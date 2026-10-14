@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class WritingSession {
+  final String id;
   final String noteId;
   final DateTime startAt;
   final DateTime endAt;
@@ -12,17 +13,19 @@ class WritingSession {
   final int pausedSeconds;
 
   WritingSession({
+    String? id,
     required this.noteId,
     required this.startAt,
     required this.endAt,
     required this.wordCount,
     this.pausedSeconds = 0,
-  });
+  }) : id = id ?? DateTime.now().millisecondsSinceEpoch.toString();
 
   int get durationSeconds =>
       endAt.difference(startAt).inSeconds - pausedSeconds;
 
   Map<String, dynamic> toMap() => {
+        'id': id,
         'noteId': noteId,
         'startAt': startAt.toIso8601String(),
         'endAt': endAt.toIso8601String(),
@@ -31,6 +34,7 @@ class WritingSession {
       };
 
   factory WritingSession.fromMap(Map<String, dynamic> m) => WritingSession(
+        id: m['id'] as String?,
         noteId: m['noteId'] as String,
         startAt: DateTime.parse(m['startAt'] as String),
         endAt: DateTime.parse(m['endAt'] as String),
