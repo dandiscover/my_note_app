@@ -2,7 +2,7 @@
 // 同步状态指示器
 
 import 'package:flutter/material.dart';
-import '../services/sync_manager.dart';
+import '../services/sync/sync_manager.dart';
 
 class SyncIndicator extends StatefulWidget {
   const SyncIndicator({super.key});
