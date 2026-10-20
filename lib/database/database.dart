@@ -520,6 +520,47 @@ class ReadingStats extends Table {
 // AppDatabase 主入口 + 单例
 // ═══════════════════════════════════════════════════════════════
 
+@DataClassName('CardsData')
+class Cards extends Table {
+  TextColumn get id => text()();
+  TextColumn get cardType => text()();
+  TextColumn get sourceType => text().withDefault(const Constant(''))();
+  TextColumn get sourceId => text().withDefault(const Constant(''))();
+  TextColumn get sourceTitle => text().nullable()();
+  TextColumn get tags => text().withDefault(const Constant('[]'))();
+  TextColumn get kind => text().withDefault(const Constant('atomic'))();
+  TextColumn get importance => text().withDefault(const Constant('medium'))();
+  TextColumn get front => text().nullable()();
+  TextColumn get back => text().nullable()();
+  TextColumn get indexTitle => text().nullable()();
+  TextColumn get author => text().nullable()();
+  TextColumn get highlight => text().nullable()();
+  TextColumn get anchor => text().nullable()();
+  TextColumn get question => text().nullable()();
+  TextColumn get answer => text().nullable()();
+  TextColumn get fillQuestion => text().nullable()();
+  TextColumn get fillAnswer => text().nullable()();
+  TextColumn get choiceQuestion => text().nullable()();
+  TextColumn get choiceOptions => text().nullable()();
+  IntColumn get choiceCorrectIndex => integer().nullable()();
+  TextColumn get tfStatement => text().nullable()();
+  BoolColumn get tfIsTrue => boolean().nullable()();
+  TextColumn get createdAt => text().withDefault(const Constant(''))();
+  TextColumn get updatedAt => text().withDefault(const Constant(''))();
+  TextColumn get lastReviewDate => text().nullable()();
+  TextColumn get nextReviewDate => text().nullable()();
+  RealColumn get memoryLevel => real().withDefault(const Constant(0.5))();
+  TextColumn get relatedIds => text().withDefault(const Constant('[]'))();
+  IntColumn get stage => integer().withDefault(const Constant(0))();
+  BoolColumn get mastered => boolean().withDefault(const Constant(false))();
+  IntColumn get totalReviews => integer().withDefault(const Constant(0))();
+  IntColumn get failedCount => integer().withDefault(const Constant(0))();
+  IntColumn get usageCount => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(tables: [
   Notes, Nodes,
   Books, BookAnnotations, BookHighlights, BookBookmarks,
@@ -531,6 +572,7 @@ class ReadingStats extends Table {
   NoteBookLinks, NoteNoteLinks, Sparks, NodeAnnotations,
   TagIndex, SearchIndex,
   WritingSessions, FocusSessions, ReadingStats,
+  Cards,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(openConnection());
@@ -540,7 +582,15 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(QueryExecutor e) : super(e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) async => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) await m.createTable(cards);
+        },
+      );
 }
 
 /// 单例锁定——全项目唯一 AppDatabase 实例。

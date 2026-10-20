@@ -14765,6 +14765,1820 @@ class ReadingStatsCompanion extends UpdateCompanion<ReadingStat> {
   }
 }
 
+class $CardsTable extends Cards with TableInfo<$CardsTable, CardsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CardsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cardTypeMeta = const VerificationMeta(
+    'cardType',
+  );
+  @override
+  late final GeneratedColumn<String> cardType = GeneratedColumn<String>(
+    'card_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceTypeMeta = const VerificationMeta(
+    'sourceType',
+  );
+  @override
+  late final GeneratedColumn<String> sourceType = GeneratedColumn<String>(
+    'source_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _sourceIdMeta = const VerificationMeta(
+    'sourceId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceId = GeneratedColumn<String>(
+    'source_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _sourceTitleMeta = const VerificationMeta(
+    'sourceTitle',
+  );
+  @override
+  late final GeneratedColumn<String> sourceTitle = GeneratedColumn<String>(
+    'source_title',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _tagsMeta = const VerificationMeta('tags');
+  @override
+  late final GeneratedColumn<String> tags = GeneratedColumn<String>(
+    'tags',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('atomic'),
+  );
+  static const VerificationMeta _importanceMeta = const VerificationMeta(
+    'importance',
+  );
+  @override
+  late final GeneratedColumn<String> importance = GeneratedColumn<String>(
+    'importance',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('medium'),
+  );
+  static const VerificationMeta _frontMeta = const VerificationMeta('front');
+  @override
+  late final GeneratedColumn<String> front = GeneratedColumn<String>(
+    'front',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _backMeta = const VerificationMeta('back');
+  @override
+  late final GeneratedColumn<String> back = GeneratedColumn<String>(
+    'back',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _indexTitleMeta = const VerificationMeta(
+    'indexTitle',
+  );
+  @override
+  late final GeneratedColumn<String> indexTitle = GeneratedColumn<String>(
+    'index_title',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _authorMeta = const VerificationMeta('author');
+  @override
+  late final GeneratedColumn<String> author = GeneratedColumn<String>(
+    'author',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _highlightMeta = const VerificationMeta(
+    'highlight',
+  );
+  @override
+  late final GeneratedColumn<String> highlight = GeneratedColumn<String>(
+    'highlight',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _anchorMeta = const VerificationMeta('anchor');
+  @override
+  late final GeneratedColumn<String> anchor = GeneratedColumn<String>(
+    'anchor',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _questionMeta = const VerificationMeta(
+    'question',
+  );
+  @override
+  late final GeneratedColumn<String> question = GeneratedColumn<String>(
+    'question',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _answerMeta = const VerificationMeta('answer');
+  @override
+  late final GeneratedColumn<String> answer = GeneratedColumn<String>(
+    'answer',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _fillQuestionMeta = const VerificationMeta(
+    'fillQuestion',
+  );
+  @override
+  late final GeneratedColumn<String> fillQuestion = GeneratedColumn<String>(
+    'fill_question',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _fillAnswerMeta = const VerificationMeta(
+    'fillAnswer',
+  );
+  @override
+  late final GeneratedColumn<String> fillAnswer = GeneratedColumn<String>(
+    'fill_answer',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _choiceQuestionMeta = const VerificationMeta(
+    'choiceQuestion',
+  );
+  @override
+  late final GeneratedColumn<String> choiceQuestion = GeneratedColumn<String>(
+    'choice_question',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _choiceOptionsMeta = const VerificationMeta(
+    'choiceOptions',
+  );
+  @override
+  late final GeneratedColumn<String> choiceOptions = GeneratedColumn<String>(
+    'choice_options',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _choiceCorrectIndexMeta =
+      const VerificationMeta('choiceCorrectIndex');
+  @override
+  late final GeneratedColumn<int> choiceCorrectIndex = GeneratedColumn<int>(
+    'choice_correct_index',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _tfStatementMeta = const VerificationMeta(
+    'tfStatement',
+  );
+  @override
+  late final GeneratedColumn<String> tfStatement = GeneratedColumn<String>(
+    'tf_statement',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _tfIsTrueMeta = const VerificationMeta(
+    'tfIsTrue',
+  );
+  @override
+  late final GeneratedColumn<bool> tfIsTrue = GeneratedColumn<bool>(
+    'tf_is_true',
+    aliasedName,
+    true,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("tf_is_true" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _lastReviewDateMeta = const VerificationMeta(
+    'lastReviewDate',
+  );
+  @override
+  late final GeneratedColumn<String> lastReviewDate = GeneratedColumn<String>(
+    'last_review_date',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _nextReviewDateMeta = const VerificationMeta(
+    'nextReviewDate',
+  );
+  @override
+  late final GeneratedColumn<String> nextReviewDate = GeneratedColumn<String>(
+    'next_review_date',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _memoryLevelMeta = const VerificationMeta(
+    'memoryLevel',
+  );
+  @override
+  late final GeneratedColumn<double> memoryLevel = GeneratedColumn<double>(
+    'memory_level',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0.5),
+  );
+  static const VerificationMeta _relatedIdsMeta = const VerificationMeta(
+    'relatedIds',
+  );
+  @override
+  late final GeneratedColumn<String> relatedIds = GeneratedColumn<String>(
+    'related_ids',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  static const VerificationMeta _stageMeta = const VerificationMeta('stage');
+  @override
+  late final GeneratedColumn<int> stage = GeneratedColumn<int>(
+    'stage',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _masteredMeta = const VerificationMeta(
+    'mastered',
+  );
+  @override
+  late final GeneratedColumn<bool> mastered = GeneratedColumn<bool>(
+    'mastered',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("mastered" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _totalReviewsMeta = const VerificationMeta(
+    'totalReviews',
+  );
+  @override
+  late final GeneratedColumn<int> totalReviews = GeneratedColumn<int>(
+    'total_reviews',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _failedCountMeta = const VerificationMeta(
+    'failedCount',
+  );
+  @override
+  late final GeneratedColumn<int> failedCount = GeneratedColumn<int>(
+    'failed_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _usageCountMeta = const VerificationMeta(
+    'usageCount',
+  );
+  @override
+  late final GeneratedColumn<int> usageCount = GeneratedColumn<int>(
+    'usage_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    cardType,
+    sourceType,
+    sourceId,
+    sourceTitle,
+    tags,
+    kind,
+    importance,
+    front,
+    back,
+    indexTitle,
+    author,
+    highlight,
+    anchor,
+    question,
+    answer,
+    fillQuestion,
+    fillAnswer,
+    choiceQuestion,
+    choiceOptions,
+    choiceCorrectIndex,
+    tfStatement,
+    tfIsTrue,
+    createdAt,
+    updatedAt,
+    lastReviewDate,
+    nextReviewDate,
+    memoryLevel,
+    relatedIds,
+    stage,
+    mastered,
+    totalReviews,
+    failedCount,
+    usageCount,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cards';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CardsData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('card_type')) {
+      context.handle(
+        _cardTypeMeta,
+        cardType.isAcceptableOrUnknown(data['card_type']!, _cardTypeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cardTypeMeta);
+    }
+    if (data.containsKey('source_type')) {
+      context.handle(
+        _sourceTypeMeta,
+        sourceType.isAcceptableOrUnknown(data['source_type']!, _sourceTypeMeta),
+      );
+    }
+    if (data.containsKey('source_id')) {
+      context.handle(
+        _sourceIdMeta,
+        sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    }
+    if (data.containsKey('source_title')) {
+      context.handle(
+        _sourceTitleMeta,
+        sourceTitle.isAcceptableOrUnknown(
+          data['source_title']!,
+          _sourceTitleMeta,
+        ),
+      );
+    }
+    if (data.containsKey('tags')) {
+      context.handle(
+        _tagsMeta,
+        tags.isAcceptableOrUnknown(data['tags']!, _tagsMeta),
+      );
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    }
+    if (data.containsKey('importance')) {
+      context.handle(
+        _importanceMeta,
+        importance.isAcceptableOrUnknown(data['importance']!, _importanceMeta),
+      );
+    }
+    if (data.containsKey('front')) {
+      context.handle(
+        _frontMeta,
+        front.isAcceptableOrUnknown(data['front']!, _frontMeta),
+      );
+    }
+    if (data.containsKey('back')) {
+      context.handle(
+        _backMeta,
+        back.isAcceptableOrUnknown(data['back']!, _backMeta),
+      );
+    }
+    if (data.containsKey('index_title')) {
+      context.handle(
+        _indexTitleMeta,
+        indexTitle.isAcceptableOrUnknown(data['index_title']!, _indexTitleMeta),
+      );
+    }
+    if (data.containsKey('author')) {
+      context.handle(
+        _authorMeta,
+        author.isAcceptableOrUnknown(data['author']!, _authorMeta),
+      );
+    }
+    if (data.containsKey('highlight')) {
+      context.handle(
+        _highlightMeta,
+        highlight.isAcceptableOrUnknown(data['highlight']!, _highlightMeta),
+      );
+    }
+    if (data.containsKey('anchor')) {
+      context.handle(
+        _anchorMeta,
+        anchor.isAcceptableOrUnknown(data['anchor']!, _anchorMeta),
+      );
+    }
+    if (data.containsKey('question')) {
+      context.handle(
+        _questionMeta,
+        question.isAcceptableOrUnknown(data['question']!, _questionMeta),
+      );
+    }
+    if (data.containsKey('answer')) {
+      context.handle(
+        _answerMeta,
+        answer.isAcceptableOrUnknown(data['answer']!, _answerMeta),
+      );
+    }
+    if (data.containsKey('fill_question')) {
+      context.handle(
+        _fillQuestionMeta,
+        fillQuestion.isAcceptableOrUnknown(
+          data['fill_question']!,
+          _fillQuestionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('fill_answer')) {
+      context.handle(
+        _fillAnswerMeta,
+        fillAnswer.isAcceptableOrUnknown(data['fill_answer']!, _fillAnswerMeta),
+      );
+    }
+    if (data.containsKey('choice_question')) {
+      context.handle(
+        _choiceQuestionMeta,
+        choiceQuestion.isAcceptableOrUnknown(
+          data['choice_question']!,
+          _choiceQuestionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('choice_options')) {
+      context.handle(
+        _choiceOptionsMeta,
+        choiceOptions.isAcceptableOrUnknown(
+          data['choice_options']!,
+          _choiceOptionsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('choice_correct_index')) {
+      context.handle(
+        _choiceCorrectIndexMeta,
+        choiceCorrectIndex.isAcceptableOrUnknown(
+          data['choice_correct_index']!,
+          _choiceCorrectIndexMeta,
+        ),
+      );
+    }
+    if (data.containsKey('tf_statement')) {
+      context.handle(
+        _tfStatementMeta,
+        tfStatement.isAcceptableOrUnknown(
+          data['tf_statement']!,
+          _tfStatementMeta,
+        ),
+      );
+    }
+    if (data.containsKey('tf_is_true')) {
+      context.handle(
+        _tfIsTrueMeta,
+        tfIsTrue.isAcceptableOrUnknown(data['tf_is_true']!, _tfIsTrueMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    if (data.containsKey('last_review_date')) {
+      context.handle(
+        _lastReviewDateMeta,
+        lastReviewDate.isAcceptableOrUnknown(
+          data['last_review_date']!,
+          _lastReviewDateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('next_review_date')) {
+      context.handle(
+        _nextReviewDateMeta,
+        nextReviewDate.isAcceptableOrUnknown(
+          data['next_review_date']!,
+          _nextReviewDateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('memory_level')) {
+      context.handle(
+        _memoryLevelMeta,
+        memoryLevel.isAcceptableOrUnknown(
+          data['memory_level']!,
+          _memoryLevelMeta,
+        ),
+      );
+    }
+    if (data.containsKey('related_ids')) {
+      context.handle(
+        _relatedIdsMeta,
+        relatedIds.isAcceptableOrUnknown(data['related_ids']!, _relatedIdsMeta),
+      );
+    }
+    if (data.containsKey('stage')) {
+      context.handle(
+        _stageMeta,
+        stage.isAcceptableOrUnknown(data['stage']!, _stageMeta),
+      );
+    }
+    if (data.containsKey('mastered')) {
+      context.handle(
+        _masteredMeta,
+        mastered.isAcceptableOrUnknown(data['mastered']!, _masteredMeta),
+      );
+    }
+    if (data.containsKey('total_reviews')) {
+      context.handle(
+        _totalReviewsMeta,
+        totalReviews.isAcceptableOrUnknown(
+          data['total_reviews']!,
+          _totalReviewsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('failed_count')) {
+      context.handle(
+        _failedCountMeta,
+        failedCount.isAcceptableOrUnknown(
+          data['failed_count']!,
+          _failedCountMeta,
+        ),
+      );
+    }
+    if (data.containsKey('usage_count')) {
+      context.handle(
+        _usageCountMeta,
+        usageCount.isAcceptableOrUnknown(data['usage_count']!, _usageCountMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CardsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CardsData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      cardType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}card_type'],
+      )!,
+      sourceType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_type'],
+      )!,
+      sourceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_id'],
+      )!,
+      sourceTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_title'],
+      ),
+      tags: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tags'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      importance: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}importance'],
+      )!,
+      front: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}front'],
+      ),
+      back: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}back'],
+      ),
+      indexTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}index_title'],
+      ),
+      author: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}author'],
+      ),
+      highlight: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}highlight'],
+      ),
+      anchor: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}anchor'],
+      ),
+      question: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}question'],
+      ),
+      answer: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}answer'],
+      ),
+      fillQuestion: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}fill_question'],
+      ),
+      fillAnswer: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}fill_answer'],
+      ),
+      choiceQuestion: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}choice_question'],
+      ),
+      choiceOptions: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}choice_options'],
+      ),
+      choiceCorrectIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}choice_correct_index'],
+      ),
+      tfStatement: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tf_statement'],
+      ),
+      tfIsTrue: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}tf_is_true'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      lastReviewDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_review_date'],
+      ),
+      nextReviewDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}next_review_date'],
+      ),
+      memoryLevel: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}memory_level'],
+      )!,
+      relatedIds: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}related_ids'],
+      )!,
+      stage: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}stage'],
+      )!,
+      mastered: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}mastered'],
+      )!,
+      totalReviews: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}total_reviews'],
+      )!,
+      failedCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}failed_count'],
+      )!,
+      usageCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}usage_count'],
+      )!,
+    );
+  }
+
+  @override
+  $CardsTable createAlias(String alias) {
+    return $CardsTable(attachedDatabase, alias);
+  }
+}
+
+class CardsData extends DataClass implements Insertable<CardsData> {
+  final String id;
+  final String cardType;
+  final String sourceType;
+  final String sourceId;
+  final String? sourceTitle;
+  final String tags;
+  final String kind;
+  final String importance;
+  final String? front;
+  final String? back;
+  final String? indexTitle;
+  final String? author;
+  final String? highlight;
+  final String? anchor;
+  final String? question;
+  final String? answer;
+  final String? fillQuestion;
+  final String? fillAnswer;
+  final String? choiceQuestion;
+  final String? choiceOptions;
+  final int? choiceCorrectIndex;
+  final String? tfStatement;
+  final bool? tfIsTrue;
+  final String createdAt;
+  final String updatedAt;
+  final String? lastReviewDate;
+  final String? nextReviewDate;
+  final double memoryLevel;
+  final String relatedIds;
+  final int stage;
+  final bool mastered;
+  final int totalReviews;
+  final int failedCount;
+  final int usageCount;
+  const CardsData({
+    required this.id,
+    required this.cardType,
+    required this.sourceType,
+    required this.sourceId,
+    this.sourceTitle,
+    required this.tags,
+    required this.kind,
+    required this.importance,
+    this.front,
+    this.back,
+    this.indexTitle,
+    this.author,
+    this.highlight,
+    this.anchor,
+    this.question,
+    this.answer,
+    this.fillQuestion,
+    this.fillAnswer,
+    this.choiceQuestion,
+    this.choiceOptions,
+    this.choiceCorrectIndex,
+    this.tfStatement,
+    this.tfIsTrue,
+    required this.createdAt,
+    required this.updatedAt,
+    this.lastReviewDate,
+    this.nextReviewDate,
+    required this.memoryLevel,
+    required this.relatedIds,
+    required this.stage,
+    required this.mastered,
+    required this.totalReviews,
+    required this.failedCount,
+    required this.usageCount,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['card_type'] = Variable<String>(cardType);
+    map['source_type'] = Variable<String>(sourceType);
+    map['source_id'] = Variable<String>(sourceId);
+    if (!nullToAbsent || sourceTitle != null) {
+      map['source_title'] = Variable<String>(sourceTitle);
+    }
+    map['tags'] = Variable<String>(tags);
+    map['kind'] = Variable<String>(kind);
+    map['importance'] = Variable<String>(importance);
+    if (!nullToAbsent || front != null) {
+      map['front'] = Variable<String>(front);
+    }
+    if (!nullToAbsent || back != null) {
+      map['back'] = Variable<String>(back);
+    }
+    if (!nullToAbsent || indexTitle != null) {
+      map['index_title'] = Variable<String>(indexTitle);
+    }
+    if (!nullToAbsent || author != null) {
+      map['author'] = Variable<String>(author);
+    }
+    if (!nullToAbsent || highlight != null) {
+      map['highlight'] = Variable<String>(highlight);
+    }
+    if (!nullToAbsent || anchor != null) {
+      map['anchor'] = Variable<String>(anchor);
+    }
+    if (!nullToAbsent || question != null) {
+      map['question'] = Variable<String>(question);
+    }
+    if (!nullToAbsent || answer != null) {
+      map['answer'] = Variable<String>(answer);
+    }
+    if (!nullToAbsent || fillQuestion != null) {
+      map['fill_question'] = Variable<String>(fillQuestion);
+    }
+    if (!nullToAbsent || fillAnswer != null) {
+      map['fill_answer'] = Variable<String>(fillAnswer);
+    }
+    if (!nullToAbsent || choiceQuestion != null) {
+      map['choice_question'] = Variable<String>(choiceQuestion);
+    }
+    if (!nullToAbsent || choiceOptions != null) {
+      map['choice_options'] = Variable<String>(choiceOptions);
+    }
+    if (!nullToAbsent || choiceCorrectIndex != null) {
+      map['choice_correct_index'] = Variable<int>(choiceCorrectIndex);
+    }
+    if (!nullToAbsent || tfStatement != null) {
+      map['tf_statement'] = Variable<String>(tfStatement);
+    }
+    if (!nullToAbsent || tfIsTrue != null) {
+      map['tf_is_true'] = Variable<bool>(tfIsTrue);
+    }
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    if (!nullToAbsent || lastReviewDate != null) {
+      map['last_review_date'] = Variable<String>(lastReviewDate);
+    }
+    if (!nullToAbsent || nextReviewDate != null) {
+      map['next_review_date'] = Variable<String>(nextReviewDate);
+    }
+    map['memory_level'] = Variable<double>(memoryLevel);
+    map['related_ids'] = Variable<String>(relatedIds);
+    map['stage'] = Variable<int>(stage);
+    map['mastered'] = Variable<bool>(mastered);
+    map['total_reviews'] = Variable<int>(totalReviews);
+    map['failed_count'] = Variable<int>(failedCount);
+    map['usage_count'] = Variable<int>(usageCount);
+    return map;
+  }
+
+  CardsCompanion toCompanion(bool nullToAbsent) {
+    return CardsCompanion(
+      id: Value(id),
+      cardType: Value(cardType),
+      sourceType: Value(sourceType),
+      sourceId: Value(sourceId),
+      sourceTitle: sourceTitle == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceTitle),
+      tags: Value(tags),
+      kind: Value(kind),
+      importance: Value(importance),
+      front: front == null && nullToAbsent
+          ? const Value.absent()
+          : Value(front),
+      back: back == null && nullToAbsent ? const Value.absent() : Value(back),
+      indexTitle: indexTitle == null && nullToAbsent
+          ? const Value.absent()
+          : Value(indexTitle),
+      author: author == null && nullToAbsent
+          ? const Value.absent()
+          : Value(author),
+      highlight: highlight == null && nullToAbsent
+          ? const Value.absent()
+          : Value(highlight),
+      anchor: anchor == null && nullToAbsent
+          ? const Value.absent()
+          : Value(anchor),
+      question: question == null && nullToAbsent
+          ? const Value.absent()
+          : Value(question),
+      answer: answer == null && nullToAbsent
+          ? const Value.absent()
+          : Value(answer),
+      fillQuestion: fillQuestion == null && nullToAbsent
+          ? const Value.absent()
+          : Value(fillQuestion),
+      fillAnswer: fillAnswer == null && nullToAbsent
+          ? const Value.absent()
+          : Value(fillAnswer),
+      choiceQuestion: choiceQuestion == null && nullToAbsent
+          ? const Value.absent()
+          : Value(choiceQuestion),
+      choiceOptions: choiceOptions == null && nullToAbsent
+          ? const Value.absent()
+          : Value(choiceOptions),
+      choiceCorrectIndex: choiceCorrectIndex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(choiceCorrectIndex),
+      tfStatement: tfStatement == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tfStatement),
+      tfIsTrue: tfIsTrue == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tfIsTrue),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      lastReviewDate: lastReviewDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastReviewDate),
+      nextReviewDate: nextReviewDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nextReviewDate),
+      memoryLevel: Value(memoryLevel),
+      relatedIds: Value(relatedIds),
+      stage: Value(stage),
+      mastered: Value(mastered),
+      totalReviews: Value(totalReviews),
+      failedCount: Value(failedCount),
+      usageCount: Value(usageCount),
+    );
+  }
+
+  factory CardsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CardsData(
+      id: serializer.fromJson<String>(json['id']),
+      cardType: serializer.fromJson<String>(json['cardType']),
+      sourceType: serializer.fromJson<String>(json['sourceType']),
+      sourceId: serializer.fromJson<String>(json['sourceId']),
+      sourceTitle: serializer.fromJson<String?>(json['sourceTitle']),
+      tags: serializer.fromJson<String>(json['tags']),
+      kind: serializer.fromJson<String>(json['kind']),
+      importance: serializer.fromJson<String>(json['importance']),
+      front: serializer.fromJson<String?>(json['front']),
+      back: serializer.fromJson<String?>(json['back']),
+      indexTitle: serializer.fromJson<String?>(json['indexTitle']),
+      author: serializer.fromJson<String?>(json['author']),
+      highlight: serializer.fromJson<String?>(json['highlight']),
+      anchor: serializer.fromJson<String?>(json['anchor']),
+      question: serializer.fromJson<String?>(json['question']),
+      answer: serializer.fromJson<String?>(json['answer']),
+      fillQuestion: serializer.fromJson<String?>(json['fillQuestion']),
+      fillAnswer: serializer.fromJson<String?>(json['fillAnswer']),
+      choiceQuestion: serializer.fromJson<String?>(json['choiceQuestion']),
+      choiceOptions: serializer.fromJson<String?>(json['choiceOptions']),
+      choiceCorrectIndex: serializer.fromJson<int?>(json['choiceCorrectIndex']),
+      tfStatement: serializer.fromJson<String?>(json['tfStatement']),
+      tfIsTrue: serializer.fromJson<bool?>(json['tfIsTrue']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      lastReviewDate: serializer.fromJson<String?>(json['lastReviewDate']),
+      nextReviewDate: serializer.fromJson<String?>(json['nextReviewDate']),
+      memoryLevel: serializer.fromJson<double>(json['memoryLevel']),
+      relatedIds: serializer.fromJson<String>(json['relatedIds']),
+      stage: serializer.fromJson<int>(json['stage']),
+      mastered: serializer.fromJson<bool>(json['mastered']),
+      totalReviews: serializer.fromJson<int>(json['totalReviews']),
+      failedCount: serializer.fromJson<int>(json['failedCount']),
+      usageCount: serializer.fromJson<int>(json['usageCount']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'cardType': serializer.toJson<String>(cardType),
+      'sourceType': serializer.toJson<String>(sourceType),
+      'sourceId': serializer.toJson<String>(sourceId),
+      'sourceTitle': serializer.toJson<String?>(sourceTitle),
+      'tags': serializer.toJson<String>(tags),
+      'kind': serializer.toJson<String>(kind),
+      'importance': serializer.toJson<String>(importance),
+      'front': serializer.toJson<String?>(front),
+      'back': serializer.toJson<String?>(back),
+      'indexTitle': serializer.toJson<String?>(indexTitle),
+      'author': serializer.toJson<String?>(author),
+      'highlight': serializer.toJson<String?>(highlight),
+      'anchor': serializer.toJson<String?>(anchor),
+      'question': serializer.toJson<String?>(question),
+      'answer': serializer.toJson<String?>(answer),
+      'fillQuestion': serializer.toJson<String?>(fillQuestion),
+      'fillAnswer': serializer.toJson<String?>(fillAnswer),
+      'choiceQuestion': serializer.toJson<String?>(choiceQuestion),
+      'choiceOptions': serializer.toJson<String?>(choiceOptions),
+      'choiceCorrectIndex': serializer.toJson<int?>(choiceCorrectIndex),
+      'tfStatement': serializer.toJson<String?>(tfStatement),
+      'tfIsTrue': serializer.toJson<bool?>(tfIsTrue),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+      'lastReviewDate': serializer.toJson<String?>(lastReviewDate),
+      'nextReviewDate': serializer.toJson<String?>(nextReviewDate),
+      'memoryLevel': serializer.toJson<double>(memoryLevel),
+      'relatedIds': serializer.toJson<String>(relatedIds),
+      'stage': serializer.toJson<int>(stage),
+      'mastered': serializer.toJson<bool>(mastered),
+      'totalReviews': serializer.toJson<int>(totalReviews),
+      'failedCount': serializer.toJson<int>(failedCount),
+      'usageCount': serializer.toJson<int>(usageCount),
+    };
+  }
+
+  CardsData copyWith({
+    String? id,
+    String? cardType,
+    String? sourceType,
+    String? sourceId,
+    Value<String?> sourceTitle = const Value.absent(),
+    String? tags,
+    String? kind,
+    String? importance,
+    Value<String?> front = const Value.absent(),
+    Value<String?> back = const Value.absent(),
+    Value<String?> indexTitle = const Value.absent(),
+    Value<String?> author = const Value.absent(),
+    Value<String?> highlight = const Value.absent(),
+    Value<String?> anchor = const Value.absent(),
+    Value<String?> question = const Value.absent(),
+    Value<String?> answer = const Value.absent(),
+    Value<String?> fillQuestion = const Value.absent(),
+    Value<String?> fillAnswer = const Value.absent(),
+    Value<String?> choiceQuestion = const Value.absent(),
+    Value<String?> choiceOptions = const Value.absent(),
+    Value<int?> choiceCorrectIndex = const Value.absent(),
+    Value<String?> tfStatement = const Value.absent(),
+    Value<bool?> tfIsTrue = const Value.absent(),
+    String? createdAt,
+    String? updatedAt,
+    Value<String?> lastReviewDate = const Value.absent(),
+    Value<String?> nextReviewDate = const Value.absent(),
+    double? memoryLevel,
+    String? relatedIds,
+    int? stage,
+    bool? mastered,
+    int? totalReviews,
+    int? failedCount,
+    int? usageCount,
+  }) => CardsData(
+    id: id ?? this.id,
+    cardType: cardType ?? this.cardType,
+    sourceType: sourceType ?? this.sourceType,
+    sourceId: sourceId ?? this.sourceId,
+    sourceTitle: sourceTitle.present ? sourceTitle.value : this.sourceTitle,
+    tags: tags ?? this.tags,
+    kind: kind ?? this.kind,
+    importance: importance ?? this.importance,
+    front: front.present ? front.value : this.front,
+    back: back.present ? back.value : this.back,
+    indexTitle: indexTitle.present ? indexTitle.value : this.indexTitle,
+    author: author.present ? author.value : this.author,
+    highlight: highlight.present ? highlight.value : this.highlight,
+    anchor: anchor.present ? anchor.value : this.anchor,
+    question: question.present ? question.value : this.question,
+    answer: answer.present ? answer.value : this.answer,
+    fillQuestion: fillQuestion.present ? fillQuestion.value : this.fillQuestion,
+    fillAnswer: fillAnswer.present ? fillAnswer.value : this.fillAnswer,
+    choiceQuestion: choiceQuestion.present
+        ? choiceQuestion.value
+        : this.choiceQuestion,
+    choiceOptions: choiceOptions.present
+        ? choiceOptions.value
+        : this.choiceOptions,
+    choiceCorrectIndex: choiceCorrectIndex.present
+        ? choiceCorrectIndex.value
+        : this.choiceCorrectIndex,
+    tfStatement: tfStatement.present ? tfStatement.value : this.tfStatement,
+    tfIsTrue: tfIsTrue.present ? tfIsTrue.value : this.tfIsTrue,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    lastReviewDate: lastReviewDate.present
+        ? lastReviewDate.value
+        : this.lastReviewDate,
+    nextReviewDate: nextReviewDate.present
+        ? nextReviewDate.value
+        : this.nextReviewDate,
+    memoryLevel: memoryLevel ?? this.memoryLevel,
+    relatedIds: relatedIds ?? this.relatedIds,
+    stage: stage ?? this.stage,
+    mastered: mastered ?? this.mastered,
+    totalReviews: totalReviews ?? this.totalReviews,
+    failedCount: failedCount ?? this.failedCount,
+    usageCount: usageCount ?? this.usageCount,
+  );
+  CardsData copyWithCompanion(CardsCompanion data) {
+    return CardsData(
+      id: data.id.present ? data.id.value : this.id,
+      cardType: data.cardType.present ? data.cardType.value : this.cardType,
+      sourceType: data.sourceType.present
+          ? data.sourceType.value
+          : this.sourceType,
+      sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
+      sourceTitle: data.sourceTitle.present
+          ? data.sourceTitle.value
+          : this.sourceTitle,
+      tags: data.tags.present ? data.tags.value : this.tags,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      importance: data.importance.present
+          ? data.importance.value
+          : this.importance,
+      front: data.front.present ? data.front.value : this.front,
+      back: data.back.present ? data.back.value : this.back,
+      indexTitle: data.indexTitle.present
+          ? data.indexTitle.value
+          : this.indexTitle,
+      author: data.author.present ? data.author.value : this.author,
+      highlight: data.highlight.present ? data.highlight.value : this.highlight,
+      anchor: data.anchor.present ? data.anchor.value : this.anchor,
+      question: data.question.present ? data.question.value : this.question,
+      answer: data.answer.present ? data.answer.value : this.answer,
+      fillQuestion: data.fillQuestion.present
+          ? data.fillQuestion.value
+          : this.fillQuestion,
+      fillAnswer: data.fillAnswer.present
+          ? data.fillAnswer.value
+          : this.fillAnswer,
+      choiceQuestion: data.choiceQuestion.present
+          ? data.choiceQuestion.value
+          : this.choiceQuestion,
+      choiceOptions: data.choiceOptions.present
+          ? data.choiceOptions.value
+          : this.choiceOptions,
+      choiceCorrectIndex: data.choiceCorrectIndex.present
+          ? data.choiceCorrectIndex.value
+          : this.choiceCorrectIndex,
+      tfStatement: data.tfStatement.present
+          ? data.tfStatement.value
+          : this.tfStatement,
+      tfIsTrue: data.tfIsTrue.present ? data.tfIsTrue.value : this.tfIsTrue,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      lastReviewDate: data.lastReviewDate.present
+          ? data.lastReviewDate.value
+          : this.lastReviewDate,
+      nextReviewDate: data.nextReviewDate.present
+          ? data.nextReviewDate.value
+          : this.nextReviewDate,
+      memoryLevel: data.memoryLevel.present
+          ? data.memoryLevel.value
+          : this.memoryLevel,
+      relatedIds: data.relatedIds.present
+          ? data.relatedIds.value
+          : this.relatedIds,
+      stage: data.stage.present ? data.stage.value : this.stage,
+      mastered: data.mastered.present ? data.mastered.value : this.mastered,
+      totalReviews: data.totalReviews.present
+          ? data.totalReviews.value
+          : this.totalReviews,
+      failedCount: data.failedCount.present
+          ? data.failedCount.value
+          : this.failedCount,
+      usageCount: data.usageCount.present
+          ? data.usageCount.value
+          : this.usageCount,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CardsData(')
+          ..write('id: $id, ')
+          ..write('cardType: $cardType, ')
+          ..write('sourceType: $sourceType, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('sourceTitle: $sourceTitle, ')
+          ..write('tags: $tags, ')
+          ..write('kind: $kind, ')
+          ..write('importance: $importance, ')
+          ..write('front: $front, ')
+          ..write('back: $back, ')
+          ..write('indexTitle: $indexTitle, ')
+          ..write('author: $author, ')
+          ..write('highlight: $highlight, ')
+          ..write('anchor: $anchor, ')
+          ..write('question: $question, ')
+          ..write('answer: $answer, ')
+          ..write('fillQuestion: $fillQuestion, ')
+          ..write('fillAnswer: $fillAnswer, ')
+          ..write('choiceQuestion: $choiceQuestion, ')
+          ..write('choiceOptions: $choiceOptions, ')
+          ..write('choiceCorrectIndex: $choiceCorrectIndex, ')
+          ..write('tfStatement: $tfStatement, ')
+          ..write('tfIsTrue: $tfIsTrue, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('lastReviewDate: $lastReviewDate, ')
+          ..write('nextReviewDate: $nextReviewDate, ')
+          ..write('memoryLevel: $memoryLevel, ')
+          ..write('relatedIds: $relatedIds, ')
+          ..write('stage: $stage, ')
+          ..write('mastered: $mastered, ')
+          ..write('totalReviews: $totalReviews, ')
+          ..write('failedCount: $failedCount, ')
+          ..write('usageCount: $usageCount')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    id,
+    cardType,
+    sourceType,
+    sourceId,
+    sourceTitle,
+    tags,
+    kind,
+    importance,
+    front,
+    back,
+    indexTitle,
+    author,
+    highlight,
+    anchor,
+    question,
+    answer,
+    fillQuestion,
+    fillAnswer,
+    choiceQuestion,
+    choiceOptions,
+    choiceCorrectIndex,
+    tfStatement,
+    tfIsTrue,
+    createdAt,
+    updatedAt,
+    lastReviewDate,
+    nextReviewDate,
+    memoryLevel,
+    relatedIds,
+    stage,
+    mastered,
+    totalReviews,
+    failedCount,
+    usageCount,
+  ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CardsData &&
+          other.id == this.id &&
+          other.cardType == this.cardType &&
+          other.sourceType == this.sourceType &&
+          other.sourceId == this.sourceId &&
+          other.sourceTitle == this.sourceTitle &&
+          other.tags == this.tags &&
+          other.kind == this.kind &&
+          other.importance == this.importance &&
+          other.front == this.front &&
+          other.back == this.back &&
+          other.indexTitle == this.indexTitle &&
+          other.author == this.author &&
+          other.highlight == this.highlight &&
+          other.anchor == this.anchor &&
+          other.question == this.question &&
+          other.answer == this.answer &&
+          other.fillQuestion == this.fillQuestion &&
+          other.fillAnswer == this.fillAnswer &&
+          other.choiceQuestion == this.choiceQuestion &&
+          other.choiceOptions == this.choiceOptions &&
+          other.choiceCorrectIndex == this.choiceCorrectIndex &&
+          other.tfStatement == this.tfStatement &&
+          other.tfIsTrue == this.tfIsTrue &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.lastReviewDate == this.lastReviewDate &&
+          other.nextReviewDate == this.nextReviewDate &&
+          other.memoryLevel == this.memoryLevel &&
+          other.relatedIds == this.relatedIds &&
+          other.stage == this.stage &&
+          other.mastered == this.mastered &&
+          other.totalReviews == this.totalReviews &&
+          other.failedCount == this.failedCount &&
+          other.usageCount == this.usageCount);
+}
+
+class CardsCompanion extends UpdateCompanion<CardsData> {
+  final Value<String> id;
+  final Value<String> cardType;
+  final Value<String> sourceType;
+  final Value<String> sourceId;
+  final Value<String?> sourceTitle;
+  final Value<String> tags;
+  final Value<String> kind;
+  final Value<String> importance;
+  final Value<String?> front;
+  final Value<String?> back;
+  final Value<String?> indexTitle;
+  final Value<String?> author;
+  final Value<String?> highlight;
+  final Value<String?> anchor;
+  final Value<String?> question;
+  final Value<String?> answer;
+  final Value<String?> fillQuestion;
+  final Value<String?> fillAnswer;
+  final Value<String?> choiceQuestion;
+  final Value<String?> choiceOptions;
+  final Value<int?> choiceCorrectIndex;
+  final Value<String?> tfStatement;
+  final Value<bool?> tfIsTrue;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<String?> lastReviewDate;
+  final Value<String?> nextReviewDate;
+  final Value<double> memoryLevel;
+  final Value<String> relatedIds;
+  final Value<int> stage;
+  final Value<bool> mastered;
+  final Value<int> totalReviews;
+  final Value<int> failedCount;
+  final Value<int> usageCount;
+  final Value<int> rowid;
+  const CardsCompanion({
+    this.id = const Value.absent(),
+    this.cardType = const Value.absent(),
+    this.sourceType = const Value.absent(),
+    this.sourceId = const Value.absent(),
+    this.sourceTitle = const Value.absent(),
+    this.tags = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.importance = const Value.absent(),
+    this.front = const Value.absent(),
+    this.back = const Value.absent(),
+    this.indexTitle = const Value.absent(),
+    this.author = const Value.absent(),
+    this.highlight = const Value.absent(),
+    this.anchor = const Value.absent(),
+    this.question = const Value.absent(),
+    this.answer = const Value.absent(),
+    this.fillQuestion = const Value.absent(),
+    this.fillAnswer = const Value.absent(),
+    this.choiceQuestion = const Value.absent(),
+    this.choiceOptions = const Value.absent(),
+    this.choiceCorrectIndex = const Value.absent(),
+    this.tfStatement = const Value.absent(),
+    this.tfIsTrue = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.lastReviewDate = const Value.absent(),
+    this.nextReviewDate = const Value.absent(),
+    this.memoryLevel = const Value.absent(),
+    this.relatedIds = const Value.absent(),
+    this.stage = const Value.absent(),
+    this.mastered = const Value.absent(),
+    this.totalReviews = const Value.absent(),
+    this.failedCount = const Value.absent(),
+    this.usageCount = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CardsCompanion.insert({
+    required String id,
+    required String cardType,
+    this.sourceType = const Value.absent(),
+    this.sourceId = const Value.absent(),
+    this.sourceTitle = const Value.absent(),
+    this.tags = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.importance = const Value.absent(),
+    this.front = const Value.absent(),
+    this.back = const Value.absent(),
+    this.indexTitle = const Value.absent(),
+    this.author = const Value.absent(),
+    this.highlight = const Value.absent(),
+    this.anchor = const Value.absent(),
+    this.question = const Value.absent(),
+    this.answer = const Value.absent(),
+    this.fillQuestion = const Value.absent(),
+    this.fillAnswer = const Value.absent(),
+    this.choiceQuestion = const Value.absent(),
+    this.choiceOptions = const Value.absent(),
+    this.choiceCorrectIndex = const Value.absent(),
+    this.tfStatement = const Value.absent(),
+    this.tfIsTrue = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.lastReviewDate = const Value.absent(),
+    this.nextReviewDate = const Value.absent(),
+    this.memoryLevel = const Value.absent(),
+    this.relatedIds = const Value.absent(),
+    this.stage = const Value.absent(),
+    this.mastered = const Value.absent(),
+    this.totalReviews = const Value.absent(),
+    this.failedCount = const Value.absent(),
+    this.usageCount = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       cardType = Value(cardType);
+  static Insertable<CardsData> custom({
+    Expression<String>? id,
+    Expression<String>? cardType,
+    Expression<String>? sourceType,
+    Expression<String>? sourceId,
+    Expression<String>? sourceTitle,
+    Expression<String>? tags,
+    Expression<String>? kind,
+    Expression<String>? importance,
+    Expression<String>? front,
+    Expression<String>? back,
+    Expression<String>? indexTitle,
+    Expression<String>? author,
+    Expression<String>? highlight,
+    Expression<String>? anchor,
+    Expression<String>? question,
+    Expression<String>? answer,
+    Expression<String>? fillQuestion,
+    Expression<String>? fillAnswer,
+    Expression<String>? choiceQuestion,
+    Expression<String>? choiceOptions,
+    Expression<int>? choiceCorrectIndex,
+    Expression<String>? tfStatement,
+    Expression<bool>? tfIsTrue,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<String>? lastReviewDate,
+    Expression<String>? nextReviewDate,
+    Expression<double>? memoryLevel,
+    Expression<String>? relatedIds,
+    Expression<int>? stage,
+    Expression<bool>? mastered,
+    Expression<int>? totalReviews,
+    Expression<int>? failedCount,
+    Expression<int>? usageCount,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (cardType != null) 'card_type': cardType,
+      if (sourceType != null) 'source_type': sourceType,
+      if (sourceId != null) 'source_id': sourceId,
+      if (sourceTitle != null) 'source_title': sourceTitle,
+      if (tags != null) 'tags': tags,
+      if (kind != null) 'kind': kind,
+      if (importance != null) 'importance': importance,
+      if (front != null) 'front': front,
+      if (back != null) 'back': back,
+      if (indexTitle != null) 'index_title': indexTitle,
+      if (author != null) 'author': author,
+      if (highlight != null) 'highlight': highlight,
+      if (anchor != null) 'anchor': anchor,
+      if (question != null) 'question': question,
+      if (answer != null) 'answer': answer,
+      if (fillQuestion != null) 'fill_question': fillQuestion,
+      if (fillAnswer != null) 'fill_answer': fillAnswer,
+      if (choiceQuestion != null) 'choice_question': choiceQuestion,
+      if (choiceOptions != null) 'choice_options': choiceOptions,
+      if (choiceCorrectIndex != null)
+        'choice_correct_index': choiceCorrectIndex,
+      if (tfStatement != null) 'tf_statement': tfStatement,
+      if (tfIsTrue != null) 'tf_is_true': tfIsTrue,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (lastReviewDate != null) 'last_review_date': lastReviewDate,
+      if (nextReviewDate != null) 'next_review_date': nextReviewDate,
+      if (memoryLevel != null) 'memory_level': memoryLevel,
+      if (relatedIds != null) 'related_ids': relatedIds,
+      if (stage != null) 'stage': stage,
+      if (mastered != null) 'mastered': mastered,
+      if (totalReviews != null) 'total_reviews': totalReviews,
+      if (failedCount != null) 'failed_count': failedCount,
+      if (usageCount != null) 'usage_count': usageCount,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CardsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? cardType,
+    Value<String>? sourceType,
+    Value<String>? sourceId,
+    Value<String?>? sourceTitle,
+    Value<String>? tags,
+    Value<String>? kind,
+    Value<String>? importance,
+    Value<String?>? front,
+    Value<String?>? back,
+    Value<String?>? indexTitle,
+    Value<String?>? author,
+    Value<String?>? highlight,
+    Value<String?>? anchor,
+    Value<String?>? question,
+    Value<String?>? answer,
+    Value<String?>? fillQuestion,
+    Value<String?>? fillAnswer,
+    Value<String?>? choiceQuestion,
+    Value<String?>? choiceOptions,
+    Value<int?>? choiceCorrectIndex,
+    Value<String?>? tfStatement,
+    Value<bool?>? tfIsTrue,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<String?>? lastReviewDate,
+    Value<String?>? nextReviewDate,
+    Value<double>? memoryLevel,
+    Value<String>? relatedIds,
+    Value<int>? stage,
+    Value<bool>? mastered,
+    Value<int>? totalReviews,
+    Value<int>? failedCount,
+    Value<int>? usageCount,
+    Value<int>? rowid,
+  }) {
+    return CardsCompanion(
+      id: id ?? this.id,
+      cardType: cardType ?? this.cardType,
+      sourceType: sourceType ?? this.sourceType,
+      sourceId: sourceId ?? this.sourceId,
+      sourceTitle: sourceTitle ?? this.sourceTitle,
+      tags: tags ?? this.tags,
+      kind: kind ?? this.kind,
+      importance: importance ?? this.importance,
+      front: front ?? this.front,
+      back: back ?? this.back,
+      indexTitle: indexTitle ?? this.indexTitle,
+      author: author ?? this.author,
+      highlight: highlight ?? this.highlight,
+      anchor: anchor ?? this.anchor,
+      question: question ?? this.question,
+      answer: answer ?? this.answer,
+      fillQuestion: fillQuestion ?? this.fillQuestion,
+      fillAnswer: fillAnswer ?? this.fillAnswer,
+      choiceQuestion: choiceQuestion ?? this.choiceQuestion,
+      choiceOptions: choiceOptions ?? this.choiceOptions,
+      choiceCorrectIndex: choiceCorrectIndex ?? this.choiceCorrectIndex,
+      tfStatement: tfStatement ?? this.tfStatement,
+      tfIsTrue: tfIsTrue ?? this.tfIsTrue,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      lastReviewDate: lastReviewDate ?? this.lastReviewDate,
+      nextReviewDate: nextReviewDate ?? this.nextReviewDate,
+      memoryLevel: memoryLevel ?? this.memoryLevel,
+      relatedIds: relatedIds ?? this.relatedIds,
+      stage: stage ?? this.stage,
+      mastered: mastered ?? this.mastered,
+      totalReviews: totalReviews ?? this.totalReviews,
+      failedCount: failedCount ?? this.failedCount,
+      usageCount: usageCount ?? this.usageCount,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (cardType.present) {
+      map['card_type'] = Variable<String>(cardType.value);
+    }
+    if (sourceType.present) {
+      map['source_type'] = Variable<String>(sourceType.value);
+    }
+    if (sourceId.present) {
+      map['source_id'] = Variable<String>(sourceId.value);
+    }
+    if (sourceTitle.present) {
+      map['source_title'] = Variable<String>(sourceTitle.value);
+    }
+    if (tags.present) {
+      map['tags'] = Variable<String>(tags.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (importance.present) {
+      map['importance'] = Variable<String>(importance.value);
+    }
+    if (front.present) {
+      map['front'] = Variable<String>(front.value);
+    }
+    if (back.present) {
+      map['back'] = Variable<String>(back.value);
+    }
+    if (indexTitle.present) {
+      map['index_title'] = Variable<String>(indexTitle.value);
+    }
+    if (author.present) {
+      map['author'] = Variable<String>(author.value);
+    }
+    if (highlight.present) {
+      map['highlight'] = Variable<String>(highlight.value);
+    }
+    if (anchor.present) {
+      map['anchor'] = Variable<String>(anchor.value);
+    }
+    if (question.present) {
+      map['question'] = Variable<String>(question.value);
+    }
+    if (answer.present) {
+      map['answer'] = Variable<String>(answer.value);
+    }
+    if (fillQuestion.present) {
+      map['fill_question'] = Variable<String>(fillQuestion.value);
+    }
+    if (fillAnswer.present) {
+      map['fill_answer'] = Variable<String>(fillAnswer.value);
+    }
+    if (choiceQuestion.present) {
+      map['choice_question'] = Variable<String>(choiceQuestion.value);
+    }
+    if (choiceOptions.present) {
+      map['choice_options'] = Variable<String>(choiceOptions.value);
+    }
+    if (choiceCorrectIndex.present) {
+      map['choice_correct_index'] = Variable<int>(choiceCorrectIndex.value);
+    }
+    if (tfStatement.present) {
+      map['tf_statement'] = Variable<String>(tfStatement.value);
+    }
+    if (tfIsTrue.present) {
+      map['tf_is_true'] = Variable<bool>(tfIsTrue.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (lastReviewDate.present) {
+      map['last_review_date'] = Variable<String>(lastReviewDate.value);
+    }
+    if (nextReviewDate.present) {
+      map['next_review_date'] = Variable<String>(nextReviewDate.value);
+    }
+    if (memoryLevel.present) {
+      map['memory_level'] = Variable<double>(memoryLevel.value);
+    }
+    if (relatedIds.present) {
+      map['related_ids'] = Variable<String>(relatedIds.value);
+    }
+    if (stage.present) {
+      map['stage'] = Variable<int>(stage.value);
+    }
+    if (mastered.present) {
+      map['mastered'] = Variable<bool>(mastered.value);
+    }
+    if (totalReviews.present) {
+      map['total_reviews'] = Variable<int>(totalReviews.value);
+    }
+    if (failedCount.present) {
+      map['failed_count'] = Variable<int>(failedCount.value);
+    }
+    if (usageCount.present) {
+      map['usage_count'] = Variable<int>(usageCount.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CardsCompanion(')
+          ..write('id: $id, ')
+          ..write('cardType: $cardType, ')
+          ..write('sourceType: $sourceType, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('sourceTitle: $sourceTitle, ')
+          ..write('tags: $tags, ')
+          ..write('kind: $kind, ')
+          ..write('importance: $importance, ')
+          ..write('front: $front, ')
+          ..write('back: $back, ')
+          ..write('indexTitle: $indexTitle, ')
+          ..write('author: $author, ')
+          ..write('highlight: $highlight, ')
+          ..write('anchor: $anchor, ')
+          ..write('question: $question, ')
+          ..write('answer: $answer, ')
+          ..write('fillQuestion: $fillQuestion, ')
+          ..write('fillAnswer: $fillAnswer, ')
+          ..write('choiceQuestion: $choiceQuestion, ')
+          ..write('choiceOptions: $choiceOptions, ')
+          ..write('choiceCorrectIndex: $choiceCorrectIndex, ')
+          ..write('tfStatement: $tfStatement, ')
+          ..write('tfIsTrue: $tfIsTrue, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('lastReviewDate: $lastReviewDate, ')
+          ..write('nextReviewDate: $nextReviewDate, ')
+          ..write('memoryLevel: $memoryLevel, ')
+          ..write('relatedIds: $relatedIds, ')
+          ..write('stage: $stage, ')
+          ..write('mastered: $mastered, ')
+          ..write('totalReviews: $totalReviews, ')
+          ..write('failedCount: $failedCount, ')
+          ..write('usageCount: $usageCount, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -14802,6 +16616,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $FocusSessionsTable focusSessions = $FocusSessionsTable(this);
   late final $ReadingStatsTable readingStats = $ReadingStatsTable(this);
+  late final $CardsTable cards = $CardsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -14834,6 +16649,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     writingSessions,
     focusSessions,
     readingStats,
+    cards,
   ];
 }
 
@@ -22500,6 +24316,793 @@ typedef $$ReadingStatsTableProcessedTableManager =
       ReadingStat,
       PrefetchHooks Function()
     >;
+typedef $$CardsTableCreateCompanionBuilder =
+    CardsCompanion Function({
+      required String id,
+      required String cardType,
+      Value<String> sourceType,
+      Value<String> sourceId,
+      Value<String?> sourceTitle,
+      Value<String> tags,
+      Value<String> kind,
+      Value<String> importance,
+      Value<String?> front,
+      Value<String?> back,
+      Value<String?> indexTitle,
+      Value<String?> author,
+      Value<String?> highlight,
+      Value<String?> anchor,
+      Value<String?> question,
+      Value<String?> answer,
+      Value<String?> fillQuestion,
+      Value<String?> fillAnswer,
+      Value<String?> choiceQuestion,
+      Value<String?> choiceOptions,
+      Value<int?> choiceCorrectIndex,
+      Value<String?> tfStatement,
+      Value<bool?> tfIsTrue,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> lastReviewDate,
+      Value<String?> nextReviewDate,
+      Value<double> memoryLevel,
+      Value<String> relatedIds,
+      Value<int> stage,
+      Value<bool> mastered,
+      Value<int> totalReviews,
+      Value<int> failedCount,
+      Value<int> usageCount,
+      Value<int> rowid,
+    });
+typedef $$CardsTableUpdateCompanionBuilder =
+    CardsCompanion Function({
+      Value<String> id,
+      Value<String> cardType,
+      Value<String> sourceType,
+      Value<String> sourceId,
+      Value<String?> sourceTitle,
+      Value<String> tags,
+      Value<String> kind,
+      Value<String> importance,
+      Value<String?> front,
+      Value<String?> back,
+      Value<String?> indexTitle,
+      Value<String?> author,
+      Value<String?> highlight,
+      Value<String?> anchor,
+      Value<String?> question,
+      Value<String?> answer,
+      Value<String?> fillQuestion,
+      Value<String?> fillAnswer,
+      Value<String?> choiceQuestion,
+      Value<String?> choiceOptions,
+      Value<int?> choiceCorrectIndex,
+      Value<String?> tfStatement,
+      Value<bool?> tfIsTrue,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> lastReviewDate,
+      Value<String?> nextReviewDate,
+      Value<double> memoryLevel,
+      Value<String> relatedIds,
+      Value<int> stage,
+      Value<bool> mastered,
+      Value<int> totalReviews,
+      Value<int> failedCount,
+      Value<int> usageCount,
+      Value<int> rowid,
+    });
+
+class $$CardsTableFilterComposer extends Composer<_$AppDatabase, $CardsTable> {
+  $$CardsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cardType => $composableBuilder(
+    column: $table.cardType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceType => $composableBuilder(
+    column: $table.sourceType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceTitle => $composableBuilder(
+    column: $table.sourceTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get tags => $composableBuilder(
+    column: $table.tags,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importance => $composableBuilder(
+    column: $table.importance,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get front => $composableBuilder(
+    column: $table.front,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get back => $composableBuilder(
+    column: $table.back,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get indexTitle => $composableBuilder(
+    column: $table.indexTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get author => $composableBuilder(
+    column: $table.author,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get highlight => $composableBuilder(
+    column: $table.highlight,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get anchor => $composableBuilder(
+    column: $table.anchor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get question => $composableBuilder(
+    column: $table.question,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get answer => $composableBuilder(
+    column: $table.answer,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get fillQuestion => $composableBuilder(
+    column: $table.fillQuestion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get fillAnswer => $composableBuilder(
+    column: $table.fillAnswer,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get choiceQuestion => $composableBuilder(
+    column: $table.choiceQuestion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get choiceOptions => $composableBuilder(
+    column: $table.choiceOptions,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get choiceCorrectIndex => $composableBuilder(
+    column: $table.choiceCorrectIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get tfStatement => $composableBuilder(
+    column: $table.tfStatement,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get tfIsTrue => $composableBuilder(
+    column: $table.tfIsTrue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastReviewDate => $composableBuilder(
+    column: $table.lastReviewDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get nextReviewDate => $composableBuilder(
+    column: $table.nextReviewDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get memoryLevel => $composableBuilder(
+    column: $table.memoryLevel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get relatedIds => $composableBuilder(
+    column: $table.relatedIds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get stage => $composableBuilder(
+    column: $table.stage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get mastered => $composableBuilder(
+    column: $table.mastered,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get totalReviews => $composableBuilder(
+    column: $table.totalReviews,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get failedCount => $composableBuilder(
+    column: $table.failedCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get usageCount => $composableBuilder(
+    column: $table.usageCount,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CardsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CardsTable> {
+  $$CardsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get cardType => $composableBuilder(
+    column: $table.cardType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceType => $composableBuilder(
+    column: $table.sourceType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceTitle => $composableBuilder(
+    column: $table.sourceTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get tags => $composableBuilder(
+    column: $table.tags,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get importance => $composableBuilder(
+    column: $table.importance,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get front => $composableBuilder(
+    column: $table.front,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get back => $composableBuilder(
+    column: $table.back,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get indexTitle => $composableBuilder(
+    column: $table.indexTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get author => $composableBuilder(
+    column: $table.author,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get highlight => $composableBuilder(
+    column: $table.highlight,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get anchor => $composableBuilder(
+    column: $table.anchor,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get question => $composableBuilder(
+    column: $table.question,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get answer => $composableBuilder(
+    column: $table.answer,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get fillQuestion => $composableBuilder(
+    column: $table.fillQuestion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get fillAnswer => $composableBuilder(
+    column: $table.fillAnswer,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get choiceQuestion => $composableBuilder(
+    column: $table.choiceQuestion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get choiceOptions => $composableBuilder(
+    column: $table.choiceOptions,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get choiceCorrectIndex => $composableBuilder(
+    column: $table.choiceCorrectIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get tfStatement => $composableBuilder(
+    column: $table.tfStatement,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get tfIsTrue => $composableBuilder(
+    column: $table.tfIsTrue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastReviewDate => $composableBuilder(
+    column: $table.lastReviewDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get nextReviewDate => $composableBuilder(
+    column: $table.nextReviewDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get memoryLevel => $composableBuilder(
+    column: $table.memoryLevel,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get relatedIds => $composableBuilder(
+    column: $table.relatedIds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get stage => $composableBuilder(
+    column: $table.stage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get mastered => $composableBuilder(
+    column: $table.mastered,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get totalReviews => $composableBuilder(
+    column: $table.totalReviews,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get failedCount => $composableBuilder(
+    column: $table.failedCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get usageCount => $composableBuilder(
+    column: $table.usageCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CardsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CardsTable> {
+  $$CardsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get cardType =>
+      $composableBuilder(column: $table.cardType, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceType => $composableBuilder(
+    column: $table.sourceType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourceId =>
+      $composableBuilder(column: $table.sourceId, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceTitle => $composableBuilder(
+    column: $table.sourceTitle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get tags =>
+      $composableBuilder(column: $table.tags, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get importance => $composableBuilder(
+    column: $table.importance,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get front =>
+      $composableBuilder(column: $table.front, builder: (column) => column);
+
+  GeneratedColumn<String> get back =>
+      $composableBuilder(column: $table.back, builder: (column) => column);
+
+  GeneratedColumn<String> get indexTitle => $composableBuilder(
+    column: $table.indexTitle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get author =>
+      $composableBuilder(column: $table.author, builder: (column) => column);
+
+  GeneratedColumn<String> get highlight =>
+      $composableBuilder(column: $table.highlight, builder: (column) => column);
+
+  GeneratedColumn<String> get anchor =>
+      $composableBuilder(column: $table.anchor, builder: (column) => column);
+
+  GeneratedColumn<String> get question =>
+      $composableBuilder(column: $table.question, builder: (column) => column);
+
+  GeneratedColumn<String> get answer =>
+      $composableBuilder(column: $table.answer, builder: (column) => column);
+
+  GeneratedColumn<String> get fillQuestion => $composableBuilder(
+    column: $table.fillQuestion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get fillAnswer => $composableBuilder(
+    column: $table.fillAnswer,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get choiceQuestion => $composableBuilder(
+    column: $table.choiceQuestion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get choiceOptions => $composableBuilder(
+    column: $table.choiceOptions,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get choiceCorrectIndex => $composableBuilder(
+    column: $table.choiceCorrectIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get tfStatement => $composableBuilder(
+    column: $table.tfStatement,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get tfIsTrue =>
+      $composableBuilder(column: $table.tfIsTrue, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get lastReviewDate => $composableBuilder(
+    column: $table.lastReviewDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get nextReviewDate => $composableBuilder(
+    column: $table.nextReviewDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get memoryLevel => $composableBuilder(
+    column: $table.memoryLevel,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get relatedIds => $composableBuilder(
+    column: $table.relatedIds,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get stage =>
+      $composableBuilder(column: $table.stage, builder: (column) => column);
+
+  GeneratedColumn<bool> get mastered =>
+      $composableBuilder(column: $table.mastered, builder: (column) => column);
+
+  GeneratedColumn<int> get totalReviews => $composableBuilder(
+    column: $table.totalReviews,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get failedCount => $composableBuilder(
+    column: $table.failedCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get usageCount => $composableBuilder(
+    column: $table.usageCount,
+    builder: (column) => column,
+  );
+}
+
+class $$CardsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CardsTable,
+          CardsData,
+          $$CardsTableFilterComposer,
+          $$CardsTableOrderingComposer,
+          $$CardsTableAnnotationComposer,
+          $$CardsTableCreateCompanionBuilder,
+          $$CardsTableUpdateCompanionBuilder,
+          (CardsData, BaseReferences<_$AppDatabase, $CardsTable, CardsData>),
+          CardsData,
+          PrefetchHooks Function()
+        > {
+  $$CardsTableTableManager(_$AppDatabase db, $CardsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CardsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CardsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CardsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> cardType = const Value.absent(),
+                Value<String> sourceType = const Value.absent(),
+                Value<String> sourceId = const Value.absent(),
+                Value<String?> sourceTitle = const Value.absent(),
+                Value<String> tags = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> importance = const Value.absent(),
+                Value<String?> front = const Value.absent(),
+                Value<String?> back = const Value.absent(),
+                Value<String?> indexTitle = const Value.absent(),
+                Value<String?> author = const Value.absent(),
+                Value<String?> highlight = const Value.absent(),
+                Value<String?> anchor = const Value.absent(),
+                Value<String?> question = const Value.absent(),
+                Value<String?> answer = const Value.absent(),
+                Value<String?> fillQuestion = const Value.absent(),
+                Value<String?> fillAnswer = const Value.absent(),
+                Value<String?> choiceQuestion = const Value.absent(),
+                Value<String?> choiceOptions = const Value.absent(),
+                Value<int?> choiceCorrectIndex = const Value.absent(),
+                Value<String?> tfStatement = const Value.absent(),
+                Value<bool?> tfIsTrue = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> lastReviewDate = const Value.absent(),
+                Value<String?> nextReviewDate = const Value.absent(),
+                Value<double> memoryLevel = const Value.absent(),
+                Value<String> relatedIds = const Value.absent(),
+                Value<int> stage = const Value.absent(),
+                Value<bool> mastered = const Value.absent(),
+                Value<int> totalReviews = const Value.absent(),
+                Value<int> failedCount = const Value.absent(),
+                Value<int> usageCount = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CardsCompanion(
+                id: id,
+                cardType: cardType,
+                sourceType: sourceType,
+                sourceId: sourceId,
+                sourceTitle: sourceTitle,
+                tags: tags,
+                kind: kind,
+                importance: importance,
+                front: front,
+                back: back,
+                indexTitle: indexTitle,
+                author: author,
+                highlight: highlight,
+                anchor: anchor,
+                question: question,
+                answer: answer,
+                fillQuestion: fillQuestion,
+                fillAnswer: fillAnswer,
+                choiceQuestion: choiceQuestion,
+                choiceOptions: choiceOptions,
+                choiceCorrectIndex: choiceCorrectIndex,
+                tfStatement: tfStatement,
+                tfIsTrue: tfIsTrue,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                lastReviewDate: lastReviewDate,
+                nextReviewDate: nextReviewDate,
+                memoryLevel: memoryLevel,
+                relatedIds: relatedIds,
+                stage: stage,
+                mastered: mastered,
+                totalReviews: totalReviews,
+                failedCount: failedCount,
+                usageCount: usageCount,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String cardType,
+                Value<String> sourceType = const Value.absent(),
+                Value<String> sourceId = const Value.absent(),
+                Value<String?> sourceTitle = const Value.absent(),
+                Value<String> tags = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> importance = const Value.absent(),
+                Value<String?> front = const Value.absent(),
+                Value<String?> back = const Value.absent(),
+                Value<String?> indexTitle = const Value.absent(),
+                Value<String?> author = const Value.absent(),
+                Value<String?> highlight = const Value.absent(),
+                Value<String?> anchor = const Value.absent(),
+                Value<String?> question = const Value.absent(),
+                Value<String?> answer = const Value.absent(),
+                Value<String?> fillQuestion = const Value.absent(),
+                Value<String?> fillAnswer = const Value.absent(),
+                Value<String?> choiceQuestion = const Value.absent(),
+                Value<String?> choiceOptions = const Value.absent(),
+                Value<int?> choiceCorrectIndex = const Value.absent(),
+                Value<String?> tfStatement = const Value.absent(),
+                Value<bool?> tfIsTrue = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> lastReviewDate = const Value.absent(),
+                Value<String?> nextReviewDate = const Value.absent(),
+                Value<double> memoryLevel = const Value.absent(),
+                Value<String> relatedIds = const Value.absent(),
+                Value<int> stage = const Value.absent(),
+                Value<bool> mastered = const Value.absent(),
+                Value<int> totalReviews = const Value.absent(),
+                Value<int> failedCount = const Value.absent(),
+                Value<int> usageCount = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CardsCompanion.insert(
+                id: id,
+                cardType: cardType,
+                sourceType: sourceType,
+                sourceId: sourceId,
+                sourceTitle: sourceTitle,
+                tags: tags,
+                kind: kind,
+                importance: importance,
+                front: front,
+                back: back,
+                indexTitle: indexTitle,
+                author: author,
+                highlight: highlight,
+                anchor: anchor,
+                question: question,
+                answer: answer,
+                fillQuestion: fillQuestion,
+                fillAnswer: fillAnswer,
+                choiceQuestion: choiceQuestion,
+                choiceOptions: choiceOptions,
+                choiceCorrectIndex: choiceCorrectIndex,
+                tfStatement: tfStatement,
+                tfIsTrue: tfIsTrue,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                lastReviewDate: lastReviewDate,
+                nextReviewDate: nextReviewDate,
+                memoryLevel: memoryLevel,
+                relatedIds: relatedIds,
+                stage: stage,
+                mastered: mastered,
+                totalReviews: totalReviews,
+                failedCount: failedCount,
+                usageCount: usageCount,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$CardsTable, CardsData>(table),
+                  BaseReferences<_$AppDatabase, $CardsTable, CardsData>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CardsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CardsTable,
+      CardsData,
+      $$CardsTableFilterComposer,
+      $$CardsTableOrderingComposer,
+      $$CardsTableAnnotationComposer,
+      $$CardsTableCreateCompanionBuilder,
+      $$CardsTableUpdateCompanionBuilder,
+      (CardsData, BaseReferences<_$AppDatabase, $CardsTable, CardsData>),
+      CardsData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -22557,4 +25160,6 @@ class $AppDatabaseManager {
       $$FocusSessionsTableTableManager(_db, _db.focusSessions);
   $$ReadingStatsTableTableManager get readingStats =>
       $$ReadingStatsTableTableManager(_db, _db.readingStats);
+  $$CardsTableTableManager get cards =>
+      $$CardsTableTableManager(_db, _db.cards);
 }
