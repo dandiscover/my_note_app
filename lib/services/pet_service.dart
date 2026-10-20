@@ -1,23 +1,17 @@
 // lib/services/pet_service.dart
-// 宠物服务 — 集成云端同步
+// 宠物服务 — 集成云端同步（迁 DB）
 
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database_service.dart';
 import '../models/pet.dart';
-import '../models/user_settings.dart';
 import 'sync/cloud_sync_service.dart';
 import 'sync/sync_manager.dart';
+import 'settings_service.dart';
 
 class PetService {
-  static const String _key = 'pet_data';
-  static const String _settingsKey = 'user_settings';
-
   Future<Pet?> loadPet() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString(_key);
-      if (data == null || data.isEmpty) return null;
-      final map = Map<String, dynamic>.from(jsonDecode(data) as Map);
+      final map = await DatabaseService().loadPet();
+      if (map == null) return null;
       return Pet.fromMap(map);
     } catch (e) {
       return null;
@@ -26,19 +20,14 @@ class PetService {
 
   Future<void> savePet(Pet pet) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_key, jsonEncode(pet.toMap()));
+      await DatabaseService().savePet(pet.toMap());
     } catch (e) {
       print('保存宠物失败: $e');
     }
   }
 
   String getPetSkin() {
-    try {
-      return 'default';
-    } catch (e) {
-      return 'default';
-    }
+    return 'default';
   }
 
   Future<void> updatePetName(String newName) async {
@@ -53,7 +42,6 @@ class PetService {
     );
     await savePet(updated);
 
-    // ✅ 同步到云端
     if (CloudSyncService().isLoggedIn) {
       try {
         await CloudSyncService().syncPet(updated);
@@ -62,20 +50,9 @@ class PetService {
   }
 
   Future<void> updatePetSkin(String skin) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString(_settingsKey);
-      Map<String, dynamic> settingsMap;
-      if (data != null && data.isNotEmpty) {
-        settingsMap = jsonDecode(data) as Map<String, dynamic>;
-      } else {
-        settingsMap = {};
-      }
-      settingsMap['petSkin'] = skin;
-      await prefs.setString(_settingsKey, jsonEncode(settingsMap));
-    } catch (e) {
-      print('保存皮肤设置失败: $e');
-    }
+    await SettingsService().update((settings) async {
+      settings.petSkin = skin;
+    });
   }
 
   Future<Pet> getOrCreatePet() async {
@@ -97,7 +74,6 @@ class PetService {
     final updated = pet.completeTask();
     await savePet(updated);
 
-    // ✅ 同步到云端
     if (CloudSyncService().isLoggedIn) {
       try {
         await CloudSyncService().syncPet(updated);
@@ -113,7 +89,6 @@ class PetService {
     final updated = pet.pet();
     await savePet(updated);
 
-    // ✅ 同步到云端
     if (CloudSyncService().isLoggedIn) {
       try {
         await CloudSyncService().syncPet(updated);
@@ -122,7 +97,6 @@ class PetService {
   }
 
   Future<void> resetPet() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
+    await DatabaseService().clearPet();
   }
 }

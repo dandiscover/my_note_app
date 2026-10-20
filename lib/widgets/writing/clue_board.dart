@@ -710,11 +710,11 @@ class ClueBoardState extends State<ClueBoard> {
     await _db.insertBoardAlbum({
       'id': albumId,
       'title': '画册 ${DateTime.now().toString().substring(0, 16)}',
-      'source_view_id': widget.viewId,
-      'strokes_json': strokesJson,
-      'thumbnail_base64': b64,
-      'created_at': DateTime.now().toIso8601String(),
-      'updated_at': null,
+      'sourceViewId': widget.viewId,
+      'strokesJson': strokesJson,
+      'thumbnailBase64': b64,
+      'createdAt': DateTime.now().toIso8601String(),
+      'updatedAt': null,
     });
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

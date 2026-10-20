@@ -55,8 +55,7 @@ class GraphTabState extends State<GraphTab> {
 
   Future<void> _loadAndPrepare() async {
     try {
-      final dbConn = await _db.database;
-      final linkRows = await dbConn.query('note_note_links');
+       final linkRows = await _db.getAllNoteNoteLinks();
       final nodeByNoteId = <String, String>{};
       for (final n in widget.allNodes) {
         if (n.nodeType == 'note' && n.targetId != null) {

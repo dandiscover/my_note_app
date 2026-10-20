@@ -866,7 +866,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     Future<void> _loadBacklinks() async {
     final svc = NoteBookLinkService();
     final backRows = await svc.getBacklinks(_entry.id);
-    final outRows = await svc.getOutboundLinks(_entry.id);
+    final outRows = await svc.getOutboundNoteLinks(_entry.id);
 
     if (backRows.isEmpty && outRows.isEmpty) {
       if (mounted) setState(() => _backlinks = []);
@@ -1355,7 +1355,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
   Future<void> _onWikilinkTap(String title, Offset anchor) async {
     final linkSvc = NoteBookLinkService();
-    final noteLinks = await linkSvc.getOutboundLinksByText(_entry.id, title);
+    final noteLinks =
+        await linkSvc.getOutboundNoteLinksByText(_entry.id, title);
     final bookLinks =
         await linkSvc.getOutboundBookLinksByText(_entry.id, title);
     final cards = await _cardService.getCardsByIndexTitle(title);

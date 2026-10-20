@@ -1,9 +1,8 @@
-﻿// lib/main.dart
+// lib/main.dart
 // ✅ 云脑计划 — 完整修复：跨页面刷新 + 快捷键 + 登录同步 + 系统人格
 // ✅ 新增：迁移旧探究数据到多任务模型
 // ✅ Spike：全局悬浮宠物加 3 个隐藏边界（弹窗/键盘/全屏阅读）+ 暂隐（双击 30 秒）
 // ✅ 小云尺寸调整：手机 100 / Pad 280（断点 600 dp）
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,7 +11,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'pages/workbench/editor_kernel.dart';
 import 'models/pet.dart';
-import 'dart:io';
 import 'services/supabase_service.dart';
 import 'services/keyboard_shortcut_manager.dart';
 import 'services/pet_service.dart';
@@ -63,12 +61,6 @@ final GlobalKey<NavigatorState> rootNavigatorKey =
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (!kIsWeb) {
-    if (Platform.isWindows || Platform.isLinux) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
-  }
 
   final supabaseUrl = EnvService.supabaseUrl;
   final supabaseAnonKey = EnvService.supabaseAnonKey;

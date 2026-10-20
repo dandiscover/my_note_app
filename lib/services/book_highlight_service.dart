@@ -1,7 +1,6 @@
 // lib/services/book_highlight_service.dart
 // 书籍高亮服务 —— book_highlights 表 CRUD
 
-import 'package:sqflite/sqflite.dart';
 import '../models/book_highlight.dart';
 import '../database_service.dart';
 
@@ -10,50 +9,24 @@ class BookHighlightService {
 
   Future<void> addHighlights(List<BookHighlight> highlights) async {
     if (highlights.isEmpty) return;
-    final db = await _db.database;
-    final batch = db.batch();
-    for (final h in highlights) {
-      batch.insert(
-        'book_highlights',
-        h.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-    await batch.commit(noResult: true);
+    await _db.insertBookHighlights(
+        highlights.map((h) => h.toMap()).toList());
   }
 
   Future<List<BookHighlight>> getByBook(String bookId) async {
-    final db = await _db.database;
-    final rows = await db.query(
-      'book_highlights',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
-      orderBy: 'created_at ASC',
-    );
+    final rows = await _db.getBookHighlightsByBook(bookId);
     return rows.map((m) => BookHighlight.fromMap(m)).toList();
   }
 
   Future<int> countByBook(String bookId) async {
-    final db = await _db.database;
-    final r = await db.rawQuery(
-      'SELECT COUNT(*) AS c FROM book_highlights WHERE book_id = ?',
-      [bookId],
-    );
-    return (r.first['c'] as int?) ?? 0;
+    return await _db.countBookHighlightsByBook(bookId);
   }
 
   Future<int> countAll() async {
-    final db = await _db.database;
-    final r = await db.rawQuery('SELECT COUNT(*) AS c FROM book_highlights');
-    return (r.first['c'] as int?) ?? 0;
+    return await _db.countAllBookHighlights();
   }
 
   Future<void> deleteByBook(String bookId) async {
-    final db = await _db.database;
-    await db.delete(
-      'book_highlights',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
-    );
+    await _db.deleteBookHighlightsByBook(bookId);
   }
 }

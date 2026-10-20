@@ -1074,7 +1074,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       itemCount: albums.length,
       itemBuilder: (ctx, i) {
         final a = albums[i];
-        final b64 = a['thumbnail_base64'] as String?;
+        final b64 = a['thumbnailBase64'] as String?;
         return GestureDetector(
           onTap: () => _openAlbumFullView(a),
           onLongPress: () => _showAlbumMenu(a),
@@ -1107,7 +1107,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   void _openAlbumFullView(Map<String, dynamic> album) {
-    final strokesJson = album['strokes_json'] as String? ?? '[]';
+    final strokesJson = album['strokesJson'] as String? ?? '[]';
     final strokes = (jsonDecode(strokesJson) as List)
         .map((e) => ClueStroke.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -1168,7 +1168,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   }
 
   Future<void> _copyAlbumToBoard(Map<String, dynamic> album) async {
-    final strokesJson = album['strokes_json'] as String? ?? '[]';
+    final strokesJson = album['strokesJson'] as String? ?? '[]';
     final strokes = (jsonDecode(strokesJson) as List)
         .map((e) => ClueStroke.fromJson(e as Map<String, dynamic>))
         .toList();

@@ -67,64 +67,36 @@ class SparkService {
   final DatabaseService _db = DatabaseService();
 
   Future<String> create(Spark spark) async {
-    final db = await _db.database;
-    await db.insert('sparks', spark.toMap());
+    await _db.insertSpark(spark.toMap());
     return spark.id;
   }
 
   Future<void> update(Spark spark) async {
-    final db = await _db.database;
-    await db.update(
-      'sparks',
-      spark.toMap(),
-      where: 'id = ?',
-      whereArgs: [spark.id],
-    );
+    await _db.updateSpark(spark.toMap());
   }
 
   Future<void> delete(String id) async {
-    final db = await _db.database;
-    await db.delete('sparks', where: 'id = ?', whereArgs: [id]);
+    await _db.deleteSpark(id);
   }
 
   Future<Spark?> get(String id) async {
-    final db = await _db.database;
-    final rows =
-        await db.query('sparks', where: 'id = ?', whereArgs: [id], limit: 1);
-    if (rows.isEmpty) return null;
-    return Spark.fromMap(rows.first);
+    final row = await _db.getSpark(id);
+    if (row == null) return null;
+    return Spark.fromMap(row);
   }
 
   Future<List<Spark>> getByNote(String noteId) async {
-    final db = await _db.database;
-    final rows = await db.query(
-      'sparks',
-      where: 'anchor_note_id = ?',
-      whereArgs: [noteId],
-      orderBy: 'created_at ASC',
-    );
+    final rows = await _db.getSparksByNote(noteId);
     return rows.map(Spark.fromMap).toList();
   }
 
   Future<List<Spark>> getPendingByNote(String noteId) async {
-    final db = await _db.database;
-    final rows = await db.query(
-      'sparks',
-      where: 'anchor_note_id = ? AND status = ?',
-      whereArgs: [noteId, 'pending'],
-      orderBy: 'created_at ASC',
-    );
+    final rows = await _db.getPendingSparksByNote(noteId);
     return rows.map(Spark.fromMap).toList();
   }
 
   Future<List<Spark>> getAllPending() async {
-    final db = await _db.database;
-    final rows = await db.query(
-      'sparks',
-      where: 'status = ?',
-      whereArgs: ['pending'],
-      orderBy: 'created_at DESC',
-    );
+    final rows = await _db.getAllPendingSparks();
     return rows.map(Spark.fromMap).toList();
   }
 }

@@ -15,10 +15,11 @@ dependencies:
   http: ^1.2.0
   flutter_quill: ^11.5.1
   # 本地存储
-  sqflite: ^2.3.0
+    # Drift（换库：sqflite/prefs → Drift）
+  drift: ^2.35.0
+  drift_flutter: ^0.3.1
   path: ^1.9.0
   shared_preferences: ^2.2.0
-  sqflite_common_ffi: ^2.3.0
   # 文件选择
   file_picker: 12.2.0
   # 路径和文件操作
@@ -74,12 +75,17 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  drift_dev: 2.35.1
+  build_runner: 2.16.2
 
 dependency_overrides:
   archive: ^3.3.0
   image: ^4.0.0
   xml: ^5.0.0
   webview_flutter: ^4.0.0
+  # build_runner 2.16.1 依赖 build 4.1.0（有 librarySourceSink Bug）
+  build: 4.0.11  
+  analyzer: 14.5.0        # ← 加这行
   win32: ^6.0.1
 flutter:
   uses-material-design: true

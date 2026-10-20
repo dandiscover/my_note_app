@@ -5,9 +5,9 @@
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:drift/drift.dart';
+import 'database/database.dart';
 import 'models/note.dart';
 import 'models/book.dart';
 import 'models/node.dart';
@@ -21,7 +21,70 @@ class DatabaseService {
   factory DatabaseService() => _instance;
   DatabaseService._internal();
 
+  /// 测试专用：注入 AppDatabase 实例。
+  /// 业务层禁止使用；仅 test/ 下调用。
+  AppDatabase? _injectedDb;
+  DatabaseService.forTesting(AppDatabase db) : _injectedDb = db;
+
   bool get _isWeb => kIsWeb;
+
+  /// Phase 2 换库：Drift 实例
+  AppDatabase get _drift => _injectedDb ?? AppDatabaseProvider().db;
+
+  /// NodeRow → camelCase Map
+  Map<String, dynamic> _nodeRowToMap(NodeRow r) => {
+        'id': r.id,
+        'title': r.title,
+        'parentId': r.parentId,
+        'isFolder': r.isFolder ? 1 : 0,
+        'nodeType': r.nodeType,
+        'targetId': r.targetId,
+        'sortOrder': r.sortOrder,
+        'tags': r.tags.isEmpty
+            ? <String>[]
+            : r.tags
+                .split(',')
+                .where((t) => t.trim().isNotEmpty)
+                .map((t) => t.trim())
+                .toList(),
+        'systemTag': r.systemTag,
+        'createdAt': r.createdAt,
+        'updatedAt': r.updatedAt,
+      };
+
+  /// camelCase Map → NodesCompanion
+  NodesCompanion _nodeMapToCompanion(Map<String, dynamic> map) {
+    final tags = map['tags'];
+    final tagsStr = tags is List
+        ? (tags).whereType<String>().join(',')
+        : (tags?.toString() ?? '');
+    final parentId = map['parentId'];
+    final cleanedParentId =
+        (parentId == '' || parentId == 'null') ? null : parentId as String?;
+    final targetId = map['targetId'];
+    final cleanedTargetId =
+        (targetId == '' || targetId == 'null') ? null : targetId as String?;
+    final now = DateTime.now().toIso8601String();
+    return NodesCompanion(
+      id: Value(map['id'] as String),
+      title: Value((map['title'] as String?) ?? ''),
+      parentId: Value(cleanedParentId),
+      isFolder: Value((map['isFolder'] ?? 0) == 1 || map['isFolder'] == true),
+      nodeType: Value((map['nodeType'] as String?) ?? 'folder'),
+      targetId: Value(cleanedTargetId),
+      sortOrder: Value((map['sortOrder'] as int?) ?? 0),
+      tags: Value(tagsStr),
+      systemTag: Value(map['systemTag'] as String?),
+      createdAt: Value((map['createdAt'] is String &&
+              (map['createdAt'] as String).isNotEmpty)
+          ? map['createdAt'] as String
+          : now),
+      updatedAt: Value((map['updatedAt'] is String &&
+              (map['updatedAt'] as String).isNotEmpty)
+          ? map['updatedAt'] as String
+          : now),
+    );
+  }
 
   // ─── 迁移与清理 ──────────────────────────────────────────
 
@@ -134,15 +197,10 @@ class DatabaseService {
 
   // ─── 节点 CRUD ──────────────────────────────────────────
   Future<void> insertNode(Map<String, dynamic> nodeMap) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final nodes = await _getAllNodesInternal();
-      nodes.add(nodeMap);
-      await prefs.setString('nodes_data', jsonEncode(nodes));
-    } else {
-      final db = await _getDatabase();
-      await db.insert('nodes', _prepareNodeForDb(nodeMap));
-    }
+    final companion = _nodeMapToCompanion(nodeMap);
+    await _drift
+        .into(_drift.nodes)
+        .insert(companion, mode: InsertMode.insertOrReplace);
   }
 
   Future<List<Node>> getAllNodes() async {
@@ -151,73 +209,19 @@ class DatabaseService {
   }
 
   Future<List<Map<String, dynamic>>> _getAllNodesInternal() async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString('nodes_data');
-      if (data == null || data.isEmpty) return [];
-      final List<dynamic> list = jsonDecode(data);
-      return list.map((e) => _cleanNodeMap(Map<String, dynamic>.from(e))).toList();
-    } else {
-      final db = await _getDatabase();
-      final rows = await db.query('nodes', orderBy: 'sort_order ASC, created_at ASC');
-      return rows.map((row) => _cleanNodeMap(_mapNodeDbRowToCamel(row))).toList();
-    }
+    final rows = await (_drift.select(_drift.nodes)
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.sortOrder, mode: OrderingMode.asc),
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows.map(_nodeRowToMap).toList();
   }
 
-  Map<String, dynamic> _mapNodeDbRowToCamel(Map<String, dynamic> row) => {
-    'id': row['id'],
-    'title': row['title'],
-    'parentId': row['parent_id'],
-    'isFolder': row['is_folder'],
-    'nodeType': row['node_type'],
-    'targetId': row['target_id'],
-    'sortOrder': row['sort_order'],
-    'tags': row['tags'],
-    'systemTag': row['system_tag'],           // 批 BUG-003
-    'createdAt': row['created_at'],
-    'updatedAt': row['updated_at'],
-  };
 
-  Map<String, dynamic> _cleanNodeMap(Map<String, dynamic> map) {
-    final cleaned = Map<String, dynamic>.from(map);
-    if (cleaned['parentId'] == '' || cleaned['parentId'] == 'null') cleaned['parentId'] = null;
-    if (cleaned['targetId'] == '' || cleaned['targetId'] == 'null') cleaned['targetId'] = null;
-    final tagsRaw = cleaned['tags'];
-    if (tagsRaw is String) {
-      cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
-    } else if (tagsRaw is List) {
-      cleaned['tags'] = tagsRaw.whereType<String>().toList();
-    } else {
-      cleaned['tags'] = [];
-    }
-    return cleaned;
-  }
 
-  Map<String, dynamic> _prepareNodeForDb(Map<String, dynamic> map) {
-    final tags = map['tags'];
-    final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
-    final parentId = map['parentId'];
-    final cleanedParentId = (parentId == '' || parentId == 'null') ? null : parentId;
-    final targetId = map['targetId'];
-    final cleanedTargetId = (targetId == '' || targetId == 'null') ? null : targetId;
-    return {
-      'id': map['id'],
-      'title': map['title'],
-      'parent_id': cleanedParentId,
-      'is_folder': map['isFolder'] ?? 0,
-      'node_type': map['nodeType'],
-      'target_id': cleanedTargetId,
-      'sort_order': map['sortOrder'] ?? 0,
-      'tags': tagsStr,
-      'system_tag': map['systemTag'],           // 批 BUG-003
-    'created_at': (map['createdAt'] is String && (map['createdAt'] as String).isNotEmpty)
-    ? map['createdAt']
-    : DateTime.now().toIso8601String(),
-'updated_at': (map['updatedAt'] is String && (map['updatedAt'] as String).isNotEmpty)
-    ? map['updatedAt']
-    : DateTime.now().toIso8601String(),
-    };
-  }
 
   Future<List<Node>> getRootNodes() async {
     final all = await getAllNodes();
@@ -239,28 +243,15 @@ class DatabaseService {
   }
 
   Future<void> updateNode(Node node) async {
-    if (_isWeb) {
-      final maps = await _getAllNodesInternal();
-      final index = maps.indexWhere((n) => n['id'] == node.id);
-      if (index != -1) {
-        maps[index] = node.toMap();
-        await _saveNodes(maps);
-      }
-    } else {
-      final db = await _getDatabase();
-      await db.update(
-        'nodes',
-        _prepareNodeForDb(node.toMap()),
-        where: 'id = ?',
-        whereArgs: [node.id],
-      );
-    }
+    final companion = _nodeMapToCompanion(node.toMap());
+    await (_drift.update(_drift.nodes)..where((t) => t.id.equals(node.id)))
+        .write(companion);
   }
 
   Future<void> deleteNode(String id) async {
-    final maps = await _getAllNodesInternal();
-    final allNodes = maps.map((n) => Node.fromMap(n)).toList();
-    final node = allNodes.firstWhere((n) => n.id == id, orElse: () => Node.empty);
+    final allNodes = await getAllNodes();
+    final node =
+        allNodes.firstWhere((n) => n.id == id, orElse: () => Node.empty);
     if (node.id.isEmpty) return;
 
     if (node.isFolder) {
@@ -273,19 +264,21 @@ class DatabaseService {
           if (child.isFolder) collectChildren(child.id);
         }
       }
+
       collectChildren(id);
-      maps.removeWhere((n) => idsToDelete.contains(n['id']));
+      await (_drift.delete(_drift.nodes)
+            ..where((t) => t.id.isIn(idsToDelete.toList())))
+          .go();
     } else {
       final grandParentId = node.parentId;
-      for (var i = 0; i < maps.length; i++) {
-        if (maps[i]['parentId'] == id) {
-          maps[i]['parentId'] = grandParentId;
-          maps[i]['updatedAt'] = DateTime.now().toIso8601String();
-        }
-      }
-      maps.removeWhere((n) => n['id'] == id);
+      final now = DateTime.now().toIso8601String();
+      await (_drift.update(_drift.nodes)..where((t) => t.parentId.equals(id)))
+          .write(NodesCompanion(
+        parentId: Value(grandParentId),
+        updatedAt: Value(now),
+      ));
+      await (_drift.delete(_drift.nodes)..where((t) => t.id.equals(id))).go();
     }
-    await _saveNodes(maps);
   }
 
   Future<void> moveNode(String nodeId, String? newParentId) async {
@@ -308,12 +301,13 @@ class DatabaseService {
   }
 
   Future<void> reorderNodes(List<String> nodeIds) async {
-    final maps = await _getAllNodesInternal();
-    for (int i = 0; i < nodeIds.length; i++) {
-      final index = maps.indexWhere((n) => n['id'] == nodeIds[i]);
-      if (index != -1) maps[index]['sortOrder'] = i;
-    }
-    await _saveNodes(maps);
+    await _drift.transaction(() async {
+      for (int i = 0; i < nodeIds.length; i++) {
+        await (_drift.update(_drift.nodes)
+              ..where((t) => t.id.equals(nodeIds[i])))
+            .write(NodesCompanion(sortOrder: Value(i)));
+      }
+    });
   }
 
   Future<List<Node>> getAncestors(String nodeId) async {
@@ -378,22 +372,24 @@ class DatabaseService {
     await insertNode(node.toMap());
     return node;
   }
-  /// 债-3：笔记 + 节点同事务写（SQLite）
+  /// 债-3：笔记 + 节点同事务写（Drift）
   Future<void> insertNoteAndNodeTx({
     required Map<String, dynamic> noteMap,
     required Map<String, dynamic> nodeMap,
   }) async {
-    if (_isWeb) {
-      // Web 分支不走 SQLite——顺序写（无事务）——记债
-      await insertNote(noteMap);
-      await insertNode(nodeMap);
-      return;
-    }
-    final db = await _getDatabase();
-    await db.transaction((txn) async {
-      await txn.insert('notes', _prepareNoteForDb(noteMap));
-      await txn.insert('nodes', _prepareNodeForDb(nodeMap));
+    final noteCompanion = _noteMapToCompanion(noteMap);
+    final nodeCompanion = _nodeMapToCompanion(nodeMap);
+
+    // 统一走 Drift 事务（桌面 / 移动 / Web 三端行为一致）
+    await _drift.transaction(() async {
+      await _drift.into(_drift.notes).insert(noteCompanion,
+          mode: InsertMode.insertOrReplace);
+      await _drift.into(_drift.nodes).insert(nodeCompanion,
+          mode: InsertMode.insertOrReplace);
     });
+
+    // 事务成功后，触发搜索索引更新（与旧版 Web 分支对齐）
+    await _syncSearchIndexForNote(noteMap);
   }
   Future<Node> attachBookToNode({required String bookId, required String title, String? parentId, List<String> tags = const []}) async {
     final node = Node(
@@ -434,29 +430,19 @@ class DatabaseService {
   /// note 与 node 分离存储——node.targetId 指向 note.id
   /// 全表扫描——nodes 表小——可接受
   Future<Node?> getNodeByNoteId(String noteId) async {
-    if (_isWeb) {
-      final nodes = await getAllNodes();
-      try {
-        return nodes.firstWhere(
-          (n) => n.nodeType == 'note' && n.targetId == noteId,
-        );
-      } catch (_) {
-        return null;
-      }
-    } else {
-      final db = await _getDatabase();
-      final rows = await db.query(
-        'nodes',
-        where: 'node_type = ? AND target_id = ?',
-        whereArgs: ['note', noteId],
-        orderBy: 'sort_order ASC, created_at ASC',
-        limit: 1,
-      );
-      if (rows.isEmpty) return null;
-      return Node.fromMap(
-        _cleanNodeMap(_mapNodeDbRowToCamel(rows.first)),
-      );
-    }
+    final row = await (_drift.select(_drift.nodes)
+          ..where(
+              (t) => t.nodeType.equals('note') & t.targetId.equals(noteId))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.sortOrder, mode: OrderingMode.asc),
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.asc),
+          ])
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    return Node.fromMap(_nodeRowToMap(row));
   }
 
   Future<List<Node>> getContentNodesInFolder(String folderId) async {
@@ -465,106 +451,57 @@ class DatabaseService {
   }
 
   Future<void> _saveNodes(List<Map<String, dynamic>> nodes) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('nodes_data', jsonEncode(nodes));
-    } else {
-      final db = await _getDatabase();
-      await db.delete('nodes');
-      for (var node in nodes) await db.insert('nodes', _prepareNodeForDb(node));
-    }
-  }
-
-  // ─── 笔记 CRUD ──────────────────────────────────────────
-  Future<void> insertNote(Map<String, dynamic> noteMap) async {
-    if (!noteMap.containsKey('status')) noteMap['status'] = 'raw';
-    if (!noteMap.containsKey('editorMode')) noteMap['editorMode'] = 'plain';
-    if (!noteMap.containsKey('isLocked')) noteMap['isLocked'] = 0;
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final notes = await _getAllNotesInternal(includeDeleted: false);
-      notes.insert(0, noteMap);
-      await prefs.setString('notes_data', jsonEncode(notes));
-    } else {
-      final db = await _getDatabase();
-      await db.insert('notes', _prepareNoteForDb(noteMap), conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-
-    await _syncSearchIndexForNote(noteMap);
-  }
-
-  Future<List<Map<String, dynamic>>> getAllNotes({bool includeDeleted = false}) async => _getAllNotesInternal(includeDeleted: includeDeleted);
-
-  Future<List<Map<String, dynamic>>> _getAllNotesInternal({bool includeDeleted = false}) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString('notes_data');
-      if (data == null || data.isEmpty) return [];
-      final List<dynamic> list = jsonDecode(data);
-      final allNotes = list.map((e) => _cleanNoteMap(Map<String, dynamic>.from(e))).toList();
-      for (var note in allNotes) {
-        if (!note.containsKey('inquiryQuestion')) note['inquiryQuestion'] = null;
-        if (!note.containsKey('inquiryConclusion')) note['inquiryConclusion'] = null;
-        if (!note.containsKey('exploreTasks')) note['exploreTasks'] = [];
-        if (!note.containsKey('contentFormat')) note['contentFormat'] = 'markdown';
-              if (!note.containsKey('createdAt')) note['createdAt'] = null;
+    await _drift.transaction(() async {
+      await _drift.delete(_drift.nodes).go();
+      for (var node in nodes) {
+        await _drift.into(_drift.nodes).insert(_nodeMapToCompanion(node));
       }
-      if (includeDeleted) return allNotes;
-      return allNotes.where((n) => n['status'] != 'deleted').toList();
-    } else {
-      final db = await _getDatabase();
-      final rows = await db.query('notes', orderBy: 'updatedAt DESC');
-      final allNotes = rows.map((row) {
-        final mapped = Map<String, dynamic>.from(row);
-        mapped['inquiryQuestion'] = mapped['inquiry_question'];
-        mapped['inquiryConclusion'] = mapped['inquiry_conclusion'];
-        mapped['exploreTasks'] = mapped['explore_tasks'];
-        mapped['scaffoldSessions'] = mapped['scaffold_sessions'];
-        mapped['subtasks'] = mapped['subtasks'];
-        mapped['contentFormat'] = mapped['content_format'];
-                mapped['createdAt'] = mapped['created_at'];
-        return _cleanNoteMap(mapped);
-      }).toList();
-      if (includeDeleted) return allNotes;
-      return allNotes.where((n) => n['status'] != 'deleted').toList();
-    }
+    });
   }
 
-  Map<String, dynamic> _cleanNoteMap(Map<String, dynamic> map) {
-    final cleaned = Map<String, dynamic>.from(map);
-    final tagsRaw = cleaned['tags'];
-    if (tagsRaw is String) {
-      cleaned['tags'] = tagsRaw.isEmpty ? [] : tagsRaw.split(',').where((t) => t.trim().isNotEmpty).map((t) => t.trim()).toList();
-    } else if (tagsRaw is List) {
-      cleaned['tags'] = tagsRaw.whereType<String>().toList();
-    } else {
-      cleaned['tags'] = [];
-    }
-    final tasksRaw = cleaned['exploreTasks'];
-    if (tasksRaw is String && tasksRaw.isNotEmpty) {
+  // ─── 笔记 CRUD（Phase 2 · Drift）──────────────────────────
+
+  /// Note → camelCase Map
+  Map<String, dynamic> _noteRowToMap(Note r) {
+    final tags = r.tags.isEmpty
+        ? <String>[]
+        : r.tags
+            .split(',')
+            .where((t) => t.trim().isNotEmpty)
+            .map((t) => t.trim())
+            .toList();
+    List<Map<String, dynamic>> exploreTasks = [];
+    if (r.exploreTasks.isNotEmpty) {
       try {
-        final decoded = jsonDecode(tasksRaw);
-        cleaned['exploreTasks'] = (decoded as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      } catch (_) {
-        cleaned['exploreTasks'] = [];
-      }
-    } else if (tasksRaw is List) {
-      cleaned['exploreTasks'] = (tasksRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } else {
-      cleaned['exploreTasks'] = [];
+        final decoded = jsonDecode(r.exploreTasks);
+        exploreTasks = (decoded as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      } catch (_) {}
     }
-    cleaned['inquiryQuestion'] = cleaned['inquiryQuestion'] as String?;
-    cleaned['inquiryConclusion'] = cleaned['inquiryConclusion'] as String?;
-    final cfRaw = cleaned['contentFormat'];
-    cleaned['contentFormat'] = (cfRaw is String && cfRaw.isNotEmpty)
-        ? cfRaw
-        : 'markdown';
-    return cleaned;
+    return {
+      'id': r.id,
+      'title': r.title,
+      'content': r.content,
+      'updatedAt': r.updatedAt,
+      'status': r.status,
+      'editorMode': r.editorMode,
+      'isLocked': r.isLocked,
+      'tags': tags,
+      'inquiryQuestion': r.inquiryQuestion,
+      'inquiryConclusion': r.inquiryConclusion,
+      'exploreTasks': exploreTasks,
+      'contentFormat': r.contentFormat,
+      'createdAt': r.createdAt,
+    };
   }
 
-  Map<String, dynamic> _prepareNoteForDb(Map<String, dynamic> map) {
+  /// camelCase Map → NotesCompanion
+  NotesCompanion _noteMapToCompanion(Map<String, dynamic> map) {
     final tags = map['tags'];
-    final tagsStr = tags is List ? (tags as List).whereType<String>().join(',') : (tags?.toString() ?? '');
+    final tagsStr = tags is List
+        ? (tags).whereType<String>().join(',')
+        : (tags?.toString() ?? '');
     final tasks = map['exploreTasks'];
     final tasksStr = tasks is List && tasks.isNotEmpty
         ? jsonEncode(tasks.map((e) {
@@ -573,24 +510,58 @@ class DatabaseService {
             return e;
           }).toList())
         : '[]';
-    return {
-      'id': map['id'],
-      'title': map['title'] ?? '',
-      'content': map['content'] ?? '',
-      'updatedAt': map['updatedAt'] ?? DateTime.now().toIso8601String(),
-      'status': map['status'] ?? 'raw',
-      'editorMode': map['editorMode'] ?? 'plain',
-      'isLocked': map['isLocked'] is bool ? (map['isLocked'] == true ? 1 : 0) : (map['isLocked'] ?? 0),
-      'tags': tagsStr,
-      'inquiry_question': map['inquiryQuestion'] as String?,
-      'inquiry_conclusion': map['inquiryConclusion'] as String?,
-      'explore_tasks': tasksStr,
-      'content_format': map['contentFormat'] ?? 'markdown',
-      'created_at': (map['createdAt'] is String && (map['createdAt'] as String).isNotEmpty)
-    ? map['createdAt']
-    : DateTime.now().toIso8601String(),
-    };
+    final isLockedRaw = map['isLocked'];
+    final isLocked = isLockedRaw is bool
+        ? (isLockedRaw ? 1 : 0)
+        : (isLockedRaw as int? ?? 0);
+    return NotesCompanion(
+      id: Value(map['id'] as String),
+      title: Value((map['title'] as String?) ?? ''),
+      content: Value((map['content'] as String?) ?? ''),
+      updatedAt: Value((map['updatedAt'] as String?) ??
+          DateTime.now().toIso8601String()),
+      status: Value((map['status'] as String?) ?? 'raw'),
+      editorMode: Value((map['editorMode'] as String?) ?? 'plain'),
+      isLocked: Value(isLocked),
+      tags: Value(tagsStr),
+      inquiryQuestion: Value(map['inquiryQuestion'] as String?),
+      inquiryConclusion: Value(map['inquiryConclusion'] as String?),
+      exploreTasks: Value(tasksStr),
+      contentFormat: Value((map['contentFormat'] as String?) ?? 'markdown'),
+      createdAt: Value((map['createdAt'] is String &&
+              (map['createdAt'] as String).isNotEmpty)
+          ? map['createdAt'] as String
+          : DateTime.now().toIso8601String()),
+    );
   }
+
+  Future<void> insertNote(Map<String, dynamic> noteMap) async {
+    if (!noteMap.containsKey('status')) noteMap['status'] = 'raw';
+    if (!noteMap.containsKey('editorMode')) noteMap['editorMode'] = 'plain';
+    if (!noteMap.containsKey('isLocked')) noteMap['isLocked'] = 0;
+    final companion = _noteMapToCompanion(noteMap);
+    await _drift
+        .into(_drift.notes)
+        .insert(companion, mode: InsertMode.insertOrReplace);
+
+    await _syncSearchIndexForNote(noteMap);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllNotes({bool includeDeleted = false}) async => _getAllNotesInternal(includeDeleted: includeDeleted);
+
+  Future<List<Map<String, dynamic>>> _getAllNotesInternal({bool includeDeleted = false}) async {
+    final query = _drift.select(_drift.notes)
+      ..orderBy([
+        (t) => OrderingTerm(expression: t.updatedAt, mode: OrderingMode.desc),
+      ]);
+    if (!includeDeleted) {
+      query.where((t) => t.status.equals('deleted').not());
+    }
+    final rows = await query.get();
+    return rows.map(_noteRowToMap).toList();
+  }
+
+
 
   Future<List<Map<String, dynamic>>> getRawNotes() async {
     final all = await _getAllNotesInternal(includeDeleted: false);
@@ -613,105 +584,95 @@ class DatabaseService {
   }
 
   Future<void> sendToWisdom(String id) async {
-    final notes = await _getAllNotesInternal(includeDeleted: false);
-    final index = notes.indexWhere((n) => n['id'] == id);
-    if (index != -1) {
-      notes[index]['status'] = 'active';
-      notes[index]['updatedAt'] = DateTime.now().toIso8601String();
-      await _saveNotes(notes);
-    }
+    await (_drift.update(_drift.notes)..where((t) => t.id.equals(id))).write(
+      NotesCompanion(
+        status: Value('active'),
+        updatedAt: Value(DateTime.now().toIso8601String()),
+      ),
+    );
   }
 
   Future<void> _moveNoteToArchived(String noteId) async {
     final folderId = await ensureArchivedFolder();
-    final notes = await _getAllNotesInternal(includeDeleted: false);
-    final noteIndex = notes.indexWhere((n) => n['id'] == noteId);
-    if (noteIndex == -1) return;
-    final nodes = await _getAllNodesInternal();
-    final nodeIndex = nodes.indexWhere((n) => n['targetId'] == noteId);
-    notes[noteIndex]['status'] = 'archived';
-    notes[noteIndex]['updatedAt'] = DateTime.now().toIso8601String();
-    if (nodeIndex != -1) {
-      nodes[nodeIndex]['parentId'] = folderId;
-    } else {
-      final note = NotebookEntry.fromMap(notes[noteIndex]);
-      nodes.add({
-        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'title': note.title, 'parentId': folderId, 'isFolder': 0,
-        'nodeType': 'note', 'targetId': noteId, 'sortOrder': 0,
-        'tags': note.tags,
-        'createdAt': DateTime.now().toIso8601String(),
-        'updatedAt': DateTime.now().toIso8601String(),
-      });
-    }
-    await _saveNotes(notes);
-    await _saveNodes(nodes);
+    final now = DateTime.now().toIso8601String();
+    await _drift.transaction(() async {
+      await (_drift.update(_drift.notes)..where((t) => t.id.equals(noteId)))
+          .write(NotesCompanion(
+        status: Value('archived'),
+        updatedAt: Value(now),
+      ));
+      final existing = await (_drift.select(_drift.nodes)
+            ..where((t) => t.targetId.equals(noteId))
+            ..limit(1))
+          .getSingleOrNull();
+      if (existing != null) {
+        await (_drift.update(_drift.nodes)
+              ..where((t) => t.id.equals(existing.id)))
+            .write(NodesCompanion(parentId: Value(folderId)));
+      } else {
+        final noteRow = await (_drift.select(_drift.notes)
+              ..where((t) => t.id.equals(noteId))
+              ..limit(1))
+            .getSingleOrNull();
+        if (noteRow == null) return;
+        await _drift.into(_drift.nodes).insert(NodesCompanion.insert(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: Value(noteRow.title),
+          parentId: Value(folderId),
+          isFolder: const Value(false),
+          nodeType: const Value('note'),
+          targetId: Value(noteId),
+          tags: Value(noteRow.tags),
+          createdAt: Value(now),
+          updatedAt: Value(now),
+        ));
+      }
+    });
   }
 
   Future<void> archiveNote(String id) async => _moveNoteToArchived(id);
 
   Future<void> unarchiveNote(String id) async {
-    final notes = await _getAllNotesInternal(includeDeleted: false);
-    final index = notes.indexWhere((n) => n['id'] == id);
-    if (index != -1) {
-      notes[index]['status'] = 'active';
-      notes[index]['updatedAt'] = DateTime.now().toIso8601String();
-      await _saveNotes(notes);
-    }
+    await (_drift.update(_drift.notes)..where((t) => t.id.equals(id))).write(
+      NotesCompanion(
+        status: Value('active'),
+        updatedAt: Value(DateTime.now().toIso8601String()),
+      ),
+    );
   }
 
   Future<void> deleteNote(String id) async {
-    final notes = await _getAllNotesInternal(includeDeleted: false);
-    final index = notes.indexWhere((n) => n['id'] == id);
-    if (index != -1) {
-      notes[index]['status'] = 'deleted';
-      await _saveNotes(notes);
-    }
+    await (_drift.update(_drift.notes)..where((t) => t.id.equals(id))).write(
+      NotesCompanion(status: Value('deleted')),
+    );
 
     await _clearSearchIndexForNote(id);
   }
 
   Future<void> hardDeleteNote(String id) async {
-    final notes = await _getAllNotesInternal(includeDeleted: true);
-    notes.removeWhere((n) => n['id'] == id);
-    await _saveNotes(notes);
+    await (_drift.delete(_drift.notes)..where((t) => t.id.equals(id))).go();
 
     await _clearSearchIndexForNote(id);
   }
 
   Future<void> updateNote(Map<String, dynamic> noteMap) async {
-    if (_isWeb) {
-      // Web：SharedPreferences 键值存储 —— 无 where 支持 —— 保留全量写
-      final notes = await _getAllNotesInternal(includeDeleted: false);
-      final index = notes.indexWhere((n) => n['id'] == noteMap['id']);
-      if (index != -1) {
-        notes[index] = noteMap;
-        await _saveNotes(notes);
-      }
-    } else {
-      // 桌面 / 移动：直写单条 —— 不读全表
-      final db = await _getDatabase();
-      await db.update(
-        'notes',
-        _prepareNoteForDb(noteMap),
-        where: 'id = ?',
-        whereArgs: [noteMap['id']],
-      );
-    }
+    final companion = _noteMapToCompanion(noteMap);
+    await (_drift.update(_drift.notes)
+          ..where((t) => t.id.equals(noteMap['id'] as String)))
+        .write(companion);
 
     await _syncSearchIndexForNote(noteMap);
   }
 
   Future<void> _saveNotes(List<Map<String, dynamic>> notes) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('notes_data', jsonEncode(notes));
-    } else {
-      final db = await _getDatabase();
+    await _drift.transaction(() async {
       for (var note in notes) {
-        await db.update('notes', _prepareNoteForDb(note), where: 'id = ?', whereArgs: [note['id']]);
+        final companion = _noteMapToCompanion(note);
+        await (_drift.update(_drift.notes)
+              ..where((t) => t.id.equals(note['id'] as String)))
+            .write(companion);
       }
-    }
+    });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -823,38 +784,16 @@ class DatabaseService {
     final kw = keyword.trim();
     if (kw.isEmpty) return [];
 
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_searchIndexDataKey);
-      if (raw == null || raw.isEmpty) return [];
-      final list = jsonDecode(raw) as List;
-      final lower = kw.toLowerCase();
-      final results = list
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .where((e) {
-            final st = (e['searchText'] as String?)?.toLowerCase() ?? '';
-            final rt = (e['rawText'] as String?)?.toLowerCase() ?? '';
-            return st.contains(lower) || rt.contains(lower);
-          })
-          .toList();
-      results.sort((a, b) {
-        final ca = a['createdAt'] as String? ?? '';
-        final cb = b['createdAt'] as String? ?? '';
-        return cb.compareTo(ca);
-      });
-      return results.take(limit).toList();
-    } else {
-      final db = await _getDatabase();
-      final rows = await db.query(
-        'search_index',
-        where: 'searchText LIKE ? OR rawText LIKE ?',
-        whereArgs: ['%$kw%', '%$kw%'],
-        orderBy: 'createdAt DESC',
-        limit: limit,
-      );
-      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
-    }
+    final rows = await (_drift.select(_drift.searchIndex)
+          ..where((t) =>
+              t.searchText.like('%$kw%') | t.rawText.like('%$kw%'))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ])
+          ..limit(limit))
+        .get();
+    return rows.map(_searchIndexRowToMap).toList();
   }
 
   // ═══════════════════════════════════════════════════════
@@ -868,103 +807,91 @@ class DatabaseService {
   ///
   /// 第四轮批 2a 新增。方案 v3 §2.1。
   Future<List<Map<String, dynamic>>> getAllTagRows() async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_tagIndexDataKey);
-      if (raw == null || raw.isEmpty) return [];
-      final list = jsonDecode(raw) as List;
-      final rows = list
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-      rows.sort((a, b) {
-        final ca = a['createdAt'] as String? ?? '';
-        final cb = b['createdAt'] as String? ?? '';
-        return cb.compareTo(ca);
-      });
-      return rows;
-    } else {
-      final db = await _getDatabase();
-      final rows = await db.query('tag_index', orderBy: 'createdAt DESC');
-      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
-    }
+    final rows = await (_drift.select(_drift.tagIndex)
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_tagIndexRowToMap).toList();
   }
 
   // ═══════════════════════════════════════════════════════
   // tag_index / search_index 读写辅助
   // ═══════════════════════════════════════════════════════
 
-  static const String _tagIndexDataKey = 'tag_index_data';
-  static const String _searchIndexDataKey = 'search_index_data';
+  // ─── 批 3：Row → camelCase Map helpers ─────────────────
+
+  Map<String, dynamic> _tagIndexRowToMap(TagIndexData r) => {
+        'id': r.id,
+        'sourceType': r.sourceType,
+        'sourceId': r.sourceId,
+        'type': r.type,
+        'tag': r.tag,
+        'blockId': r.blockId,
+        'text': r.textContent,
+        'createdAt': r.createdAt,
+      };
+
+  Map<String, dynamic> _searchIndexRowToMap(SearchIndexData r) => {
+        'id': r.id,
+        'sourceType': r.sourceType,
+        'sourceId': r.sourceId,
+        'subId': r.subId,
+        'location': r.location,
+        'kind': r.kind,
+        'searchText': r.searchText,
+        'rawText': r.rawText,
+        'createdAt': r.createdAt,
+      };
 
   Future<void> _insertTagIndexRow(Map<String, dynamic> row) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_tagIndexDataKey);
-      final List<dynamic> list =
-          raw == null || raw.isEmpty ? [] : jsonDecode(raw) as List;
-      list.add(row);
-      await prefs.setString(_tagIndexDataKey, jsonEncode(list));
-    } else {
-      final db = await _getDatabase();
-      await db.insert('tag_index', row,
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
+    await _drift.into(_drift.tagIndex).insert(
+          TagIndexCompanion(
+            id: Value(row['id'] as String),
+            sourceType: Value((row['sourceType'] as String?) ?? 'note'),
+            sourceId: Value(row['sourceId'] as String),
+            type: Value(row['type'] as String),
+            tag: Value(row['tag'] as String),
+            blockId: Value(row['blockId'] as String?),
+            textContent: Value(row['text'] as String?),
+            createdAt: Value(row['createdAt'] as String),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
   }
 
   /// 第四轮批 1 改名：_queryTagIndexByNoteId → _queryTagIndexBySourceId
   Future<List<Map<String, dynamic>>> _queryTagIndexBySourceId(
       String sourceId) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_tagIndexDataKey);
-      if (raw == null || raw.isEmpty) return [];
-      final List<dynamic> list = jsonDecode(raw) as List;
-      return list
-          .whereType<Map>()
-          .where((e) => e['sourceId'] == sourceId)
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-    } else {
-      final db = await _getDatabase();
-      final rows =
-          await db.query('tag_index', where: 'sourceId = ?', whereArgs: [sourceId]);
-      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
-    }
+    final rows = await (_drift.select(_drift.tagIndex)
+          ..where((t) => t.sourceId.equals(sourceId)))
+        .get();
+    return rows.map(_tagIndexRowToMap).toList();
   }
 
   /// 第四轮批 1 改名：_deleteTagIndexByNoteId → _deleteTagIndexBySourceId
   Future<void> _deleteTagIndexBySourceId(String sourceId) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_tagIndexDataKey);
-      if (raw == null || raw.isEmpty) return;
-      final List<dynamic> list = jsonDecode(raw) as List;
-      final filtered = list
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .where((e) => e['sourceId'] != sourceId)
-          .toList();
-      await prefs.setString(_tagIndexDataKey, jsonEncode(filtered));
-    } else {
-      final db = await _getDatabase();
-      await db.delete('tag_index', where: 'sourceId = ?', whereArgs: [sourceId]);
-    }
+    await (_drift.delete(_drift.tagIndex)
+          ..where((t) => t.sourceId.equals(sourceId)))
+        .go();
   }
 
   Future<void> _insertSearchRow(Map<String, dynamic> row) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_searchIndexDataKey);
-      final List<dynamic> list =
-          raw == null || raw.isEmpty ? [] : jsonDecode(raw) as List;
-      list.add(row);
-      await prefs.setString(_searchIndexDataKey, jsonEncode(list));
-    } else {
-      final db = await _getDatabase();
-      await db.insert('search_index', row,
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
+    await _drift.into(_drift.searchIndex).insert(
+          SearchIndexCompanion(
+            id: Value(row['id'] as String),
+            sourceType: Value(row['sourceType'] as String),
+            sourceId: Value(row['sourceId'] as String),
+            subId: Value(row['subId'] as String?),
+            location: Value(row['location'] as String?),
+            kind: Value(row['kind'] as String),
+            searchText: Value(row['searchText'] as String),
+            rawText: Value(row['rawText'] as String?),
+            createdAt: Value(row['createdAt'] as String),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
   }
 
   Future<void> _deleteSearchRowBySourceAndKind(
@@ -972,113 +899,502 @@ class DatabaseService {
     String sourceId,
     String kind,
   ) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_searchIndexDataKey);
-      if (raw == null || raw.isEmpty) return;
-      final List<dynamic> list = jsonDecode(raw) as List;
-      final filtered = list
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .where((e) =>
-              !(e['sourceType'] == sourceType &&
-                  e['sourceId'] == sourceId &&
-                  e['kind'] == kind))
-          .toList();
-      await prefs.setString(_searchIndexDataKey, jsonEncode(filtered));
-    } else {
-      final db = await _getDatabase();
-      await db.delete(
-        'search_index',
-        where: 'sourceType = ? AND sourceId = ? AND kind = ?',
-        whereArgs: [sourceType, sourceId, kind],
-      );
-    }
-  }  // ─── 图书 CRUD ──────────────────────────────────────────
+    await (_drift.delete(_drift.searchIndex)
+          ..where((t) =>
+              t.sourceType.equals(sourceType) &
+              t.sourceId.equals(sourceId) &
+              t.kind.equals(kind)))
+        .go();
+  }  // ─── 图书 CRUD（Phase 2 · Drift）──────────────────────────
+
+  /// BookRow → camelCase Map
+  Map<String, dynamic> _bookRowToMap(BookRow r) => {
+        'id': r.id,
+        'title': r.title,
+        'author': r.author,
+        'isbn': r.isbn,
+        'coverUrl': r.coverUrl,
+        'filePath': r.filePath,
+        'fileType': r.fileType,
+        'fileName': r.fileName,
+        'fileSize': r.fileSize,
+        'status': r.status,
+        'readingProgress': r.readingProgress,
+        'totalPages': r.totalPages,
+        'createdAt': r.createdAt ??
+            DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+        'lastReadAt': r.lastReadAt,
+        'source': r.source,
+      };
+
+  /// camelCase Map → BooksCompanion
+  BooksCompanion _bookMapToCompanion(Map<String, dynamic> map) {
+    return BooksCompanion(
+      id: Value(map['id'] as String),
+      title: Value((map['title'] as String?) ?? ''),
+      author: Value((map['author'] as String?) ?? ''),
+      isbn: Value((map['isbn'] as String?) ?? ''),
+      coverUrl: Value(map['coverUrl'] as String?),
+      filePath: Value(map['filePath'] as String?),
+      fileType: Value((map['fileType'] as String?) ?? 'none'),
+      fileName: Value(map['fileName'] as String?),
+      fileSize: Value((map['fileSize'] as int?) ?? 0),
+      status: Value((map['status'] as String?) ?? 'want'),
+      readingProgress: Value((map['readingProgress'] as int?) ?? 0),
+      totalPages: Value((map['totalPages'] as int?) ?? 0),
+      createdAt: Value((map['createdAt'] as String?) ??
+          DateTime.now().toIso8601String()),
+      lastReadAt: Value(map['lastReadAt'] as String?),
+      source: Value((map['source'] as String?) ?? ''),
+    );
+  }
+
   Future<void> insertBook(Map<String, dynamic> bookMap) async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final books = await getAllBooks();
-      books.insert(0, bookMap);
-      await prefs.setString('books_data', jsonEncode(books));
-    } else {
-      final db = await _getDatabase();
-      await db.insert('books', _prepareBookForDb(bookMap), conflictAlgorithm: ConflictAlgorithm.replace);
-    }
+    final companion = _bookMapToCompanion(bookMap);
+    await _drift
+        .into(_drift.books)
+        .insert(companion, mode: InsertMode.insertOrReplace);
   }
 
   Future<List<Map<String, dynamic>>> getAllBooks() async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString('books_data');
-      if (data == null || data.isEmpty) return [];
-      final List<dynamic> list = jsonDecode(data);
-      return list.map((e) => _cleanBookMap(Map<String, dynamic>.from(e))).toList();
-    } else {
-      final db = await _getDatabase();
-      final rows = await db.query('books', orderBy: 'created_at DESC');
-      return rows.map((row) => _cleanBookMap(_mapBookDbRowToCamel(row))).toList();
-    }
+    final rows = await (_drift.select(_drift.books)
+          ..orderBy([
+            (t) => OrderingTerm(
+                expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_bookRowToMap).toList();
   }
 
   Future<Map<String, dynamic>?> getBook(String id) async {
-    if (_isWeb) {
-      final books = await getAllBooks();
-      try { return books.firstWhere((b) => b['id'] == id); } catch (_) { return null; }
-    } else {
-      final db = await _getDatabase();
-      final result = await db.query('books', where: 'id = ?', whereArgs: [id]);
-      if (result.isNotEmpty) return _cleanBookMap(_mapBookDbRowToCamel(result.first));
-      return null;
-    }
+    final row = await (_drift.select(_drift.books)
+          ..where((t) => t.id.equals(id))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    return _bookRowToMap(row);
   }
 
   Future<void> updateBook(Map<String, dynamic> bookMap) async {
-    if (_isWeb) {
-      final books = await getAllBooks();
-      final index = books.indexWhere((b) => b['id'] == bookMap['id']);
-      if (index != -1) {
-        books[index] = bookMap;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('books_data', jsonEncode(books));
-      }
-    } else {
-      final db = await _getDatabase();
-      await db.update('books', _prepareBookForDb(bookMap), where: 'id = ?', whereArgs: [bookMap['id']]);
-    }
+    final companion = _bookMapToCompanion(bookMap);
+    await (_drift.update(_drift.books)
+          ..where((t) => t.id.equals(bookMap['id'] as String)))
+        .write(companion);
   }
 
   Future<void> deleteBook(String id) async {
-    if (_isWeb) {
-      final books = await getAllBooks();
-      books.removeWhere((b) => b['id'] == id);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('books_data', jsonEncode(books));
-    } else {
-      final db = await _getDatabase();
-      await db.delete('books', where: 'id = ?', whereArgs: [id]);
-    }
+    await (_drift.delete(_drift.books)..where((t) => t.id.equals(id))).go();
   }
 
-  Map<String, dynamic> _mapBookDbRowToCamel(Map<String, dynamic> row) => {
-    'id': row['id'], 'title': row['title'], 'author': row['author'], 'isbn': row['isbn'],
-    'coverUrl': row['cover_url'], 'filePath': row['file_path'], 'fileType': row['file_type'],
-    'fileName': row['file_name'], 'fileSize': row['file_size'], 'status': row['status'],
-    'readingProgress': row['reading_progress'], 'totalPages': row['total_pages'],
-    'createdAt': row['created_at'], 'lastReadAt': row['last_read_at'],
-    'source': row['source'] ?? '',
-  };
 
-  Map<String, dynamic> _cleanBookMap(Map<String, dynamic> map) => Map<String, dynamic>.from(map);
 
-  Map<String, dynamic> _prepareBookForDb(Map<String, dynamic> map) => {
-    'id': map['id'], 'title': map['title'], 'author': map['author'], 'isbn': map['isbn'],
-    'cover_url': map['coverUrl'], 'file_path': map['filePath'], 'file_type': map['fileType'],
-    'file_name': map['fileName'], 'file_size': map['fileSize'], 'status': map['status'],
-    'reading_progress': map['readingProgress'], 'total_pages': map['totalPages'],
-    'created_at': map['createdAt'], 'last_read_at': map['lastReadAt'],
-    'source': map['source'] ?? '',
-  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 批 2 步 2：三 service 迁入方法（入参 / 出参全 snake_case）
+  // ═══════════════════════════════════════════════════════════════
+
+  // ─── Row → snake_case Map helpers ──────────────────────
+
+  Map<String, dynamic> _bookHighlightRowToMap(BookHighlightRow r) => {
+        'id': r.id,
+        'book_id': r.bookId,
+        'chapter': r.chapter,
+        'location': r.location,
+        'text': r.textContent,
+        'color': r.color,
+        'note': r.note,
+        'created_at': r.createdAt,
+        'source': r.source,
+      };
+
+  Map<String, dynamic> _noteBookLinkRowToMap(NoteBookLink r) => {
+        'id': r.id,
+        'note_id': r.noteId,
+        'book_id': r.bookId,
+        'link_type': r.linkType,
+        'link_text': r.linkText,
+        'context': r.context,
+        'created_at': r.createdAt,
+      };
+
+  Map<String, dynamic> _noteNoteLinkRowToMap(NoteNoteLink r) => {
+        'id': r.id,
+        'source_note_id': r.sourceNoteId,
+        'target_note_id': r.targetNoteId,
+        'link_type': r.linkType,
+        'link_text': r.linkText,
+        'created_at': r.createdAt,
+      };
+
+  Map<String, dynamic> _sparkRowToMap(SparkRow r) => {
+        'id': r.id,
+        'content': r.content,
+        'anchor_note_id': r.anchorNoteId,
+        'anchor_location': r.anchorLocation,
+        'status': r.status,
+        'created_at': r.createdAt,
+        'updated_at': r.updatedAt,
+      };
+
+  // ─── book_highlight_service 迁入（5）───────────────────
+
+  Future<void> insertBookHighlights(
+      List<Map<String, dynamic>> highlights) async {
+    if (highlights.isEmpty) return;
+    await _drift.transaction(() async {
+      for (final h in highlights) {
+        await _drift.into(_drift.bookHighlights).insert(
+              BookHighlightsCompanion(
+                id: Value(h['id'] as String),
+                bookId: Value(h['book_id'] as String?),
+                chapter: Value(h['chapter'] as String?),
+                location: Value(h['location'] as String?),
+                textContent: Value(h['text'] as String?),
+                color: Value(h['color'] as String?),
+                note: Value(h['note'] as String?),
+                createdAt: Value(h['created_at'] as String?),
+                source: Value(h['source'] as String?),
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
+      }
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getBookHighlightsByBook(
+      String bookId) async {
+    final rows = await (_drift.select(_drift.bookHighlights)
+          ..where((t) => t.bookId.equals(bookId))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows.map(_bookHighlightRowToMap).toList();
+  }
+
+  Future<int> countBookHighlightsByBook(String bookId) async {
+    final c = _drift.bookHighlights.id.count();
+    final q = _drift.selectOnly(_drift.bookHighlights)
+      ..addColumns([c])
+      ..where(_drift.bookHighlights.bookId.equals(bookId));
+    final row = await q.getSingle();
+    return row.read(c) ?? 0;
+  }
+
+  Future<int> countAllBookHighlights() async {
+    final c = _drift.bookHighlights.id.count();
+    final q = _drift.selectOnly(_drift.bookHighlights)..addColumns([c]);
+    final row = await q.getSingle();
+    return row.read(c) ?? 0;
+  }
+
+  Future<void> deleteBookHighlightsByBook(String bookId) async {
+    await (_drift.delete(_drift.bookHighlights)
+          ..where((t) => t.bookId.equals(bookId)))
+        .go();
+  }
+
+  // ─── note_book_link_service 迁入（10 + 1）──────────────
+
+  Future<void> insertNoteBookLink(Map<String, dynamic> map) async {
+    await _drift.into(_drift.noteBookLinks).insert(
+          NoteBookLinksCompanion(
+            id: Value(map['id'] as String),
+            noteId: Value(map['note_id'] as String),
+            bookId: Value(map['book_id'] as String),
+            linkType: Value(map['link_type'] as String),
+            linkText: Value(map['link_text'] as String?),
+            context: Value(map['context'] as String?),
+            createdAt: Value(map['created_at'] as String),
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+  }
+
+  Future<void> deleteNoteBookLink({
+    required String noteId,
+    required String bookId,
+    required String linkType,
+  }) async {
+    await (_drift.delete(_drift.noteBookLinks)
+          ..where((t) =>
+              t.noteId.equals(noteId) &
+              t.bookId.equals(bookId) &
+              t.linkType.equals(linkType)))
+        .go();
+  }
+
+  Future<List<Map<String, dynamic>>> getNoteBookLinksByBook(
+      String bookId) async {
+    final rows = await (_drift.select(_drift.noteBookLinks)
+          ..where((t) => t.bookId.equals(bookId))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_noteBookLinkRowToMap).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getNoteBookLinksByNote(
+      String noteId) async {
+    final rows = await (_drift.select(_drift.noteBookLinks)
+          ..where((t) => t.noteId.equals(noteId))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_noteBookLinkRowToMap).toList();
+  }
+
+  /// rebuildWikiLinks —— [[书名]] 正则扫 + 索引 + 循环 insert
+  Future<void> rebuildWikiLinks({
+    required String noteId,
+    required String content,
+  }) async {
+    await (_drift.delete(_drift.noteBookLinks)
+          ..where((t) =>
+              t.noteId.equals(noteId) & t.linkType.equals('wikilink')))
+        .go();
+
+    final regex = RegExp(r'\[\[([^\]\n]+)\]\]');
+    final matches = regex.allMatches(content).toList();
+    if (matches.isEmpty) return;
+
+    final allBooks = await _drift.select(_drift.books).get();
+    final byTitle = <String, List<String>>{};
+    for (final row in allBooks) {
+      final t = row.title.trim();
+      if (t.isEmpty) continue;
+      byTitle.putIfAbsent(t, () => []).add(row.id);
+    }
+
+    final now = DateTime.now().toIso8601String();
+    await _drift.transaction(() async {
+      int counter = 0;
+      for (final m in matches) {
+        final title = m.group(1)?.trim() ?? '';
+        if (title.isEmpty) continue;
+        final ids = byTitle[title];
+        if (ids == null || ids.length != 1) continue;
+        final context = _extractContextInternal(content, m.start, m.end);
+        await _drift.into(_drift.noteBookLinks).insert(
+              NoteBookLinksCompanion(
+                id: Value(
+                    '${DateTime.now().microsecondsSinceEpoch}_${counter++}'),
+                noteId: Value(noteId),
+                bookId: Value(ids.first),
+                linkType: const Value('wikilink'),
+                linkText: Value(title),
+                context: Value(context),
+                createdAt: Value(now),
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
+      }
+    });
+  }
+
+  /// rebuildNoteNoteLinks —— [[笔记标题]] 扫 + 索引
+  Future<void> rebuildNoteNoteLinks({
+    required String noteId,
+    required String content,
+  }) async {
+    await (_drift.delete(_drift.noteNoteLinks)
+          ..where((t) =>
+              t.sourceNoteId.equals(noteId) & t.linkType.equals('wikilink')))
+        .go();
+
+    final regex = RegExp(r'\[\[([^\]\n]+)\]\]');
+    final matches = regex.allMatches(content).toList();
+    if (matches.isEmpty) return;
+
+    final allNotes = await (_drift.select(_drift.notes)
+          ..where((t) => t.status.equals('deleted').not()))
+        .get();
+
+    final byTitle = <String, List<String>>{};
+    for (final row in allNotes) {
+      if (row.id == noteId) continue;
+      final rawTitle = row.title.trim();
+      final displayTitle = rawTitle.isNotEmpty
+          ? rawTitle
+          : _virtualTitleInternal(row.content);
+      byTitle.putIfAbsent(displayTitle, () => []).add(row.id);
+    }
+
+    final now = DateTime.now().toIso8601String();
+    await _drift.transaction(() async {
+      int counter = 0;
+      for (final m in matches) {
+        final title = m.group(1)?.trim() ?? '';
+        if (title.isEmpty) continue;
+        final targets = byTitle[title];
+        if (targets == null || targets.isEmpty) continue;
+        for (final targetId in targets) {
+          await _drift.into(_drift.noteNoteLinks).insert(
+                NoteNoteLinksCompanion(
+                  id: Value(
+                      '${DateTime.now().microsecondsSinceEpoch}_${counter++}'),
+                  sourceNoteId: Value(noteId),
+                  targetNoteId: Value(targetId),
+                  linkType: const Value('wikilink'),
+                  linkText: Value(title),
+                  createdAt: Value(now),
+                ),
+                mode: InsertMode.insertOrIgnore,
+              );
+        }
+      }
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getBacklinks(String noteId) async {
+    final rows = await (_drift.select(_drift.noteNoteLinks)
+          ..where((t) => t.targetNoteId.equals(noteId))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_noteNoteLinkRowToMap).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getOutboundNoteLinks(
+      String noteId) async {
+    final rows = await (_drift.select(_drift.noteNoteLinks)
+          ..where((t) => t.sourceNoteId.equals(noteId))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_noteNoteLinkRowToMap).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getOutboundNoteLinksByText(
+    String sourceNoteId,
+    String linkText,
+  ) async {
+    final rows = await (_drift.select(_drift.noteNoteLinks)
+          ..where((t) =>
+              t.sourceNoteId.equals(sourceNoteId) &
+              t.linkText.equals(linkText)))
+        .get();
+    return rows.map(_noteNoteLinkRowToMap).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getOutboundBookLinksByText(
+    String sourceNoteId,
+    String linkText,
+  ) async {
+    final rows = await (_drift.select(_drift.noteBookLinks)
+          ..where((t) =>
+              t.noteId.equals(sourceNoteId) &
+              t.linkType.equals('wikilink') &
+              t.linkText.equals(linkText)))
+        .get();
+    return rows.map(_noteBookLinkRowToMap).toList();
+  }
+
+  /// 全表拉 note_note_links（graph_tab / insight_page 用）
+  Future<List<Map<String, dynamic>>> getAllNoteNoteLinks() async {
+    final rows = await _drift.select(_drift.noteNoteLinks).get();
+    return rows.map(_noteNoteLinkRowToMap).toList();
+  }
+
+  // ─── spark_service 迁入（7）────────────────────────────
+
+  Future<void> insertSpark(Map<String, dynamic> map) async {
+    await _drift.into(_drift.sparks).insert(
+          SparksCompanion(
+            id: Value(map['id'] as String),
+            content: Value(map['content'] as String),
+            anchorNoteId: Value(map['anchor_note_id'] as String?),
+            anchorLocation: Value(map['anchor_location'] as String?),
+            status: Value((map['status'] as String?) ?? 'pending'),
+            createdAt: Value(map['created_at'] as String),
+            updatedAt: Value(map['updated_at'] as String?),
+          ),
+        );
+  }
+
+  Future<void> updateSpark(Map<String, dynamic> map) async {
+    await (_drift.update(_drift.sparks)
+          ..where((t) => t.id.equals(map['id'] as String)))
+        .write(SparksCompanion(
+      content: Value(map['content'] as String),
+      anchorNoteId: Value(map['anchor_note_id'] as String?),
+      anchorLocation: Value(map['anchor_location'] as String?),
+      status: Value((map['status'] as String?) ?? 'pending'),
+      updatedAt: Value(map['updated_at'] as String?),
+    ));
+  }
+
+  Future<void> deleteSpark(String id) async {
+    await (_drift.delete(_drift.sparks)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<Map<String, dynamic>?> getSpark(String id) async {
+    final row = await (_drift.select(_drift.sparks)
+          ..where((t) => t.id.equals(id))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    return _sparkRowToMap(row);
+  }
+
+  Future<List<Map<String, dynamic>>> getSparksByNote(String noteId) async {
+    final rows = await (_drift.select(_drift.sparks)
+          ..where((t) => t.anchorNoteId.equals(noteId))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows.map(_sparkRowToMap).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingSparksByNote(
+      String noteId) async {
+    final rows = await (_drift.select(_drift.sparks)
+          ..where((t) =>
+              t.anchorNoteId.equals(noteId) & t.status.equals('pending'))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows.map(_sparkRowToMap).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getAllPendingSparks() async {
+    final rows = await (_drift.select(_drift.sparks)
+          ..where((t) => t.status.equals('pending'))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_sparkRowToMap).toList();
+  }
+
+  // ─── 内部工具（迁自 note_book_link_service）────────────
+
+  static String _extractContextInternal(String content, int start, int end) {
+    const contextRadius = 30;
+    final s = (start - contextRadius).clamp(0, content.length);
+    final e = (end + contextRadius).clamp(0, content.length);
+    return content.substring(s, e);
+  }
+
+  static String _virtualTitleInternal(String content) {
+    final c = content.trim().replaceAll('\n', ' ');
+    if (c.isEmpty) return '无标题';
+    return c.length > 20 ? '${c.substring(0, 20)}…' : c;
+  }
 
   // ─── 占位 ──────────────────────────────────────────────
   Future<void> insertAnnotation(Map<String, dynamic> annotationMap) async {}
@@ -1187,17 +1503,11 @@ class DatabaseService {
   }
 
   Future<void> _clearAllData() async {
-    if (_isWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('notes_data');
-      await prefs.remove('nodes_data');
-      await prefs.remove('books_data');
-    } else {
-      final db = await _getDatabase();
-      await db.delete('notes');
-      await db.delete('nodes');
-      await db.delete('books');
-    }
+    await _drift.transaction(() async {
+      await _drift.delete(_drift.notes).go();
+      await _drift.delete(_drift.nodes).go();
+      await _drift.delete(_drift.books).go();
+    });
   }
 
   Future<String> exportNotesAsMarkdown() async {
@@ -1261,12 +1571,9 @@ class DatabaseService {
   }
 
   Future<void> toggleLockNote(String noteId, bool locked) async {
-    final notes = await _getAllNotesInternal(includeDeleted: false);
-    final index = notes.indexWhere((n) => n['id'] == noteId);
-    if (index != -1) {
-      notes[index]['isLocked'] = locked ? 1 : 0;
-      await _saveNotes(notes);
-    }
+    await (_drift.update(_drift.notes)
+          ..where((t) => t.id.equals(noteId)))
+        .write(NotesCompanion(isLocked: Value(locked ? 1 : 0)));
   }
 
   Future<int> getLockedNotesCount() async {
@@ -1298,435 +1605,16 @@ class DatabaseService {
   }
 
   // ─── SQLite 核心 ──────────────────────────────────────
-  static Database? _database;
 
   /// 批 1a：暴露 db 连接给服务层（NoteBookLinkService 用）
-  Future<Database> get database => _getDatabase();
 
-  Future<Database> _getDatabase() async {
-    if (_database != null) return _database!;
-    String path = join(await getDatabasesPath(), 'notebook.db');
-    // ✅ 第四轮批 1：版本 16 → 17
-    _database = await openDatabase(path, version: 29, onCreate: _onCreate, onUpgrade: _onUpgrade);
-    return _database!;
-  }
 
-  Future<void> _onCreate(Database db, int version) async => _createTables(db);
 
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) { try { await db.execute('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT "raw"'); } catch (_) {} }
-    if (oldVersion < 3) {
-      try { await db.execute('ALTER TABLE books ADD COLUMN cover_image TEXT'); } catch (_) {}
-      try { await db.execute('ALTER TABLE books ADD COLUMN pdf_path TEXT'); } catch (_) {}
-      try { await db.execute('ALTER TABLE books ADD COLUMN file_type TEXT DEFAULT "none"'); } catch (_) {}
-    }
-    if (oldVersion < 4) { try { await db.execute('ALTER TABLE notes ADD COLUMN editorMode TEXT DEFAULT "plain"'); } catch (_) {} }
-    if (oldVersion < 5) {
-      try { await db.execute('ALTER TABLE notes ADD COLUMN tags TEXT DEFAULT ""'); } catch (_) {}
-      try { await db.execute('ALTER TABLE notes ADD COLUMN isLocked INTEGER DEFAULT 0'); } catch (_) {}
-    }
-    if (oldVersion < 6) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS nodes(
-            id TEXT PRIMARY KEY, title TEXT, parent_id TEXT,
-            is_folder INTEGER DEFAULT 0, node_type TEXT DEFAULT 'folder',
-            target_id TEXT, sort_order INTEGER DEFAULT 0, tags TEXT DEFAULT '',
-            created_at TEXT, updated_at TEXT
-          )
-        ''');
-      } catch (_) {}
-    }
-    if (oldVersion < 7) {
-      try { await db.execute('ALTER TABLE books ADD COLUMN cover_url TEXT'); } catch (_) {}
-      try { await db.execute('ALTER TABLE books ADD COLUMN file_path TEXT'); } catch (_) {}
-      try { await db.execute('ALTER TABLE books ADD COLUMN file_name TEXT'); } catch (_) {}
-      try { await db.execute('ALTER TABLE books ADD COLUMN file_size INTEGER DEFAULT 0'); } catch (_) {}
-      try { await db.execute('ALTER TABLE books ADD COLUMN last_read_at TEXT'); } catch (_) {}
-    }
-    if (oldVersion < 8) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS book_annotations(
-            id TEXT PRIMARY KEY, book_id TEXT, page_number INTEGER,
-            quote TEXT, note TEXT, color TEXT, created_at TEXT,
-            FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-          )
-        ''');
-      } catch (_) {}
-    }
-    if (oldVersion < 9) {
-      try {
-        await db.execute('ALTER TABLE notes ADD COLUMN inquiry_question TEXT');
-        await db.execute('ALTER TABLE notes ADD COLUMN scaffold_sessions TEXT DEFAULT "[]"');
-        await db.execute('ALTER TABLE notes ADD COLUMN subtasks TEXT DEFAULT "[]"');
-      } catch (_) {}
-    }
-    if (oldVersion < 10) { try { await db.execute('ALTER TABLE notes ADD COLUMN new_understanding TEXT'); } catch (_) {} }
-    if (oldVersion < 11) { try { await db.execute('ALTER TABLE notes ADD COLUMN explore_tasks TEXT DEFAULT "[]"'); } catch (_) {} }
-    if (oldVersion < 12) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS isbn_cache(
-            isbn TEXT PRIMARY KEY, title TEXT, author TEXT,
-            cover_url TEXT, source TEXT, updated_at TEXT
-          )
-        ''');
-      } catch (_) {}
-    }
-    if (oldVersion < 13) {
-      try { await db.execute("ALTER TABLE books ADD COLUMN source TEXT DEFAULT ''"); } catch (_) {}
-      try { await db.execute("UPDATE books SET source = 'import' WHERE file_path IS NOT NULL AND file_path != ''"); } catch (_) {}
-      try { await db.execute("UPDATE books SET source = 'scan' WHERE file_path IS NULL OR file_path = ''"); } catch (_) {}
-    }
-    if (oldVersion < 14) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS pdf_drawings(
-            id TEXT PRIMARY KEY, book_id TEXT, page INTEGER,
-            points TEXT, color TEXT, created_at TEXT
-          )
-        ''');
-      } catch (_) {}
-    }
-    if (oldVersion < 15) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS board_views(
-            id TEXT PRIMARY KEY, name TEXT, type TEXT,
-            owner_id TEXT, created_at TEXT, updated_at TEXT
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS board_nodes(
-            id TEXT PRIMARY KEY, view_id TEXT, card_id TEXT,
-            x REAL, y REAL, z_index INTEGER
-          )
-        ''');
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_nodes_view ON board_nodes(view_id)');
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS board_edges(
-            id TEXT PRIMARY KEY, view_id TEXT,
-            source_node_id TEXT, target_node_id TEXT
-          )
-        ''');
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_edges_view ON board_edges(view_id)');
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS board_groups(
-            id TEXT PRIMARY KEY, view_id TEXT, node_ids TEXT, color TEXT
-          )
-        ''');
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_groups_view ON board_groups(view_id)');
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS board_texts(
-            id TEXT PRIMARY KEY, view_id TEXT, x REAL, y REAL, content TEXT
-          )
-        ''');
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
-      } catch (_) {}
-    }
-    if (oldVersion < 16) {
-      for (final sql in SearchIndexService.getCreateTableSql()) {
-        await db.execute(sql);
-      }
-
-      final cols = await db.rawQuery('PRAGMA table_info(notes)');
-      final hasContentFormat =
-          cols.any((c) => c['name'] == 'content_format');
-      if (!hasContentFormat) {
-        await db.execute(
-          "ALTER TABLE notes ADD COLUMN content_format TEXT DEFAULT 'markdown'",
-        );
-      }
-    }
-    // ✅ 第四轮批 1：版本 16 → 17：tag_index 加 sourceType 列，noteId 改名 sourceId
-    if (oldVersion < 17) {
-      try {
-        final cols = await db.rawQuery('PRAGMA table_info(tag_index)');
-        final hasTable = cols.isNotEmpty;
-        final hasNoteId = cols.any((c) => c['name'] == 'noteId');
-        final hasSourceId = cols.any((c) => c['name'] == 'sourceId');
-
-        if (!hasTable) {
-          for (final sql in SearchIndexService.getCreateTableSql()) {
-            await db.execute(sql);
-          }
-        } else if (hasSourceId) {
-          // 已是新 schema：跳过
-        } else if (hasNoteId) {
-          await db.execute('''
-            CREATE TABLE IF NOT EXISTS tag_index_new(
-              id TEXT PRIMARY KEY,
-              sourceType TEXT NOT NULL DEFAULT 'note',
-              sourceId TEXT NOT NULL,
-              type TEXT NOT NULL,
-              tag TEXT NOT NULL,
-              blockId TEXT,
-              text TEXT,
-              createdAt TEXT NOT NULL
-            )
-          ''');
-          await db.execute('''
-            INSERT INTO tag_index_new (id, sourceType, sourceId, type, tag, blockId, text, createdAt)
-            SELECT id, 'note', noteId, type, tag, blockId, text, createdAt FROM tag_index
-          ''');
-          await db.execute('DROP TABLE tag_index');
-          await db.execute('ALTER TABLE tag_index_new RENAME TO tag_index');
-          await db.execute('DROP INDEX IF EXISTS idx_tag_index_note');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_tag_index_tag ON tag_index(tag)');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_tag_index_source ON tag_index(sourceId)');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_tag_index_type ON tag_index(type)');
-        }
-      } catch (e) {
-        debugPrint('tag_index 16→17 迁移失败: $e');
-      }
-    }
-    // ✅ 批 1a：版本 17 → 18：note_book_links 表（笔记↔书关联）
-    if (oldVersion < 18) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS note_book_links(
-            id TEXT PRIMARY KEY,
-            note_id TEXT NOT NULL,
-            book_id TEXT NOT NULL,
-            link_type TEXT NOT NULL,
-            context TEXT,
-            created_at TEXT NOT NULL,
-            UNIQUE(note_id, book_id, link_type)
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_nbl_note ON note_book_links(note_id)');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_nbl_book ON note_book_links(book_id)');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_nbl_type ON note_book_links(link_type)');
-
-        // L2 → L3 迁移（老白裁：丙，_onUpgrade 里跑）
-        await _migrateBookReadingNoteIdToLinks(db);
-      } catch (e) {
-        debugPrint('note_book_links 17→18 迁移失败: $e');
-      }
-    }
-        if (oldVersion < 18) {
-      try {
-        // 批 1a：note_book_links 表（笔记↔书关联）
-      } catch (e) {
-        debugPrint('note_book_links 17→18 迁移失败: $e');
-      }
-    }
-    // 批 BUG-003：19 —— nodes 加 system_tag（测试数据可删——不回填）
-    if (oldVersion < 19) {
-      try {
-        await db.execute('ALTER TABLE nodes ADD COLUMN system_tag TEXT');
-      } catch (e) {
-        debugPrint('nodes 18→19 迁移失败: $e');
-      }
-    }
-        // 导入批：20 —— book_highlights 表
-    if (oldVersion < 20) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS book_highlights(
-            ...
-          )
-        ''');
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_bh_book ON book_highlights(book_id)');
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_bh_source ON book_highlights(source)');
-      } catch (e) {
-        debugPrint('book_highlights 19→20 迁移失败: $e');
-      }
-    }
-    // A5-2：21 —— board_nodes 加 type / note_id
-    if (oldVersion < 21) {
-      try {
-        await db.execute(
-          "ALTER TABLE board_nodes ADD COLUMN type TEXT DEFAULT 'card'",
-        );
-        await db.execute(
-          "ALTER TABLE board_nodes ADD COLUMN note_id TEXT",
-        );
-      } catch (e) {
-        debugPrint('board_nodes 20→21 迁移失败: $e');
-      }
-    }
-        if (oldVersion < 22) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS note_note_links(
-            id TEXT PRIMARY KEY,
-            source_note_id TEXT NOT NULL,
-            target_note_id TEXT NOT NULL,
-            link_type TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(source_note_id, target_note_id, link_type)
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_nnl_source ON note_note_links(source_note_id)');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_nnl_target ON note_note_links(target_note_id)');
-      } catch (e) {
-        debugPrint('note_note_links 21→22 迁移失败: $e');
-      }
-    }
-         if (oldVersion < 23) {
-    try {
-      await db.execute(
-        'ALTER TABLE note_note_links ADD COLUMN link_text TEXT');
-    } catch (e) {
-      debugPrint('note_note_links 22→23 迁移失败: $e');
-    }
-  }
-      if (oldVersion < 24) {
-        try {
-          await db.execute(
-            'ALTER TABLE note_book_links ADD COLUMN link_text TEXT');
-        } catch (e) {
-          debugPrint('note_book_links 23→24 迁移失败: $e');
-        }
-      }
-      if (oldVersion < 25) {
-        try {
-          await db.execute('''
-            CREATE TABLE IF NOT EXISTS sparks(
-              id TEXT PRIMARY KEY,
-              content TEXT NOT NULL,
-              anchor_note_id TEXT,
-              anchor_location TEXT,
-              status TEXT DEFAULT 'pending',
-              created_at TEXT NOT NULL,
-              updated_at TEXT
-            )
-          ''');
-          await db.execute(
-            'CREATE INDEX IF NOT EXISTS idx_sparks_note ON sparks(anchor_note_id)');
-          await db.execute(
-            'CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks(status)');
-        } catch (e) {
-          debugPrint('sparks 24→25 迁移失败: $e');
-        }
-      }
-            if (oldVersion < 26) {
-        try {
-          await db.execute('ALTER TABLE notes ADD COLUMN created_at TEXT');
-        } catch (e) {
-          debugPrint('notes 25→26 created_at 迁移失败: $e');
-        }
-      }
-            if (oldVersion < 27) {
-        try {
-          await db.execute('''
-            CREATE TABLE IF NOT EXISTS board_strokes(
-              id TEXT PRIMARY KEY,
-              view_id TEXT NOT NULL,
-              group_id TEXT,
-              z_index INTEGER DEFAULT 0,
-              points TEXT NOT NULL,
-              color TEXT NOT NULL,
-              width REAL NOT NULL,
-              created_at TEXT NOT NULL
-            )
-          ''');
-          await db.execute(
-            'CREATE INDEX IF NOT EXISTS idx_board_strokes_view ON board_strokes(view_id)');
-          await db.execute(
-            'CREATE INDEX IF NOT EXISTS idx_board_strokes_group ON board_strokes(group_id)');
-        } catch (e) {
-          debugPrint('board_strokes 26→27 迁移失败: $e');
-        }
-        try {
-          await db.execute('''
-            CREATE TABLE IF NOT EXISTS board_albums(
-              id TEXT PRIMARY KEY,
-              title TEXT,
-              source_view_id TEXT,
-              strokes_json TEXT NOT NULL,
-              thumbnail_base64 TEXT,
-              created_at TEXT NOT NULL,
-              updated_at TEXT
-            )
-          ''');
-        } catch (e) {
-          debugPrint('board_albums 26→27 迁移失败: $e');
-        }
-      }
-          // R-12a：28 —— 节点批注表（画布节点展开后的笔迹）
-    if (oldVersion < 28) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS node_annotations(
-            id TEXT PRIMARY KEY,
-            node_id TEXT NOT NULL,
-            strokes_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_na_node ON node_annotations(node_id)');
-      } catch (e) {
-        debugPrint('node_annotations 27→28 迁移失败: $e');
-      }
-    }
-    if (oldVersion < 29) {
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS writing_sessions(
-            id TEXT PRIMARY KEY,
-            note_id TEXT NOT NULL,
-            start_at TEXT NOT NULL,
-            end_at TEXT NOT NULL,
-            word_count INTEGER NOT NULL DEFAULT 0,
-            paused_seconds INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_ws_note ON writing_sessions(note_id)');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_ws_start ON writing_sessions(start_at)');
-
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS focus_sessions(
-            id TEXT PRIMARY KEY,
-            start_at TEXT NOT NULL,
-            minutes INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_fs_start ON focus_sessions(start_at)');
-      } catch (e) {
-        debugPrint('writing_sessions/focus_sessions 28→29 迁移失败: $e');
-      }
-    }
-  }
 
     /// 批 1a：L2 → L3 迁移
   /// 读 SharedPreferences book_reading_note_id_$bookId → 写 note_book_links
   /// 幂等：ConflictAlgorithm.ignore + UNIQUE 约束
   /// 旧 key 保留只读（防回滚）
-  Future<void> _migrateBookReadingNoteIdToLinks(Database db) async {
-    final prefs = await SharedPreferences.getInstance();
-    final books = await db.query('books', columns: ['id']);
-    for (final b in books) {
-      final bookId = b['id'] as String;
-      final noteId = prefs.getString('book_reading_note_id_$bookId');
-      if (noteId == null || noteId.isEmpty) continue;
-      await db.insert(
-        'note_book_links',
-        {
-          // 后缀 bookId：同微秒多本循环不撞主键
-          'id': '${DateTime.now().microsecondsSinceEpoch}_$bookId',
-          'note_id': noteId,
-          'book_id': bookId,
-          'link_type': 'reading',
-          'context': null,
-          'created_at': DateTime.now().toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-  }
 
   /// 批 BUG-003：开发调试用——清空所有本地数据
   /// 正式版不加调用入口
@@ -1740,293 +1628,100 @@ class DatabaseService {
     try { await WereadKeyStore().clear(); } catch (_) {}
 
     if (!_isWeb) {
-      final db = await _getDatabase();
-      await db.delete('nodes');
-      await db.delete('notes');
-      await db.delete('books');
-      await db.delete('book_annotations');
-      await db.delete('pdf_drawings');
-      await db.delete('isbn_cache');
-      await db.delete('board_views');
-      await db.delete('board_nodes');
-      await db.delete('board_edges');
-      await db.delete('board_groups');
-      await db.delete('board_texts');
-      await db.delete('tag_index');
-      try { await db.delete('search_index'); } catch (_) {}
-      try { await db.delete('note_book_links'); } catch (_) {}
-      try { await db.delete('book_highlights'); } catch (_) {}
+      await _drift.delete(_drift.nodes).go();
+      await _drift.delete(_drift.notes).go();
+      await _drift.delete(_drift.books).go();
+      await _drift.delete(_drift.bookAnnotations).go();
+      await _drift.delete(_drift.pdfDrawings).go();
+      await _drift.delete(_drift.isbnCache).go();
+      await _drift.delete(_drift.boardViews).go();
+      await _drift.delete(_drift.boardNodes).go();
+      await _drift.delete(_drift.boardEdges).go();
+      await _drift.delete(_drift.boardGroups).go();
+      await _drift.delete(_drift.boardTexts).go();
+      await _drift.delete(_drift.tagIndex).go();
+      try { await _drift.delete(_drift.searchIndex).go(); } catch (_) {}
+      try { await _drift.delete(_drift.noteBookLinks).go(); } catch (_) {}
+      try { await _drift.delete(_drift.bookHighlights).go(); } catch (_) {}
     }
   }
 
-  Future<void> _createTables(Database db) async {
-    await db.execute('''
-      CREATE TABLE notes(
-        id TEXT PRIMARY KEY, title TEXT, content TEXT, updatedAt TEXT,
-        status TEXT DEFAULT 'raw', editorMode TEXT DEFAULT 'plain',
-        isLocked INTEGER DEFAULT 0, tags TEXT DEFAULT '',
-        inquiry_question TEXT, inquiry_conclusion TEXT,
-        explore_tasks TEXT DEFAULT '[]',
-                  content_format TEXT DEFAULT 'markdown',
-          created_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE books(
-        id TEXT PRIMARY KEY, title TEXT, author TEXT, isbn TEXT,
-        cover_url TEXT, file_path TEXT, file_type TEXT DEFAULT 'none',
-        file_name TEXT, file_size INTEGER DEFAULT 0, status TEXT DEFAULT 'want',
-        reading_progress INTEGER DEFAULT 0, total_pages INTEGER DEFAULT 0,
-        created_at TEXT, last_read_at TEXT, source TEXT DEFAULT ''
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE book_annotations(
-        id TEXT PRIMARY KEY, book_id TEXT, page_number INTEGER,
-        quote TEXT, note TEXT, color TEXT, created_at TEXT,
-        FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE nodes(
-        id TEXT PRIMARY KEY, title TEXT, parent_id TEXT,
-        is_folder INTEGER DEFAULT 0, node_type TEXT DEFAULT 'folder',
-        target_id TEXT, sort_order INTEGER DEFAULT 0, tags TEXT DEFAULT '',
-        system_tag TEXT,
-        created_at TEXT, updated_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS isbn_cache(
-        isbn TEXT PRIMARY KEY, title TEXT, author TEXT,
-        cover_url TEXT, source TEXT, updated_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS pdf_drawings(
-        id TEXT PRIMARY KEY, book_id TEXT, page INTEGER,
-        points TEXT, color TEXT, created_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS board_views(
-        id TEXT PRIMARY KEY, name TEXT, type TEXT,
-        owner_id TEXT, created_at TEXT, updated_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS board_nodes(
-        id TEXT PRIMARY KEY, view_id TEXT, card_id TEXT,
-        type TEXT DEFAULT 'card', note_id TEXT,
-        x REAL, y REAL, z_index INTEGER
-      )
-    ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_nodes_view ON board_nodes(view_id)');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS board_edges(
-        id TEXT PRIMARY KEY, view_id TEXT,
-        source_node_id TEXT, target_node_id TEXT
-      )
-    ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_edges_view ON board_edges(view_id)');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS board_groups(
-        id TEXT PRIMARY KEY, view_id TEXT, node_ids TEXT, color TEXT
-      )
-    ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_groups_view ON board_groups(view_id)');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS board_texts(
-        id TEXT PRIMARY KEY, view_id TEXT, x REAL, y REAL, content TEXT
-      )
-    ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_board_texts_view ON board_texts(view_id)');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS board_strokes(
-        id TEXT PRIMARY KEY,
-        view_id TEXT NOT NULL,
-        group_id TEXT,
-        z_index INTEGER DEFAULT 0,
-        points TEXT NOT NULL,
-        color TEXT NOT NULL,
-        width REAL NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_board_strokes_view ON board_strokes(view_id)');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_board_strokes_group ON board_strokes(group_id)');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS board_albums(
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        source_view_id TEXT,
-        strokes_json TEXT NOT NULL,
-        thumbnail_base64 TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT
-      )
-    ''');
-    // ✅ 批 1a：笔记↔书 关联表
-    // 设计：一笔记 × 一类型 × 一书 → 一条边（UNIQUE 约束）
-    //   同笔记多次 [[同一本书]] 只留首次（context 记第一处示例）
-    // link_type：manual / reading / wikilink / inherited（预留）
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS note_book_links(
-        id TEXT PRIMARY KEY,
-        note_id TEXT NOT NULL,
-        book_id TEXT NOT NULL,
-        link_type TEXT NOT NULL,
-        link_text TEXT,
-        context TEXT,
-        created_at TEXT NOT NULL,
-        UNIQUE(note_id, book_id, link_type)
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_nbl_note ON note_book_links(note_id)');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_nbl_book ON note_book_links(book_id)');
-          await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_nbl_type ON note_book_links(link_type)');
-
-      // 导入批：book_highlights 表
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS book_highlights(
-          id TEXT PRIMARY KEY,
-          book_id TEXT NOT NULL,
-          chapter TEXT,
-          location TEXT,
-          text TEXT NOT NULL,
-          color TEXT,
-          note TEXT,
-          created_at TEXT NOT NULL,
-          source TEXT NOT NULL
-        )
-      ''');
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_bh_book ON book_highlights(book_id)');
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_bh_source ON book_highlights(source)');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS note_note_links(
-        id TEXT PRIMARY KEY,
-        source_note_id TEXT NOT NULL,
-        target_note_id TEXT NOT NULL,
-        link_type TEXT NOT NULL,
-        link_text TEXT,
-        created_at TEXT NOT NULL,
-        UNIQUE(source_note_id, target_note_id, link_type, link_text)
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_nnl_source ON note_note_links(source_note_id)');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_nnl_target ON note_note_links(target_note_id)');
-
-    // B8：火花卡表
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS sparks(
-        id TEXT PRIMARY KEY,
-        content TEXT NOT NULL,
-        anchor_note_id TEXT,
-        anchor_location TEXT,
-        status TEXT DEFAULT 'pending',
-        created_at TEXT NOT NULL,
-        updated_at TEXT
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_sparks_note ON sparks(anchor_note_id)');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks(status)');
-
-    // R-12a：节点批注表
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS node_annotations(
-        id TEXT PRIMARY KEY,
-        node_id TEXT NOT NULL,
-        strokes_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_na_node ON node_annotations(node_id)');
-
-      for (final sql in SearchIndexService.getCreateTableSql()) {
-        await db.execute(sql);
-      }
-
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS writing_sessions(
-          id TEXT PRIMARY KEY,
-          note_id TEXT NOT NULL,
-          start_at TEXT NOT NULL,
-          end_at TEXT NOT NULL,
-          word_count INTEGER NOT NULL DEFAULT 0,
-          paused_seconds INTEGER NOT NULL DEFAULT 0
-        )
-      ''');
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_ws_note ON writing_sessions(note_id)');
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_ws_start ON writing_sessions(start_at)');
-
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS focus_sessions(
-          id TEXT PRIMARY KEY,
-          start_at TEXT NOT NULL,
-          minutes INTEGER NOT NULL DEFAULT 0
-        )
-      ''');
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_fs_start ON focus_sessions(start_at)');
-    }
 
   Future<Map<String, dynamic>?> getIsbnCache(String isbn) async {
     if (_isWeb) return null;
-    final db = await _getDatabase();
-    final rows = await db.query('isbn_cache', where: 'isbn = ?', whereArgs: [isbn]);
-    if (rows.isEmpty) return null;
-    return Map<String, dynamic>.from(rows.first);
+    final row = await (_drift.select(_drift.isbnCache)
+          ..where((t) => t.isbn.equals(isbn))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    return {
+      'isbn': row.isbn,
+      'title': row.title,
+      'author': row.author,
+      'cover_url': row.coverUrl,
+      'source': row.source,
+      'updated_at': row.updatedAt,
+    };
   }
 
   Future<void> saveIsbnCache({required String isbn, required String title, required String author, required String coverUrl, required String source}) async {
     if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.insert('isbn_cache', {
-      'isbn': isbn, 'title': title, 'author': author, 'cover_url': coverUrl,
-      'source': source, 'updated_at': DateTime.now().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _drift.into(_drift.isbnCache).insert(
+          IsbnCacheCompanion(
+            isbn: Value(isbn),
+            title: Value(title),
+            author: Value(author),
+            coverUrl: Value(coverUrl),
+            source: Value(source),
+            updatedAt: Value(DateTime.now().toIso8601String()),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
   }
 
   // ─── PDF 划痕 ────────────────────────────────────────
   Future<void> savePdfDrawing(PdfDrawing drawing) async {
     if (_isWeb) return;
-    final db = await _getDatabase();
     final map = drawing.toMap();
-    await db.insert('pdf_drawings', {
-      'id': map['id'], 'book_id': map['bookId'], 'page': map['page'],
-      'points': map['points'], 'color': map['color'], 'created_at': map['createdAt'],
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _drift.into(_drift.pdfDrawings).insert(
+          PdfDrawingsCompanion(
+            id: Value(map['id'] as String),
+            bookId: Value(map['bookId'] as String?),
+            page: Value(map['page'] as int?),
+            points: Value(map['points'] as String?),
+            color: Value(map['color'] as String?),
+            createdAt: Value(map['createdAt'] as String?),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
   }
 
   Future<List<PdfDrawing>> getPdfDrawingsByBook(String bookId) async {
     if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('pdf_drawings', where: 'book_id = ?', whereArgs: [bookId], orderBy: 'page ASC, created_at ASC');
-    return rows.map((row) => PdfDrawing.fromMap({
-      'id': row['id'], 'bookId': row['book_id'], 'page': row['page'],
-      'points': row['points'], 'color': row['color'], 'createdAt': row['created_at'],
-    })).toList();
+    final rows = await (_drift.select(_drift.pdfDrawings)
+          ..where((t) => t.bookId.equals(bookId))
+          ..orderBy([
+            (t) => OrderingTerm(expression: t.page, mode: OrderingMode.asc),
+            (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows
+        .map((row) => PdfDrawing.fromMap({
+              'id': row.id,
+              'bookId': row.bookId,
+              'page': row.page,
+              'points': row.points,
+              'color': row.color,
+              'createdAt': row.createdAt,
+            }))
+        .toList();
   }
 
   Future<void> deletePdfDrawingsByBook(String bookId) async {
     if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.delete('pdf_drawings', where: 'book_id = ?', whereArgs: [bookId]);
+    await (_drift.delete(_drift.pdfDrawings)
+          ..where((t) => t.bookId.equals(bookId)))
+        .go();
   }
 
   // ═══════════════════════════════════════════════════════
@@ -2034,167 +1729,240 @@ class DatabaseService {
   // ═══════════════════════════════════════════════════════
 
   Future<Map<String, dynamic>?> getBoardView(String id) async {
-    if (_isWeb) return null;
-    final db = await _getDatabase();
-    final rows = await db.query('board_views', where: 'id = ?', whereArgs: [id], limit: 1);
-    if (rows.isEmpty) return null;
-    final row = rows.first;
-    return {
-      'id': row['id'], 'name': row['name'], 'type': row['type'],
-      'ownerId': row['owner_id'], 'createdAt': row['created_at'], 'updatedAt': row['updated_at'],
-    };
+    final row = await (_drift.select(_drift.boardViews)
+          ..where((t) => t.id.equals(id))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    return _boardViewRowToMap(row);
   }
 
   Future<void> upsertBoardView(Map<String, dynamic> view) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.insert('board_views', {
-      'id': view['id'], 'name': view['name'], 'type': view['type'],
-      'owner_id': view['ownerId'], 'created_at': view['createdAt'], 'updated_at': view['updatedAt'],
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _drift.into(_drift.boardViews).insert(
+          BoardViewsCompanion(
+            id: Value(view['id'] as String),
+            name: Value(view['name'] as String?),
+            type: Value(view['type'] as String?),
+            ownerId: Value(view['ownerId'] as String?),
+            createdAt: Value(view['createdAt'] as String?),
+            updatedAt: Value(view['updatedAt'] as String?),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
   }
 
   Future<List<Map<String, dynamic>>> getBoardNodes(String viewId) async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('board_nodes', where: 'view_id = ?', whereArgs: [viewId], orderBy: 'z_index ASC');
-    return rows.map((row) => {
-      'id': row['id'], 'viewId': row['view_id'], 'cardId': row['card_id'],
-      'type': row['type'] ?? 'card', 'noteId': row['note_id'],
-      'x': row['x'], 'y': row['y'], 'zIndex': row['z_index'],
-    }).toList();
+    final rows = await (_drift.select(_drift.boardNodes)
+          ..where((t) => t.viewId.equals(viewId))
+          ..orderBy([
+            (t) => OrderingTerm(expression: t.zIndex, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows.map(_boardNodeRowToMap).toList();
   }
 
   Future<void> replaceBoardNodes(String viewId, List<Map<String, dynamic>> nodes) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.transaction((txn) async {
-      await txn.delete('board_nodes', where: 'view_id = ?', whereArgs: [viewId]);
+    await _drift.transaction(() async {
+      await (_drift.delete(_drift.boardNodes)
+            ..where((t) => t.viewId.equals(viewId)))
+          .go();
       for (final node in nodes) {
-        await txn.insert('board_nodes', {
-          'id': node['id'], 'view_id': node['viewId'], 'card_id': node['cardId'],
-          'type': node['type'] ?? 'card', 'note_id': node['noteId'],
-          'x': node['x'], 'y': node['y'], 'z_index': node['zIndex'],
-        });
+        await _drift.into(_drift.boardNodes).insert(
+              BoardNodesCompanion(
+                id: Value(node['id'] as String),
+                viewId: Value(node['viewId'] as String?),
+                cardId: Value(node['cardId'] as String?),
+                type: Value((node['type'] as String?) ?? 'card'),
+                noteId: Value(node['noteId'] as String?),
+                x: Value(node['x'] as double?),
+                y: Value(node['y'] as double?),
+                zIndex: Value(node['zIndex'] as int?),
+              ),
+            );
       }
     });
   }
 
   Future<List<Map<String, dynamic>>> getBoardEdges(String viewId) async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('board_edges', where: 'view_id = ?', whereArgs: [viewId]);
-    return rows.map((row) => {
-      'id': row['id'], 'viewId': row['view_id'],
-      'sourceNodeId': row['source_node_id'], 'targetNodeId': row['target_node_id'],
-    }).toList();
+    final rows = await (_drift.select(_drift.boardEdges)
+          ..where((t) => t.viewId.equals(viewId)))
+        .get();
+    return rows.map(_boardEdgeRowToMap).toList();
   }
 
   Future<void> replaceBoardEdges(String viewId, List<Map<String, dynamic>> edges) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.transaction((txn) async {
-      await txn.delete('board_edges', where: 'view_id = ?', whereArgs: [viewId]);
+    await _drift.transaction(() async {
+      await (_drift.delete(_drift.boardEdges)
+            ..where((t) => t.viewId.equals(viewId)))
+          .go();
       for (final edge in edges) {
-        await txn.insert('board_edges', {
-          'id': edge['id'], 'view_id': edge['viewId'],
-          'source_node_id': edge['sourceNodeId'], 'target_node_id': edge['targetNodeId'],
-        });
+        await _drift.into(_drift.boardEdges).insert(
+              BoardEdgesCompanion(
+                id: Value(edge['id'] as String),
+                viewId: Value(edge['viewId'] as String?),
+                sourceNodeId: Value(edge['sourceNodeId'] as String?),
+                targetNodeId: Value(edge['targetNodeId'] as String?),
+              ),
+            );
       }
     });
   }
 
   Future<List<Map<String, dynamic>>> getBoardTexts(String viewId) async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('board_texts', where: 'view_id = ?', whereArgs: [viewId]);
-    return rows.map((row) => {
-      'id': row['id'], 'viewId': row['view_id'],
-      'x': row['x'], 'y': row['y'], 'content': row['content'],
-    }).toList();
+    final rows = await (_drift.select(_drift.boardTexts)
+          ..where((t) => t.viewId.equals(viewId)))
+        .get();
+    return rows.map(_boardTextRowToMap).toList();
   }
 
   Future<void> replaceBoardTexts(String viewId, List<Map<String, dynamic>> texts) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.transaction((txn) async {
-      await txn.delete('board_texts', where: 'view_id = ?', whereArgs: [viewId]);
+    await _drift.transaction(() async {
+      await (_drift.delete(_drift.boardTexts)
+            ..where((t) => t.viewId.equals(viewId)))
+          .go();
       for (final t in texts) {
-        await txn.insert('board_texts', {
-          'id': t['id'], 'view_id': t['viewId'],
-          'x': t['x'], 'y': t['y'], 'content': t['content'],
-        });
+        await _drift.into(_drift.boardTexts).insert(
+              BoardTextsCompanion(
+                id: Value(t['id'] as String),
+                viewId: Value(t['viewId'] as String?),
+                x: Value(t['x'] as double?),
+                y: Value(t['y'] as double?),
+                content: Value(t['content'] as String?),
+              ),
+            );
       }
     });
   }
-    Future<void> replaceBoardStrokes(String viewId, List<Map<String, dynamic>> strokes) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.transaction((txn) async {
-      await txn.delete('board_strokes', where: 'view_id = ?', whereArgs: [viewId]);
+  Future<void> replaceBoardStrokes(String viewId, List<Map<String, dynamic>> strokes) async {
+    await _drift.transaction(() async {
+      await (_drift.delete(_drift.boardStrokes)
+            ..where((t) => t.viewId.equals(viewId)))
+          .go();
       for (final s in strokes) {
-        await txn.insert('board_strokes', {
-          'id': s['id'], 'view_id': s['viewId'],
-          'group_id': s['groupId'], 'z_index': s['zIndex'] ?? 0,
-          'points': s['points'], 'color': s['color'], 'width': s['width'],
-          'created_at': s['createdAt'],
-        });
+        await _drift.into(_drift.boardStrokes).insert(
+              BoardStrokesCompanion(
+                id: Value(s['id'] as String),
+                viewId: Value(s['viewId'] as String),
+                groupId: Value(s['groupId'] as String?),
+                zIndex: Value((s['zIndex'] as int?) ?? 0),
+                points: Value(s['points'] as String),
+                color: Value(s['color'] as String),
+                width: Value(s['width'] as double),
+                createdAt: Value(s['createdAt'] as String),
+              ),
+            );
       }
     });
   }
 
   Future<void> insertBoardStroke(Map<String, dynamic> s) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.insert('board_strokes', {
-      'id': s['id'], 'view_id': s['viewId'],
-      'group_id': s['groupId'], 'z_index': s['zIndex'] ?? 0,
-      'points': s['points'], 'color': s['color'], 'width': s['width'],
-      'created_at': s['createdAt'],
-    });
+    await _drift.into(_drift.boardStrokes).insert(
+          BoardStrokesCompanion(
+            id: Value(s['id'] as String),
+            viewId: Value(s['viewId'] as String),
+            groupId: Value(s['groupId'] as String?),
+            zIndex: Value((s['zIndex'] as int?) ?? 0),
+            points: Value(s['points'] as String),
+            color: Value(s['color'] as String),
+            width: Value(s['width'] as double),
+            createdAt: Value(s['createdAt'] as String),
+          ),
+        );
   }
 
   Future<List<Map<String, dynamic>>> getBoardStrokes(String viewId) async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('board_strokes',
-        where: 'view_id = ?', whereArgs: [viewId]);
-    return rows.map((row) => {
-      'id': row['id'], 'viewId': row['view_id'],
-      'groupId': row['group_id'], 'zIndex': row['z_index'],
-      'points': row['points'], 'color': row['color'], 'width': row['width'],
-      'createdAt': row['created_at'],
-    }).toList();
+    final rows = await (_drift.select(_drift.boardStrokes)
+          ..where((t) => t.viewId.equals(viewId)))
+        .get();
+    return rows.map(_boardStrokeRowToMap).toList();
   }
+  // ─── 批 5：Row → camelCase Map helpers ────────────────
+
+  Map<String, dynamic> _boardViewRowToMap(BoardView r) => {
+        'id': r.id,
+        'name': r.name,
+        'type': r.type,
+        'ownerId': r.ownerId,
+        'createdAt': r.createdAt,
+        'updatedAt': r.updatedAt,
+      };
+
+  Map<String, dynamic> _boardNodeRowToMap(BoardNode r) => {
+        'id': r.id,
+        'viewId': r.viewId,
+        'cardId': r.cardId,
+        'type': r.type,
+        'noteId': r.noteId,
+        'x': r.x,
+        'y': r.y,
+        'zIndex': r.zIndex,
+      };
+
+  Map<String, dynamic> _boardEdgeRowToMap(BoardEdge r) => {
+        'id': r.id,
+        'viewId': r.viewId,
+        'sourceNodeId': r.sourceNodeId,
+        'targetNodeId': r.targetNodeId,
+      };
+
+  Map<String, dynamic> _boardTextRowToMap(BoardText r) => {
+        'id': r.id,
+        'viewId': r.viewId,
+        'x': r.x,
+        'y': r.y,
+        'content': r.content,
+      };
+
+  Map<String, dynamic> _boardStrokeRowToMap(BoardStroke r) => {
+        'id': r.id,
+        'viewId': r.viewId,
+        'groupId': r.groupId,
+        'zIndex': r.zIndex,
+        'points': r.points,
+        'color': r.color,
+        'width': r.width,
+        'createdAt': r.createdAt,
+      };
+
+  Map<String, dynamic> _boardAlbumRowToMap(BoardAlbum r) => {
+        'id': r.id,
+        'title': r.title,
+        'sourceViewId': r.sourceViewId,
+        'strokesJson': r.strokesJson,
+        'thumbnailBase64': r.thumbnailBase64,
+        'createdAt': r.createdAt,
+        'updatedAt': r.updatedAt,
+      };
+
   // ─── R-12a：节点批注 DAO ──────────────────────
 
   Future<void> saveNodeAnnotation(
       String nodeId, List<Map<String, dynamic>> strokesJson) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
     final now = DateTime.now().toIso8601String();
-    await db.transaction((txn) async {
-      await txn.delete('node_annotations',
-          where: 'node_id = ?', whereArgs: [nodeId]);
-      await txn.insert('node_annotations', {
-        'id': 'na_$nodeId',
-        'node_id': nodeId,
-        'strokes_json': jsonEncode(strokesJson),
-        'created_at': now,
-        'updated_at': now,
-      });
+    await _drift.transaction(() async {
+      await (_drift.delete(_drift.nodeAnnotations)
+            ..where((t) => t.nodeId.equals(nodeId)))
+          .go();
+      await _drift.into(_drift.nodeAnnotations).insert(
+            NodeAnnotationsCompanion(
+              id: Value('na_$nodeId'),
+              nodeId: Value(nodeId),
+              strokesJson: Value(jsonEncode(strokesJson)),
+              createdAt: Value(now),
+              updatedAt: Value(now),
+            ),
+          );
     });
   }
 
   Future<List<Map<String, dynamic>>> loadNodeAnnotation(String nodeId) async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('node_annotations',
-        where: 'node_id = ?', whereArgs: [nodeId], limit: 1);
-    if (rows.isEmpty) return [];
-    final raw = rows.first['strokes_json'] as String;
+    final row = await (_drift.select(_drift.nodeAnnotations)
+          ..where((t) => t.nodeId.equals(nodeId))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return [];
     try {
-      return (jsonDecode(raw) as List)
+      return (jsonDecode(row.strokesJson) as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
     } catch (_) {
@@ -2203,92 +1971,298 @@ class DatabaseService {
   }
 
   Future<void> deleteNodeAnnotation(String nodeId) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.delete('node_annotations',
-        where: 'node_id = ?', whereArgs: [nodeId]);
+    await (_drift.delete(_drift.nodeAnnotations)
+          ..where((t) => t.nodeId.equals(nodeId)))
+        .go();
   }
+
+  // ─── 批 5：NodeAnnotation Row → camelCase Map helper ───
+
 
   // ─── R-7-3a 单A：writing_sessions / focus_sessions DAO ───
 
+  // ─── 批 4：Row → snake_case Map helpers ────────────────
+
+  Map<String, dynamic> _writingSessionRowToMap(WritingSessionRow r) => {
+        'id': r.id,
+        'note_id': r.noteId,
+        'start_at': r.startAt,
+        'end_at': r.endAt,
+        'word_count': r.wordCount,
+        'paused_seconds': r.pausedSeconds,
+      };
+
+  Map<String, dynamic> _focusSessionRowToMap(FocusSessionRow r) => {
+        'id': r.id,
+        'start_at': r.startAt,
+        'minutes': r.minutes,
+      };
+
   Future<void> insertWritingSession(Map<String, dynamic> session) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.insert('writing_sessions', session,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await _drift.into(_drift.writingSessions).insert(
+          WritingSessionsCompanion(
+            id: Value(session['id'] as String),
+            noteId: Value(session['note_id'] as String),
+            startAt: Value(session['start_at'] as String),
+            endAt: Value(session['end_at'] as String),
+            wordCount: Value((session['word_count'] as int?) ?? 0),
+            pausedSeconds: Value((session['paused_seconds'] as int?) ?? 0),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
   }
 
   Future<List<Map<String, dynamic>>> getAllWritingSessions() async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('writing_sessions', orderBy: 'start_at ASC');
-    return rows.cast<Map<String, dynamic>>();
+    final rows = await (_drift.select(_drift.writingSessions)
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.startAt, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows.map(_writingSessionRowToMap).toList();
   }
 
   Future<void> deleteWritingSessionsBefore(DateTime cutoff) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.delete('writing_sessions',
-        where: 'start_at < ?', whereArgs: [cutoff.toIso8601String()]);
+    await (_drift.delete(_drift.writingSessions)
+          ..where((t) =>
+              t.startAt.isSmallerThanValue(cutoff.toIso8601String())))
+        .go();
   }
 
   Future<void> clearWritingSessions() async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.delete('writing_sessions');
+    await _drift.delete(_drift.writingSessions).go();
   }
 
   Future<void> insertFocusSession(Map<String, dynamic> session) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.insert('focus_sessions', session,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await _drift.into(_drift.focusSessions).insert(
+          FocusSessionsCompanion(
+            id: Value(session['id'] as String),
+            startAt: Value(session['start_at'] as String),
+            minutes: Value((session['minutes'] as int?) ?? 0),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
   }
 
   Future<List<Map<String, dynamic>>> getAllFocusSessions() async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('focus_sessions', orderBy: 'start_at ASC');
-    return rows.cast<Map<String, dynamic>>();
+    final rows = await (_drift.select(_drift.focusSessions)
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.startAt, mode: OrderingMode.asc),
+          ]))
+        .get();
+    return rows.map(_focusSessionRowToMap).toList();
   }
 
 
 
 
   Future<void> deleteFocusSessionsBefore(DateTime cutoff) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.delete('focus_sessions',
-        where: 'start_at < ?', whereArgs: [cutoff.toIso8601String()]);
+    await (_drift.delete(_drift.focusSessions)
+          ..where((t) =>
+              t.startAt.isSmallerThanValue(cutoff.toIso8601String())))
+        .go();
   }
   Future<List<Map<String, dynamic>>> getAllBoardAlbums() async {
-    if (_isWeb) return [];
-    final db = await _getDatabase();
-    final rows = await db.query('board_albums', orderBy: 'created_at DESC');
-    return rows.cast<Map<String, dynamic>>();
+    final rows = await (_drift.select(_drift.boardAlbums)
+          ..orderBy([
+            (t) => OrderingTerm(
+                expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .get();
+    return rows.map(_boardAlbumRowToMap).toList();
   }
 
   Future<Map<String, dynamic>?> getBoardAlbum(String id) async {
-    if (_isWeb) return null;
-    final db = await _getDatabase();
-    final rows = await db.query('board_albums',
-        where: 'id = ?', whereArgs: [id], limit: 1);
-    if (rows.isEmpty) return null;
-    return Map<String, dynamic>.from(rows.first);
+    final row = await (_drift.select(_drift.boardAlbums)
+          ..where((t) => t.id.equals(id))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    return _boardAlbumRowToMap(row);
   }
 
   Future<void> insertBoardAlbum(Map<String, dynamic> m) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.insert('board_albums', m);
+    await _drift.into(_drift.boardAlbums).insert(
+          BoardAlbumsCompanion(
+            id: Value(m['id'] as String),
+            title: Value(m['title'] as String?),
+            sourceViewId: Value(m['sourceViewId'] as String?),
+            strokesJson: Value(m['strokesJson'] as String),
+            thumbnailBase64: Value(m['thumbnailBase64'] as String?),
+            createdAt: Value(m['createdAt'] as String),
+            updatedAt: Value(m['updatedAt'] as String?),
+          ),
+        );
   }
 
   Future<void> deleteBoardAlbum(String id) async {
-    if (_isWeb) return;
-    final db = await _getDatabase();
-    await db.delete('board_albums', where: 'id = ?', whereArgs: [id]);
+    await (_drift.delete(_drift.boardAlbums)..where((t) => t.id.equals(id)))
+        .go();
   }
 
   Future<String> ensureAlbumFolder() =>
       _ensureSystemFolderByTag('album', '画册', tags: ['系统', '画册']);
+
+  // ═══════════════════════════════════════════════════════════════
+  // 批 6：宠物 / 设置（入参 / 出参全 camelCase）
+  // ═══════════════════════════════════════════════════════════════
+
+  Map<String, dynamic> _petRowToMap(PetRow r) => {
+        'name': r.name,
+        'level': r.level,
+        'exp': r.exp,
+        'stage': r.stage,
+        'happiness': r.happiness,
+        'lastFed': r.lastFed,
+      };
+
+  PetsCompanion _petMapToCompanion(Map<String, dynamic> map) {
+    final now = DateTime.now().toIso8601String();
+    return PetsCompanion(
+      id: const Value(1),
+      name: Value((map['name'] as String?) ?? '小云'),
+      level: Value((map['level'] as int?) ?? 1),
+      exp: Value((map['exp'] as int?) ?? 0),
+      stage: Value((map['stage'] as String?) ?? 'droplet'),
+      happiness: Value((map['happiness'] as int?) ?? 80),
+      lastFed: Value((map['lastFed'] as int?) ?? 0),
+      updatedAt: Value(now),
+    );
+  }
+
+  Future<Map<String, dynamic>?> loadPet() async {
+    final row = await (_drift.select(_drift.pets)
+          ..where((t) => t.id.equals(1))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    return _petRowToMap(row);
+  }
+
+  Future<void> savePet(Map<String, dynamic> petMap) async {
+    await _drift.into(_drift.pets).insert(
+          _petMapToCompanion(petMap),
+          mode: InsertMode.insertOrReplace,
+        );
+  }
+
+  Future<void> clearPet() async {
+    await _drift.delete(_drift.pets).go();
+  }
+
+  Map<String, dynamic> _userSettingsRowToMap(UserSettingsTableData r) => {
+        'nickname': r.nickname,
+        'bio': r.bio,
+        'avatarUrl': r.avatarUrl,
+        'themeMode': r.themeMode,
+        'defaultMarkdown': r.defaultMarkdown,
+        'reviewReminderHour': r.reviewReminderHour,
+        'reviewReminderMinute': r.reviewReminderMinute,
+        'dailyReviewLimit': r.dailyReviewLimit,
+        'reviewFactor': r.reviewFactor,
+        'heatmapStatMode': r.heatmapStatMode,
+        'heatmapHighThreshold': r.heatmapHighThreshold,
+        'heatmapBurstThreshold': r.heatmapBurstThreshold,
+        'heatmapWordHighThreshold': r.heatmapWordHighThreshold,
+        'heatmapWordBurstThreshold': r.heatmapWordBurstThreshold,
+        'heatmapColorScheme': r.heatmapColorScheme,
+        'heatmapColorLow': r.heatmapColorLow,
+        'heatmapColorMid': r.heatmapColorMid,
+        'heatmapColorHigh': r.heatmapColorHigh,
+        'heatmapColorBurst': r.heatmapColorBurst,
+        'showPet': r.showPet,
+        'petSkin': r.petSkin,
+        'petName': r.petName,
+        'petInFocusMode': r.petInFocusMode,
+        'rawNoteRetentionDays': r.rawNoteRetentionDays,
+        'dailyWordTarget': r.dailyWordTarget,
+        'typewriterSound': r.typewriterSound,
+        'whiteNoiseVolume': r.whiteNoiseVolume,
+        'restReminderOn': r.restReminderOn,
+        'restReminderMinutes': r.restReminderMinutes,
+        'customNoiseSources': r.customNoiseSources,
+      };
+
+  UserSettingsTableCompanion _userSettingsMapToCompanion(
+      Map<String, dynamic> map) {
+    return UserSettingsTableCompanion(
+      nickname: Value((map['nickname'] as String?) ?? '小云同学'),
+      bio: Value((map['bio'] as String?) ?? '📚 知识探索者'),
+      avatarUrl: Value((map['avatarUrl'] as String?) ?? ''),
+      themeMode: Value((map['themeMode'] as String?) ?? 'light'),
+      defaultMarkdown: Value((map['defaultMarkdown'] as bool?) ?? false),
+      reviewReminderHour: Value((map['reviewReminderHour'] as int?) ?? 20),
+      reviewReminderMinute:
+          Value((map['reviewReminderMinute'] as int?) ?? 0),
+      dailyReviewLimit: Value((map['dailyReviewLimit'] as int?) ?? 20),
+      reviewFactor: Value((map['reviewFactor'] as num?)?.toDouble() ?? 2.5),
+      heatmapStatMode:
+          Value((map['heatmapStatMode'] as String?) ?? 'count'),
+      heatmapHighThreshold:
+          Value((map['heatmapHighThreshold'] as int?) ?? 3),
+      heatmapBurstThreshold:
+          Value((map['heatmapBurstThreshold'] as int?) ?? 8),
+      heatmapWordHighThreshold:
+          Value((map['heatmapWordHighThreshold'] as int?) ?? 300),
+      heatmapWordBurstThreshold:
+          Value((map['heatmapWordBurstThreshold'] as int?) ?? 800),
+      heatmapColorScheme:
+          Value((map['heatmapColorScheme'] as String?) ?? 'emerald'),
+      heatmapColorLow:
+          Value((map['heatmapColorLow'] as String?) ?? '#E8F5E9'),
+      heatmapColorMid:
+          Value((map['heatmapColorMid'] as String?) ?? '#81C784'),
+      heatmapColorHigh:
+          Value((map['heatmapColorHigh'] as String?) ?? '#FFD93D'),
+      heatmapColorBurst:
+          Value((map['heatmapColorBurst'] as String?) ?? '#FF6B6B'),
+      showPet: Value((map['showPet'] as bool?) ?? true),
+      petSkin: Value((map['petSkin'] as String?) ?? 'default'),
+      petName: Value((map['petName'] as String?) ?? '小云'),
+      petInFocusMode: Value((map['petInFocusMode'] as bool?) ?? true),
+      rawNoteRetentionDays:
+          Value((map['rawNoteRetentionDays'] as int?) ?? 15),
+      dailyWordTarget: Value((map['dailyWordTarget'] as int?) ?? 0),
+      typewriterSound: Value((map['typewriterSound'] as bool?) ?? false),
+      whiteNoiseVolume:
+          Value((map['whiteNoiseVolume'] as num?)?.toDouble() ?? 0.5),
+      restReminderOn: Value((map['restReminderOn'] as bool?) ?? false),
+      restReminderMinutes:
+          Value((map['restReminderMinutes'] as int?) ?? 45),
+      customNoiseSources: Value(map['customNoiseSources'] != null
+          ? jsonEncode(map['customNoiseSources'])
+          : '[]'),
+      // 其余 focusMinutes / reader* 7 列不传（Value.absent），不读不写。
+    );
+  }
+
+  Future<Map<String, dynamic>?> loadSettings() async {
+    final row = await (_drift.select(_drift.userSettingsTable)..limit(1))
+        .getSingleOrNull();
+    if (row == null) return null;
+    final map = _userSettingsRowToMap(row);
+    // customNoiseSources 在表里是 TEXT (JSON)，转回 List
+    try {
+      final raw = map['customNoiseSources'] as String?;
+      map['customNoiseSources'] =
+          raw != null ? jsonDecode(raw) : <Map<String, dynamic>>[];
+    } catch (_) {
+      map['customNoiseSources'] = <Map<String, dynamic>>[];
+    }
+    return map;
+  }
+
+  Future<void> saveSettings(Map<String, dynamic> settingsMap) async {
+    final companion = _userSettingsMapToCompanion(settingsMap);
+    final existing = await (_drift.select(_drift.userSettingsTable)..limit(1))
+        .getSingleOrNull();
+    if (existing != null) {
+      await (_drift.update(_drift.userSettingsTable)
+            ..where((t) => t.id.equals(existing.id)))
+          .write(companion);
+    } else {
+      await _drift.into(_drift.userSettingsTable).insert(companion);
+    }
+  }
 }

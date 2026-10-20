@@ -1,4 +1,4 @@
-# Miscellaneous
+﻿# Miscellaneous
 *.class
 *.log
 *.pyc
@@ -66,3 +66,5 @@ android/build/
 
 # core dump
 _core_dump*.txt
+
+tool/

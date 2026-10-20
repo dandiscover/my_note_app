@@ -1,24 +1,16 @@
 // lib/services/settings_service.dart
-// 设置服务 — 添加云端同步
+// 设置服务 — 迁 DB
 
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'dart:developer';
+import '../database_service.dart';
 import '../models/user_settings.dart';
 import 'sync/cloud_sync_service.dart';
 import 'sync/sync_manager.dart';
 
 class SettingsService {
-  static const String _key = 'user_settings';
-
   Future<UserSettings> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = prefs.getString(_key);
-    if (data == null || data.isEmpty) {
-      return UserSettings();
-    }
+    final map = await DatabaseService().loadSettings();
+    if (map == null) return UserSettings();
     try {
-      final map = jsonDecode(data) as Map<String, dynamic>;
       return UserSettings.fromMap(map);
     } catch (_) {
       return UserSettings();
@@ -26,9 +18,7 @@ class SettingsService {
   }
 
   Future<void> save(UserSettings settings) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, jsonEncode(settings.toMap()));
-    // ✅ 同步到云端
+    await DatabaseService().saveSettings(settings.toMap());
     if (CloudSyncService().isLoggedIn) {
       try {
         await CloudSyncService().syncSettings(settings);

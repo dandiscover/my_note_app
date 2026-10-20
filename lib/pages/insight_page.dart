@@ -191,8 +191,7 @@ class InsightPageState extends State<InsightPage>
       // B4：拉 note_note_links → 构 nodeId → Set<targetNodeId>
       Map<String, Set<String>> noteNoteLinkEdges = {};
       try {
-        final dbConn = await _db.database;
-        final linkRows = await dbConn.query('note_note_links');
+        final linkRows = await _db.getAllNoteNoteLinks();
         final nodeByNoteId = <String, String>{};
         for (final n in nodes) {
           if (n.nodeType == 'note' && n.targetId != null) {

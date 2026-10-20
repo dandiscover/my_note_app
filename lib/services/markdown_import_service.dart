@@ -50,7 +50,11 @@ class _ScannedFile {
 }
 
 class MarkdownImportService {
-  final DatabaseService _db = DatabaseService();
+  final DatabaseService _db;
+
+  MarkdownImportService() : _db = DatabaseService();
+
+  MarkdownImportService.forTesting(DatabaseService db) : _db = db;
   bool _cancelled = false;
   final Map<String, String> _folderCache = {};
 String? _currentSourceRoot;
