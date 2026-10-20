@@ -13,10 +13,14 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/card.dart';
+import '../database_service.dart';
 import 'sync/cloud_sync_service.dart';
 import 'sync/sync_manager.dart';
 
 class CardService {
+  final DatabaseService _db;
+  CardService() : _db = DatabaseService();
+  CardService.forTesting(DatabaseService db) : _db = db;
   static const String _cardsKey = 'cards_data';
   static const String _firstUsedCardsKey = 'first_used_cards';
   static const String _systemGuideCardId = 'system_guide_card';
@@ -52,15 +56,8 @@ class CardService {
 
   // ✅ 私有：纯读逻辑（原 getAllCards 的读取部分）
   Future<List<CardModel>> _loadCards() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString(_cardsKey);
-      if (data == null || data.isEmpty) return [];
-      final List<dynamic> list = jsonDecode(data);
-      return list.map((e) => CardModel.fromJson(e as Map<String, dynamic>)).toList();
-    } catch (e) {
-      return [];
-    }
+    final maps = await _db.getAllCards();
+    return maps.map((m) => CardModel.fromJson(m)).toList();
   }
 
   // ✅ 保留为公共方法，内部只触发懒加载
@@ -78,9 +75,7 @@ class CardService {
   }
 
   Future<void> _saveCards(List<CardModel> cards) async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = jsonEncode(cards.map((c) => c.toJson()).toList());
-    await prefs.setString(_cardsKey, json);
+    await _db.saveCards(cards.map((c) => c.toJson()).toList());
   }
 
   Future<void> addCard(CardModel card) async {

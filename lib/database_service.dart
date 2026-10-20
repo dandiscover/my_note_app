@@ -966,6 +966,117 @@ class DatabaseService {
     return rows.map(_bookRowToMap).toList();
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // Cards（阶段二卡迁移：CardService prefs → Drift）
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<List<Map<String, dynamic>>> getAllCards() async {
+    final rows = await _drift.select(_drift.cards).get();
+    return rows.map(_cardRowToMap).toList();
+  }
+
+  Future<void> saveCards(List<Map<String, dynamic>> cards) async {
+    await _drift.transaction(() async {
+      await _drift.delete(_drift.cards).go();
+      for (final m in cards) {
+        await _drift.into(_drift.cards).insert(
+              _cardMapToCompanion(m),
+              mode: InsertMode.insertOrReplace,
+            );
+      }
+    });
+  }
+
+  Map<String, dynamic> _cardRowToMap(CardsData r) => {
+        'id': r.id,
+        'cardType': r.cardType,
+        'sourceType': r.sourceType,
+        'sourceId': r.sourceId,
+        'sourceTitle': r.sourceTitle,
+        'tags': _jsonArrayToList(r.tags),
+        'kind': r.kind,
+        'importance': r.importance,
+        'front': r.front,
+        'back': r.back,
+        'indexTitle': r.indexTitle,
+        'author': r.author,
+        'highlight': r.highlight,
+        'anchor': r.anchor,
+        'question': r.question,
+        'answer': r.answer,
+        'fillQuestion': r.fillQuestion,
+        'fillAnswer': r.fillAnswer,
+        'choiceQuestion': r.choiceQuestion,
+        'choiceOptions': r.choiceOptions == null
+            ? null
+            : _jsonArrayToList(r.choiceOptions!),
+        'choiceCorrectIndex': r.choiceCorrectIndex,
+        'tfStatement': r.tfStatement,
+        'tfIsTrue': r.tfIsTrue,
+        'createdAt': r.createdAt,
+        'updatedAt': r.updatedAt,
+        'lastReviewDate': r.lastReviewDate,
+        'nextReviewDate': r.nextReviewDate,
+        'memoryLevel': r.memoryLevel,
+        'relatedIds': _jsonArrayToList(r.relatedIds),
+        'stage': r.stage,
+        'mastered': r.mastered,
+        'totalReviews': r.totalReviews,
+        'failedCount': r.failedCount,
+        'usageCount': r.usageCount,
+      };
+
+  CardsCompanion _cardMapToCompanion(Map<String, dynamic> m) {
+    return CardsCompanion(
+      id: Value(m['id'] as String),
+      cardType: Value(m['cardType'] as String),
+      sourceType: Value((m['sourceType'] as String?) ?? ''),
+      sourceId: Value((m['sourceId'] as String?) ?? ''),
+      sourceTitle: Value(m['sourceTitle'] as String?),
+      tags: Value(m['tags'] == null ? '[]' : jsonEncode(m['tags'])),
+      kind: Value((m['kind'] as String?) ?? 'atomic'),
+      importance: Value((m['importance'] as String?) ?? 'medium'),
+      front: Value(m['front'] as String?),
+      back: Value(m['back'] as String?),
+      indexTitle: Value(m['indexTitle'] as String?),
+      author: Value(m['author'] as String?),
+      highlight: Value(m['highlight'] as String?),
+      anchor: Value(m['anchor'] as String?),
+      question: Value(m['question'] as String?),
+      answer: Value(m['answer'] as String?),
+      fillQuestion: Value(m['fillQuestion'] as String?),
+      fillAnswer: Value(m['fillAnswer'] as String?),
+      choiceQuestion: Value(m['choiceQuestion'] as String?),
+      choiceOptions: Value(
+          m['choiceOptions'] == null ? null : jsonEncode(m['choiceOptions'])),
+      choiceCorrectIndex: Value(m['choiceCorrectIndex'] as int?),
+      tfStatement: Value(m['tfStatement'] as String?),
+      tfIsTrue: Value(m['tfIsTrue'] as bool?),
+      createdAt: Value((m['createdAt'] as String?) ?? ''),
+      updatedAt: Value((m['updatedAt'] as String?) ?? ''),
+      lastReviewDate: Value(m['lastReviewDate'] as String?),
+      nextReviewDate: Value(m['nextReviewDate'] as String?),
+      memoryLevel: Value((m['memoryLevel'] as num?)?.toDouble() ?? 0.5),
+      relatedIds:
+          Value(m['relatedIds'] == null ? '[]' : jsonEncode(m['relatedIds'])),
+      stage: Value((m['stage'] as int?) ?? 0),
+      mastered: Value((m['mastered'] as bool?) ?? false),
+      totalReviews: Value((m['totalReviews'] as int?) ?? 0),
+      failedCount: Value((m['failedCount'] as int?) ?? 0),
+      usageCount: Value((m['usageCount'] as int?) ?? 0),
+    );
+  }
+
+  List<String> _jsonArrayToList(String s) {
+    try {
+      final decoded = jsonDecode(s);
+      if (decoded is List) {
+        return decoded.map((e) => e.toString()).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
   Future<Map<String, dynamic>?> getBook(String id) async {
     final row = await (_drift.select(_drift.books)
           ..where((t) => t.id.equals(id))

@@ -1,7 +1,10 @@
 @TestOn('vm')
 library;
 
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_note_app/database/database.dart';
+import 'package:my_note_app/database_service.dart';
 import 'package:my_note_app/models/card.dart';
 import 'package:my_note_app/services/card_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,11 +13,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('L1-2 卡片（CardService）', () {
+    late AppDatabase db;
+    late DatabaseService dbService;
     late CardService service;
 
     setUp(() {
       SharedPreferences.setMockInitialValues({});
-      service = CardService();
+      db = AppDatabase.forTesting(NativeDatabase.memory());
+      dbService = DatabaseService.forTesting(db);
+      service = CardService.forTesting(dbService);
+    });
+
+    tearDown(() async {
+      await db.close();
     });
 
     CardModel makeCard(String id) => CardModel(

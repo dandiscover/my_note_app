@@ -7,6 +7,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_note_app/services/card_service.dart';
 import 'package:my_note_app/models/card.dart';
+import 'package:drift/native.dart';
+import 'package:my_note_app/database/database.dart';
+import 'package:my_note_app/database_service.dart';
 
 /// 过滤掉系统预置卡（system_guide_card），只返回用户创建的卡片。
 /// 理由：CardService.getAllCards() 首次调用会懒加载 system_guide_card，
@@ -16,12 +19,20 @@ List<CardModel> _userCards(List<CardModel> all) {
 }
 
 void main() {
+  late AppDatabase db;
+  late DatabaseService dbService;
   late CardService cardService;
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
-    cardService = CardService();
+    db = AppDatabase.forTesting(NativeDatabase.memory());
+    dbService = DatabaseService.forTesting(db);
+    cardService = CardService.forTesting(dbService);
+  });
+
+  tearDown(() async {
+    await db.close();
   });
 
   // ─── 组1：基础 CRUD ──────────────────────────────────────
