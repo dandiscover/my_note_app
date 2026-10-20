@@ -31,13 +31,11 @@ import '../services/epub_export/epub_platform_saver.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
 import '../utils/debouncer.dart';
+
 class RichtextEditorPage extends StatefulWidget {
   final NotebookEntry entry;
 
-  const RichtextEditorPage({
-    super.key,
-    required this.entry,
-  });
+  const RichtextEditorPage({super.key, required this.entry});
 
   @override
   State<RichtextEditorPage> createState() => _RichtextEditorPageState();
@@ -52,7 +50,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
   String? _initError;
 
   bool _isSaving = false;
-    final Debouncer _autoSaveDebouncer = Debouncer(const Duration(seconds: 3));
+  final Debouncer _autoSaveDebouncer = Debouncer(const Duration(seconds: 3));
   bool _isDirty = false;
   bool _showMaterialPanel = false;
   List<MaterialItem> _materialItems = [];
@@ -107,12 +105,14 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
       }
     });
   }
+
   Future<void> _loadMaterialItems() async {
     final cards = await CardService().getAllCards();
     final maps = await DatabaseService().getAllNotes(includeDeleted: false);
     final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
-    final indexCards =
-        cards.where((c) => c.cardType == CardType.indexCard).toList();
+    final indexCards = cards
+        .where((c) => c.cardType == CardType.indexCard)
+        .toList();
     if (!mounted) return;
     setState(() {
       _materialItems = [
@@ -143,6 +143,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
       TextSelection.collapsed(offset: sel.start + text.length),
     );
   }
+
   @override
   void dispose() {
     _autoSaveDebouncer.cancel();
@@ -152,6 +153,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     _quillController?.dispose();
     super.dispose();
   }
+
   void _onQuillContentChanged() {
     if (!mounted) return;
     if (_isDirty) return;
@@ -196,19 +198,17 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ 已保存'),
-          duration: Duration(seconds: 1),
-        ),
+        const SnackBar(content: Text('✅ 已保存'), duration: Duration(seconds: 1)),
       );
+      setState(() {
+        _isDirty = false;
+        _isSaving = false;
+      });
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('保存失败: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -263,10 +263,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('导出失败: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('导出失败: $e'), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -277,6 +274,45 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     Navigator.pop(context, false);
   }
 
+  Future<void> _showExitDialog() async {
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('未保存的更改'),
+        content: const Text('当前编辑内容未保存，是否保存？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'discard'),
+            child: const Text('不保存'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'save') {
+      await _save();
+    } else if (choice == 'discard') {
+      if (_isSaving) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('正在保存中，请稍候')));
+        return;
+      }
+      setState(() => _isDirty = false);
+      if (!mounted) return;
+      Navigator.pop(context, false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // T-213：解析失败 → 错误页。不提供保存入口。
@@ -284,111 +320,120 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
       return _buildErrorPage();
     }
 
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: TextField(
-          controller: _titleController,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          decoration: const InputDecoration(
-            hintText: '标题',
-            border: InputBorder.none,
-            isDense: true,
+    return PopScope(
+      canPop: !_isDirty && !_isSaving,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _showExitDialog();
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        appBar: AppBar(
+          title: TextField(
+            controller: _titleController,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            decoration: const InputDecoration(
+              hintText: '标题',
+              border: InputBorder.none,
+              isDense: true,
+            ),
           ),
+          centerTitle: false,
+          actions: [
+            // ✅ 第四轮批 1 新增：笔记级标记 ⭐/❓
+            // 依据 v5 方案 §6.2：批 1 只做笔记级标记，不碰光标映射。
+            IconButton(
+              icon: Icon(
+                _currentTags.contains('重要') ? Icons.star : Icons.star_border,
+                color: _currentTags.contains('重要') ? Colors.amber : null,
+              ),
+              tooltip: '重要',
+              onPressed: _isSaving ? null : () => _toggleTag('重要'),
+            ),
+            IconButton(
+              icon: Icon(
+                _currentTags.contains('待解决') ? Icons.help : Icons.help_outline,
+                color: _currentTags.contains('待解决') ? Colors.orange : null,
+              ),
+              tooltip: '待解决',
+              onPressed: _isSaving ? null : () => _toggleTag('待解决'),
+            ),
+            TextButton(
+              onPressed: _isSaving ? null : _cancel,
+              child: const Text('取消'),
+            ),
+            const SizedBox(width: 4),
+            TextButton(
+              onPressed: _isSaving ? null : _save,
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('保存'),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.keyboard_command_key),
+              tooltip: '命令面板',
+              onPressed: () => CommandPaletteLauncher.open(),
+            ),
+            IconButton(
+              icon: Icon(
+                _showMaterialPanel
+                    ? Icons.view_sidebar
+                    : Icons.view_sidebar_outlined,
+              ),
+              tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
+              onPressed: () =>
+                  setState(() => _showMaterialPanel = !_showMaterialPanel),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.ios_share),
+              tooltip: '导出 EPUB',
+              onPressed: _isSaving ? null : _exportEpub,
+            ),
+          ],
         ),
-        centerTitle: false,
-        actions: [
-          // ✅ 第四轮批 1 新增：笔记级标记 ⭐/❓
-          // 依据 v5 方案 §6.2：批 1 只做笔记级标记，不碰光标映射。
-          IconButton(
-            icon: Icon(
-              _currentTags.contains('重要') ? Icons.star : Icons.star_border,
-              color: _currentTags.contains('重要') ? Colors.amber : null,
-            ),
-            tooltip: '重要',
-            onPressed: _isSaving ? null : () => _toggleTag('重要'),
-          ),
-          IconButton(
-            icon: Icon(
-              _currentTags.contains('待解决') ? Icons.help : Icons.help_outline,
-              color: _currentTags.contains('待解决') ? Colors.orange : null,
-            ),
-            tooltip: '待解决',
-            onPressed: _isSaving ? null : () => _toggleTag('待解决'),
-          ),
-          TextButton(
-            onPressed: _isSaving ? null : _cancel,
-            child: const Text('取消'),
-          ),
-          const SizedBox(width: 4),
-          TextButton(
-            onPressed: _isSaving ? null : _save,
-            child: _isSaving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('保存'),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.keyboard_command_key),
-            tooltip: '命令面板',
-            onPressed: () => CommandPaletteLauncher.open(),
-          ),
-          IconButton(
-            icon: Icon(_showMaterialPanel
-                ? Icons.view_sidebar
-                : Icons.view_sidebar_outlined),
-            tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
-            onPressed: () =>
-                setState(() => _showMaterialPanel = !_showMaterialPanel),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            icon: const Icon(Icons.ios_share),
-            tooltip: '导出 EPUB',
-            onPressed: _isSaving ? null : _exportEpub,
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                children: [
-                  quill.QuillSimpleToolbar(
-                    controller: _quillController!,
-                    config: const quill.QuillSimpleToolbarConfig(),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: quill.QuillEditor.basic(
+        body: SafeArea(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    quill.QuillSimpleToolbar(
                       controller: _quillController!,
-                      config: quill.QuillEditorConfig(
-                        placeholder: '开始写…',
-                        embedBuilders: [_DividerEmbedBuilder()],
+                      config: const quill.QuillSimpleToolbarConfig(),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: quill.QuillEditor.basic(
+                        controller: _quillController!,
+                        config: quill.QuillEditorConfig(
+                          placeholder: '开始写…',
+                          embedBuilders: [_DividerEmbedBuilder()],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            if (_showMaterialPanel) ...[
-              const VerticalDivider(width: 1),
-              SizedBox(
-                width: 280,
-                child: MaterialPanel(
-                  items: _materialItems,
-                  enabled: true,
-                  onInsertCard: _insertCardAtCursor,
-                  onInsertNote: _insertNoteAtCursor,
+                  ],
                 ),
               ),
+              if (_showMaterialPanel) ...[
+                const VerticalDivider(width: 1),
+                SizedBox(
+                  width: 280,
+                  child: MaterialPanel(
+                    items: _materialItems,
+                    enabled: true,
+                    onInsertCard: _insertCardAtCursor,
+                    onInsertNote: _insertNoteAtCursor,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -404,10 +449,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
       appBar: AppBar(
         title: Text(widget.entry.title),
         actions: [
-          TextButton(
-            onPressed: _cancel,
-            child: const Text('返回'),
-          ),
+          TextButton(onPressed: _cancel, child: const Text('返回')),
           const SizedBox(width: 8),
         ],
       ),
@@ -418,15 +460,11 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline,
-                    color: Colors.red, size: 48),
+                const Icon(Icons.error_outline, color: Colors.red, size: 48),
                 const SizedBox(height: 16),
                 const Text(
                   '内容损坏，无法编辑',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
                 const Text(
