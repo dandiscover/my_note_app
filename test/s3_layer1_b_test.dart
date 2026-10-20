@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:my_note_app/database/database.dart';
 import 'package:my_note_app/database_service.dart';
 import 'package:my_note_app/models/review_card.dart';
+import 'package:my_note_app/models/node.dart';
 import 'package:my_note_app/services/review_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -41,26 +42,30 @@ void main() {
     });
 
     test('新建卡 nextReviewAt==null -> isDue=true -> getDueCards 含此卡', () async {
-      await service.addCard(ReviewCard(
-        id: 'r2',
-        noteId: 'n2',
-        question: 'Q',
-        answer: 'A',
-        createdAt: DateTime.now(),
-      ));
+      await service.addCard(
+        ReviewCard(
+          id: 'r2',
+          noteId: 'n2',
+          question: 'Q',
+          answer: 'A',
+          createdAt: DateTime.now(),
+        ),
+      );
 
       final due = await service.getDueCards();
       expect(due.map((c) => c.id), contains('r2'));
     });
 
     test('reviewCard 返回同 id 卡；loadAll 可读回', () async {
-      await service.addCard(ReviewCard(
-        id: 'r3',
-        noteId: 'n3',
-        question: 'Q',
-        answer: 'A',
-        createdAt: DateTime.now(),
-      ));
+      await service.addCard(
+        ReviewCard(
+          id: 'r3',
+          noteId: 'n3',
+          question: 'Q',
+          answer: 'A',
+          createdAt: DateTime.now(),
+        ),
+      );
 
       final updated = await service.reviewCard('r3', 3);
       expect(updated.id, 'r3');
@@ -77,13 +82,15 @@ void main() {
     });
 
     test('removeCard 后 loadAll 不含', () async {
-      await service.addCard(ReviewCard(
-        id: 'r4',
-        noteId: 'n',
-        question: 'q',
-        answer: 'a',
-        createdAt: DateTime.now(),
-      ));
+      await service.addCard(
+        ReviewCard(
+          id: 'r4',
+          noteId: 'n',
+          question: 'q',
+          answer: 'a',
+          createdAt: DateTime.now(),
+        ),
+      );
       await service.removeCard('r4');
       final all = await service.loadAll();
       expect(all.where((c) => c.id == 'r4'), isEmpty);
@@ -154,6 +161,145 @@ void main() {
       expect(md, contains('# MdTitleX'), reason: 'Markdown 输出应包含标题');
       expect(md, contains('MdContentY'), reason: 'Markdown 输出应包含正文');
       expect(md, contains('---'), reason: '每笔记末尾应有分隔线');
+    });
+
+    test('三表完整往返：note + node + book export→import 后行数一致', () async {
+      await service.insertNote({
+        'id': 'rt_n1',
+        'title': '往返测试笔记',
+        'content': '往返测试正文',
+        'updatedAt': '2026-10-20T01:00:00.000',
+      });
+      await service.insertNode({
+        'id': 'rt_node1',
+        'title': '往返测试节点',
+        'parentId': null,
+        'sortOrder': 1,
+        'createdAt': '2026-10-20T01:00:00.000',
+      });
+      await service.insertBook({
+        'id': 'rt_b1',
+        'title': '往返测试书',
+        'author': '作者A',
+        'isbn': '1234567890',
+      });
+
+      final json = await service.exportAllData();
+      await service.importAllData(json);
+
+      final notes = await service.getAllNotes(includeDeleted: true);
+      final nodes = await service.getAllNodes();
+      final books = await service.getAllBooks();
+
+      expect(notes.where((m) => m['id'] == 'rt_n1').length, 1);
+      expect(nodes.where((n) => n.id == 'rt_node1').length, 1);
+      expect(books.where((m) => m['id'] == 'rt_b1').length, 1);
+    });
+
+    test('字段级一致性：note 6 字段 + node 5 字段 + book 15 字段（代-账-006 三字段不断言）', () async {
+      await service.insertNote({
+        'id': 'rt_n2',
+        'title': '字段笔记',
+        'content': '字段正文',
+        'status': 'active',
+        'editorMode': 'markdown',
+        'updatedAt': '2026-10-20T02:00:00.000',
+      });
+      await service.insertNode({
+        'id': 'rt_node2',
+        'title': '字段节点',
+        'parentId': null,
+        'sortOrder': 5,
+        'createdAt': '2026-10-20T02:00:00.000',
+      });
+      await service.insertBook({
+        'id': 'rt_b2',
+        'title': '字段书',
+        'author': '作者B',
+        'isbn': '0987654321',
+        'coverUrl': 'http://example.com/c.jpg',
+        'filePath': '/path/to/book.pdf',
+        'fileType': 'pdf',
+        'fileName': 'book.pdf',
+        'fileSize': 1024,
+        'status': 'reading',
+        'readingProgress': 50,
+        'totalPages': 200,
+        'createdAt': '2026-10-20T02:00:00.000',
+        'lastReadAt': '2026-10-20T02:30:00.000',
+        'source': 'import',
+      });
+
+      final json = await service.exportAllData();
+      await service.importAllData(json);
+
+      // note 5 字段（id 已断言过，其余）
+      final notes = await service.getAllNotes(includeDeleted: true);
+      final n = notes.firstWhere((m) => m['id'] == 'rt_n2');
+      expect(n['title'], '字段笔记');
+      expect(n['content'], '字段正文');
+      expect(n['status'], 'active');
+      expect(n['editorMode'], 'markdown');
+      expect(n['updatedAt'], '2026-10-20T02:00:00.000');
+
+      // node 4 字段（id 已断言过，其余）
+      final nodes = await service.getAllNodes();
+      final node = nodes.firstWhere((x) => x.id == 'rt_node2');
+      expect(node.title, '字段节点');
+      expect(node.parentId, null);
+      expect(node.sortOrder, 5);
+      expect(node.createdAt.toIso8601String(), '2026-10-20T02:00:00.000');
+
+      // book 14 字段（id 已断言过，其余）
+      // 代-账-006 已知 bug：_bookRowToMap / _bookMapToCompanion 两端都缺
+      // summary / rating / review 三字段，round-trip 必丢。本批不断言这三字段，修完补。
+      final books = await service.getAllBooks();
+      final b = books.firstWhere((m) => m['id'] == 'rt_b2');
+      expect(b['title'], '字段书');
+      expect(b['author'], '作者B');
+      expect(b['isbn'], '0987654321');
+      expect(b['coverUrl'], 'http://example.com/c.jpg');
+      expect(b['filePath'], '/path/to/book.pdf');
+      expect(b['fileType'], 'pdf');
+      expect(b['fileName'], 'book.pdf');
+      expect(b['fileSize'], 1024);
+      expect(b['status'], 'reading');
+      expect(b['readingProgress'], 50);
+      expect(b['totalPages'], 200);
+      expect(b['createdAt'], '2026-10-20T02:00:00.000');
+      expect(b['lastReadAt'], '2026-10-20T02:30:00.000');
+      expect(b['source'], 'import');
+    });
+
+    test('export→import→export 幂等：去 exportDate 后结构相等', () async {
+      await service.insertNote({
+        'id': 'rt_n3',
+        'title': '幂等笔记',
+        'content': '幂等正文',
+        'updatedAt': '2026-10-20T03:00:00.000',
+      });
+      await service.insertNode({
+        'id': 'rt_node3',
+        'title': '幂等节点',
+        'parentId': null,
+        'sortOrder': 2,
+        'createdAt': '2026-10-20T03:00:00.000',
+      });
+      await service.insertBook({
+        'id': 'rt_b3',
+        'title': '幂等书',
+        'author': '作者C',
+      });
+
+      final jsonA = await service.exportAllData();
+      await service.importAllData(jsonA);
+      final jsonB = await service.exportAllData();
+
+      final a = jsonDecode(jsonA) as Map<String, dynamic>;
+      final b = jsonDecode(jsonB) as Map<String, dynamic>;
+      a.remove('exportDate');
+      b.remove('exportDate');
+      expect(b, equals(a));
     });
   });
 }
