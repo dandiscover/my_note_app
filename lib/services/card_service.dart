@@ -9,7 +9,6 @@
 // ✅ 读书笔记关联：getBookReadingNoteId / setBookReadingNoteId / clearBookReadingNoteId
 // ✅ 批 2-4：加 revision notifier —— 卡库增删改时递增 —— 素材区监听自动 reload
 
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/card.dart';
@@ -21,7 +20,6 @@ class CardService {
   final DatabaseService _db;
   CardService() : _db = DatabaseService();
   CardService.forTesting(DatabaseService db) : _db = db;
-  static const String _cardsKey = 'cards_data';
   static const String _firstUsedCardsKey = 'first_used_cards';
   static const String _systemGuideCardId = 'system_guide_card';
 
