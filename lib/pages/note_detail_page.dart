@@ -53,7 +53,7 @@ import 'inquiry_page.dart';
 import 'richtext_editor_page.dart';
 import 'package:flutter/gestures.dart';
 import '../utils/markdown_custom_syntax.dart';
-
+import '../services/print/note_print_service.dart';
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -1042,6 +1042,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             onInquiry: _openInquiry,
             onToggleMode: _toggleMode,
             onCard: () => _showFullNoteCardDialog(),
+                        onPrint: () => NotePrintService.printNote(_entry),
             onQuickSwitch: () => CommandPaletteLauncher.open(),
             onOpenMultiPane: _openMultiPane,
             onToggleFocus: _toggleFocusMode,

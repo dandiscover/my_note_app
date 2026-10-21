@@ -12,6 +12,7 @@ import 'dart:async';                             // unawaited
 import 'package:flutter/foundation.dart';        // kIsWeb / defaultTargetPlatform
 import 'tree_drag_registry.dart';                // 新
 import 'tree_drag_mode.dart';                    // 新
+import '../../services/print/note_print_service.dart';
 enum SystemFolderBehavior { hidden, readOnly, writable }
 
 class NodeTreeView extends StatefulWidget {
@@ -446,7 +447,12 @@ class _NodeTreeViewState extends State<NodeTreeView> {
         child: Text('📦 移动到...'),
       ));
     }
-
+    if (!isFolder && node.nodeType == 'note') {
+      items.add(const PopupMenuItem(
+        value: 'print',
+        child: Text('🖨️ 打印'),
+      ));
+    }
     if (items.isEmpty) {
       debugPrint('🚨 items 空 —— return');
       return;
@@ -514,6 +520,9 @@ class _NodeTreeViewState extends State<NodeTreeView> {
         break;
       case 'move':
         await _actionMove(node);
+        break;
+      case 'print':
+        await _actionPrint(node);
         break;
     }
   }
@@ -657,7 +666,12 @@ class _NodeTreeViewState extends State<NodeTreeView> {
 
     await _showMoveTargetPicker(node);
   }
-
+  Future<void> _actionPrint(Node node) async {
+    if (node.nodeType != 'note') return;
+    final entry = await _db.getNoteByNodeId(node.id);
+    if (entry == null || !mounted) return;
+    await NotePrintService.printNote(entry);
+  }
   Future<void> _showMoveTargetPicker(Node node) async {
     final all = widget.nodes ?? await _db.getAllNodes();
     final folders = all.where((n) {
