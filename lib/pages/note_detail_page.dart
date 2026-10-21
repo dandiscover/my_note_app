@@ -2390,7 +2390,7 @@ class _RichtextReadViewState extends State<_RichtextReadView> {
     return quill.QuillEditor.basic(
       controller: _controller,
       config: quill.QuillEditorConfig(
-        embedBuilders: [_DividerEmbedBuilder()],
+        embedBuilders: [_DividerEmbedBuilder(), _ImageEmbedBuilder()],
         contextMenuBuilder: _buildContextMenu,
       ),
     );
@@ -2460,6 +2460,39 @@ class _DividerEmbedBuilder extends quill.EmbedBuilder {
   @override
   Widget build(BuildContext context, quill.EmbedContext embedContext) {
     return const Divider(thickness: 1);
+  }
+}
+
+class _ImageEmbedBuilder extends quill.EmbedBuilder {
+  @override
+  String get key => DeltaAttributes.image;
+
+  @override
+  Widget build(BuildContext context, quill.EmbedContext embedContext) {
+    final dynamic data = embedContext.node.value.data;
+    if (data is! String || data.isEmpty) {
+      return const Icon(Icons.broken_image, size: 48);
+    }
+    final uri = Uri.tryParse(data);
+    if (uri == null) {
+      return const Icon(Icons.broken_image, size: 48);
+    }
+    if (uri.scheme == 'data') {
+      try {
+        final bytes = uri.data?.contentAsBytes();
+        if (bytes == null || bytes.isEmpty) {
+          return const Icon(Icons.broken_image, size: 48);
+        }
+        return Image.memory(
+          bytes,
+          errorBuilder: (_, __, ___) =>
+              const Icon(Icons.broken_image, size: 48),
+        );
+      } catch (_) {
+        return const Icon(Icons.broken_image, size: 48);
+      }
+    }
+    return buildMarkdownImage(uri);
   }
 }
 
