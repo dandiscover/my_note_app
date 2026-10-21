@@ -22,6 +22,7 @@ import '../../widgets/spark_dialog.dart';
 import '../../services/spark_service.dart';
 import '../../utils/debouncer.dart';
 import '../../utils/markdown_custom_syntax.dart';
+
 /// Markdown 内核——D 批块 2a
 ///
 /// 骨架（乙模式）：
@@ -37,10 +38,12 @@ class MarkdownKernel extends EditorKernel {
   // C2：状态监听 —— WorkbenchBody 底栏读
   final ValueNotifier<bool> dirtyNotifier = ValueNotifier(false);
   final ValueNotifier<bool> savingNotifier = ValueNotifier(false);
-  late final TextEditingController titleController =
-      TextEditingController(text: _ctx.entry.title);
-  late final TextEditingController contentController =
-      TextEditingController(text: _ctx.entry.content);
+  late final TextEditingController titleController = TextEditingController(
+    text: _ctx.entry.title,
+  );
+  late final TextEditingController contentController = TextEditingController(
+    text: _ctx.entry.content,
+  );
 
   /// 大纲联动：把光标定位到指定 charOffset
   void scrollToOffset(int offset) {
@@ -51,6 +54,7 @@ class MarkdownKernel extends EditorKernel {
     if (o > len) o = len;
     ctrl.selection = TextSelection.collapsed(offset: o);
   }
+
   late final TextEditingController tagController = TextEditingController();
   late final TextEditingController subtaskController = TextEditingController();
 
@@ -62,11 +66,9 @@ class MarkdownKernel extends EditorKernel {
   @override
   EditorContext get ctx => _ctx;
 
- @override
-Widget build(BuildContext context) => _MarkdownBody(
-  key: ObjectKey(this),
-  kernel: this,
-);
+  @override
+  Widget build(BuildContext context) =>
+      _MarkdownBody(key: ObjectKey(this), kernel: this);
   @override
   Future<bool> save({bool isAuto = false}) async =>
       await _state?.save(isAuto: isAuto) ?? false;
@@ -74,10 +76,9 @@ Widget build(BuildContext context) => _MarkdownBody(
   @override
   void insertText(String text) => _state?.insertText(text);
 
-  void setTypewriterEnabled(bool v) =>
-      _state?.setTypewriterEnabledExternal(v);
+  void setTypewriterEnabled(bool v) => _state?.setTypewriterEnabledExternal(v);
 
-    @override
+  @override
   void updateEntry(NotebookEntry entry) {
     _ctx.entry = entry;
     _state?.updateEntry(entry);
@@ -98,14 +99,15 @@ Widget build(BuildContext context) => _MarkdownBody(
   void submitTagInput(String value) => _state?.submitTagInput(value);
   void createReviewCard() => _state?.createReviewCardExternal();
   bool get isDirty => _state?.isDirty ?? false;
+  void markClean() => _state?.markClean();
   // ─── 零件化：dispose ───
   void dispose() {
     titleController.dispose();
     contentController.dispose();
     tagController.dispose();
     subtaskController.dispose();
-    dirtyNotifier.dispose();    // C2
-    savingNotifier.dispose();   // C2
+    dirtyNotifier.dispose(); // C2
+    savingNotifier.dispose(); // C2
   }
 }
 
@@ -154,21 +156,23 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
   bool _hasShownPrompt = false;
   bool _isInquiryEditing = false;
   Timer? _typingTimer;
-    final Debouncer _autoSaveDebouncer = Debouncer(const Duration(seconds: 3));
+  final Debouncer _autoSaveDebouncer = Debouncer(const Duration(seconds: 3));
   late TextEditingController _inquiryController;
   late FocusNode _inquiryFocusNode;
 
   // ✅ 完整笔记状态
   late NotebookEntry _entry;
-@override
-void initState() {
-  super.initState();
-  final prev = widget.kernel._state;
-  if (prev != null && prev != this) {
-    debugPrint('🚨 [MarkdownBody] 双 state 共存 —— '
-        'kernel=${widget.kernel.hashCode} prev=${prev.hashCode} new=${hashCode}');
-  }
-  _entry = widget.kernel.ctx.entry;
+  @override
+  void initState() {
+    super.initState();
+    final prev = widget.kernel._state;
+    if (prev != null && prev != this) {
+      debugPrint(
+        '🚨 [MarkdownBody] 双 state 共存 —— '
+        'kernel=${widget.kernel.hashCode} prev=${prev.hashCode} new=${hashCode}',
+      );
+    }
+    _entry = widget.kernel.ctx.entry;
     _isMarkdown = _entry.editorMode == 'markdown';
     _tags = List.from(_entry.tags);
 
@@ -194,7 +198,7 @@ void initState() {
 
   @override
   void dispose() {
-    _autoSaveDebouncer.cancel();                     // C3
+    _autoSaveDebouncer.cancel(); // C3
     _contentController.removeListener(_onControllerChanged);
     _contentFocus.removeListener(_onFocusChanged);
     _sparkRecalcThrottle?.cancel();
@@ -370,7 +374,11 @@ void initState() {
               Positioned(
                 left: _sparkAnchorOffset!.dx + 8,
                 top: _sparkAnchorOffset!.dy,
-                child: SparkCursor(onTap: () { _onSparkTap(); }),
+                child: SparkCursor(
+                  onTap: () {
+                    _onSparkTap();
+                  },
+                ),
               ),
             ..._pendingSparks.map((s) {
               final sPos = _sparkOffsets[s.id];
@@ -385,7 +393,9 @@ void initState() {
                 left: rightX - 32,
                 top: sPos.dy,
                 child: GestureDetector(
-                  onTap: () { _onSparkItemTap(s); },
+                  onTap: () {
+                    _onSparkItemTap(s);
+                  },
                   child: const Padding(
                     padding: EdgeInsets.all(4),
                     child: Text('💫', style: TextStyle(fontSize: 16)),
@@ -413,8 +423,9 @@ void initState() {
       sourceType: 'note',
       sourceId: noteId,
       sourceTitle: rawTitle.isEmpty ? '无标题笔记' : rawTitle,
-      indexTitle:
-          content.length > 50 ? '${content.substring(0, 50)}...' : content,
+      indexTitle: content.length > 50
+          ? '${content.substring(0, 50)}...'
+          : content,
       highlight: content,
       anchor: offset,
     );
@@ -430,15 +441,15 @@ void initState() {
   }
 
   // B8：点 💫 —— 弹编辑框
- Future<void> _onSparkTap() async {
-  if (!mounted) return;
-  final result = await showDialog<SparkDialogResult>(
-    context: context,
-    builder: (_) => const SparkDialog(),
-  );
-  if (!mounted) return;
-  if (result == null || result.content.isEmpty) return;
-    
+  Future<void> _onSparkTap() async {
+    if (!mounted) return;
+    final result = await showDialog<SparkDialogResult>(
+      context: context,
+      builder: (_) => const SparkDialog(),
+    );
+    if (!mounted) return;
+    if (result == null || result.content.isEmpty) return;
+
     final noteId = _entry.id;
     final offset = _contentController.selection.baseOffset.toString();
     switch (result.action) {
@@ -556,10 +567,7 @@ void initState() {
         insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
         child: SizedBox(
           width: 600,
-          child: InquiryPage(
-            entry: _entry,
-            isDialog: true,
-          ),
+          child: InquiryPage(entry: _entry, isDialog: true),
         ),
       ),
     );
@@ -638,16 +646,19 @@ void initState() {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message,
-            style: const TextStyle(fontSize: 13, color: Colors.black87)),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 13, color: Colors.black87),
+        ),
         backgroundColor: Colors.grey.shade100,
         elevation: 0,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 1),
         margin: const EdgeInsets.all(12),
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: Colors.grey.shade300, width: 0.5)),
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: Colors.grey.shade300, width: 0.5),
+        ),
       ),
     );
   }
@@ -664,8 +675,9 @@ void initState() {
       return;
     }
 
-    final previewContent =
-        content.length > 200 ? '${content.substring(0, 200)}...' : content;
+    final previewContent = content.length > 200
+        ? '${content.substring(0, 200)}...'
+        : content;
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -703,8 +715,9 @@ void initState() {
       await _cardService.addCard(card);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('✅ 卡片已生成！可在「智库 → 卡片盒」查看'),
-            duration: Duration(seconds: 2)),
+          content: Text('✅ 卡片已生成！可在「智库 → 卡片盒」查看'),
+          duration: Duration(seconds: 2),
+        ),
       );
     }
     setState(() => _isGeneratingCard = false);
@@ -725,12 +738,14 @@ void initState() {
     if (cursorPosition < 0 || cursorPosition > currentText.length) {
       _contentController.text = currentText + subtaskLine;
     } else {
-      final newText = currentText.substring(0, cursorPosition) +
+      final newText =
+          currentText.substring(0, cursorPosition) +
           subtaskLine +
           currentText.substring(cursorPosition);
       _contentController.text = newText;
       _contentController.selection = TextSelection.collapsed(
-          offset: cursorPosition + subtaskLine.length);
+        offset: cursorPosition + subtaskLine.length,
+      );
     }
     _subtaskController.clear();
     _showLightToast('✅ 子任务已添加');
@@ -744,13 +759,13 @@ void initState() {
     if (cursorPosition < 0 || cursorPosition > currentText.length) {
       _contentController.text = currentText + text;
     } else {
-      final newText = currentText.substring(0, cursorPosition) +
+      final newText =
+          currentText.substring(0, cursorPosition) +
           text +
           currentText.substring(cursorPosition);
       _contentController.text = newText;
       final newCursor = cursorPosition + text.length;
-      _contentController.selection =
-          TextSelection.collapsed(offset: newCursor);
+      _contentController.selection = TextSelection.collapsed(offset: newCursor);
     }
     setState(() {});
   }
@@ -773,11 +788,13 @@ void initState() {
       if (mounted) _recalcSparkPositions();
     });
   }
+
   void addTagExternal(String tag) {
     final t = tag.trim();
     if (t.isEmpty || _tags.contains(t)) return;
     setState(() => _tags.add(t));
   }
+
   void removeTagExternal(String tag) => setState(() => _tags.remove(tag));
   void submitTagInput(String value) {
     if (value.contains(',')) {
@@ -788,27 +805,28 @@ void initState() {
       _addTag(value);
     }
   }
+
   void createReviewCardExternal() => _createReviewCard();
 
   /// 外部 entry 更新——由 kernel.updateEntry 转发
-void updateEntry(NotebookEntry newEntry) {
-  if (!mounted) return;
-  setState(() {
-    _entry = newEntry;
-    _contentController.text = newEntry.content;
-    _titleController.text = newEntry.title;
-    _sparkOffsets.clear();
-    _showSparkCursor = false;
-    _sparkAnchorOffset = null;
-  });
-  _loadPendingSparks();
-  WidgetsBinding.instance.addPostFrameCallback((_) {
+  void updateEntry(NotebookEntry newEntry) {
     if (!mounted) return;
-    final e = _sparkOverlayEntry;
-    if (e == null || !e.mounted) return;
-    e.markNeedsBuild();
-  });
-}
+    setState(() {
+      _entry = newEntry;
+      _contentController.text = newEntry.content;
+      _titleController.text = newEntry.title;
+      _sparkOffsets.clear();
+      _showSparkCursor = false;
+      _sparkAnchorOffset = null;
+    });
+    _loadPendingSparks();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final e = _sparkOverlayEntry;
+      if (e == null || !e.mounted) return;
+      e.markNeedsBuild();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -825,18 +843,21 @@ void updateEntry(NotebookEntry newEntry) {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-
               // ─── 已保存的探究问题 ────────────────────
               if (_inquiryQuestion != null && !_isInquiryEditing)
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.purple.shade50,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                        color: Colors.purple.shade200, width: 0.5),
+                      color: Colors.purple.shade200,
+                      width: 0.5,
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -847,14 +868,19 @@ void updateEntry(NotebookEntry newEntry) {
                           child: Text(
                             _inquiryQuestion!,
                             style: const TextStyle(
-                                fontSize: 13, color: Colors.purple),
+                              fontSize: 13,
+                              color: Colors.purple,
+                            ),
                           ),
                         ),
                       ),
                       GestureDetector(
                         onTap: _deleteInquiry,
-                        child: const Icon(Icons.close,
-                            size: 16, color: Colors.grey),
+                        child: const Icon(
+                          Icons.close,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
                       ),
                     ],
                   ),
@@ -866,11 +892,16 @@ void updateEntry(NotebookEntry newEntry) {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.local_offer,
-                          size: 18, color: Colors.grey),
+                      const Icon(
+                        Icons.local_offer,
+                        size: 18,
+                        color: Colors.grey,
+                      ),
                       const SizedBox(width: 6),
-                      const Text('标签',
-                          style: TextStyle(fontSize: 13, color: Colors.grey)),
+                      const Text(
+                        '标签',
+                        style: TextStyle(fontSize: 13, color: Colors.grey),
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: TextField(
@@ -879,10 +910,13 @@ void updateEntry(NotebookEntry newEntry) {
                             hintText: '输入标签，按回车或逗号添加',
                             border: InputBorder.none,
                             isDense: true,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 4),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 4,
+                            ),
                             hintStyle: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade400),
+                              fontSize: 12,
+                              color: Colors.grey.shade400,
+                            ),
                           ),
                           style: const TextStyle(fontSize: 13),
                           onSubmitted: (value) {
@@ -896,8 +930,7 @@ void updateEntry(NotebookEntry newEntry) {
                           },
                           onChanged: (value) {
                             if (value.endsWith(',')) {
-                              final tag =
-                                  value.substring(0, value.length - 1);
+                              final tag = value.substring(0, value.length - 1);
                               _addTag(tag);
                             }
                           },
@@ -913,43 +946,54 @@ void updateEntry(NotebookEntry newEntry) {
                           spacing: 6,
                           runSpacing: 4,
                           children: _tags
-                              .map((tag) => Container(
-                                    constraints:
-                                        BoxConstraints(maxWidth: chipMaxW),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: _getTagColor(tag)
-                                          .withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                          color: _getTagColor(tag)
-                                              .withValues(alpha: 0.3)),
+                              .map(
+                                (tag) => Container(
+                                  constraints: BoxConstraints(
+                                    maxWidth: chipMaxW,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _getTagColor(
+                                      tag,
+                                    ).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: _getTagColor(
+                                        tag,
+                                      ).withValues(alpha: 0.3),
                                     ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            tag,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                                fontSize: 11,
-                                                color: _getTagColor(tag),
-                                                fontWeight: FontWeight.w500),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          tag,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: _getTagColor(tag),
+                                            fontWeight: FontWeight.w500,
                                           ),
                                         ),
-                                        const SizedBox(width: 4),
-                                        GestureDetector(
-                                          onTap: () => _removeTag(tag),
-                                          child: Icon(Icons.close,
-                                              size: 12,
-                                              color: _getTagColor(tag)),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      GestureDetector(
+                                        onTap: () => _removeTag(tag),
+                                        child: Icon(
+                                          Icons.close,
+                                          size: 12,
+                                          color: _getTagColor(tag),
                                         ),
-                                      ],
-                                    ),
-                                  ))
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
                               .toList(),
                         );
                       },
@@ -984,7 +1028,9 @@ void updateEntry(NotebookEntry newEntry) {
                         Text(
                           '你停下来了。有个疑问吗？',
                           style: TextStyle(
-                              fontSize: 14, color: Colors.grey.shade600),
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
                         ),
                       ],
                     ),
@@ -1013,7 +1059,9 @@ void updateEntry(NotebookEntry newEntry) {
                             filled: true,
                             fillColor: Colors.grey.shade50,
                             contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             isDense: true,
                           ),
                           onSubmitted: (_) => _confirmInquiry(),
@@ -1023,26 +1071,26 @@ void updateEntry(NotebookEntry newEntry) {
                       TextButton(
                         onPressed: _cancelInquiryEdit,
                         style: TextButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        child: const Text('取消',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey)),
+                        child: const Text(
+                          '取消',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
                       ),
                       TextButton(
                         onPressed: _confirmInquiry,
                         style: TextButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        child: const Text('确认',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.purple)),
+                        child: const Text(
+                          '确认',
+                          style: TextStyle(fontSize: 12, color: Colors.purple),
+                        ),
                       ),
                     ],
                   ),
@@ -1053,11 +1101,16 @@ void updateEntry(NotebookEntry newEntry) {
               if (isExploreMode) ...[
                 Row(
                   children: [
-                    const Icon(Icons.subdirectory_arrow_right,
-                        size: 18, color: Colors.purple),
+                    const Icon(
+                      Icons.subdirectory_arrow_right,
+                      size: 18,
+                      color: Colors.purple,
+                    ),
                     const SizedBox(width: 6),
-                    const Text('子任务',
-                        style: TextStyle(fontSize: 13, color: Colors.purple)),
+                    const Text(
+                      '子任务',
+                      style: TextStyle(fontSize: 13, color: Colors.purple),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
@@ -1066,8 +1119,7 @@ void updateEntry(NotebookEntry newEntry) {
                           hintText: '输入子任务，按回车添加',
                           border: InputBorder.none,
                           isDense: true,
-                          contentPadding:
-                              EdgeInsets.symmetric(vertical: 4),
+                          contentPadding: EdgeInsets.symmetric(vertical: 4),
                         ),
                         style: const TextStyle(fontSize: 13),
                         onSubmitted: (_) => _addSubtaskFromEditor(),
@@ -1098,7 +1150,9 @@ void updateEntry(NotebookEntry newEntry) {
       expands: true,
       style: const TextStyle(fontSize: 16),
       decoration: const InputDecoration(
-          hintText: '开始写内容...', border: InputBorder.none),
+        hintText: '开始写内容...',
+        border: InputBorder.none,
+      ),
       onChanged: _onContentChanged,
     );
   }
@@ -1110,8 +1164,9 @@ void updateEntry(NotebookEntry newEntry) {
           flex: 5,
           child: Container(
             decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(8)),
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: TextField(
               controller: _contentController,
               focusNode: _contentFocus,
@@ -1132,12 +1187,13 @@ void updateEntry(NotebookEntry newEntry) {
           flex: 5,
           child: Container(
             decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(8)),
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: _contentController.text.isEmpty
                 ? const Center(
-                    child:
-                        Text('预览', style: TextStyle(color: Colors.grey)))
+                    child: Text('预览', style: TextStyle(color: Colors.grey)),
+                  )
                 : SingleChildScrollView(
                     padding: const EdgeInsets.all(12),
                     child: MarkdownBody(
@@ -1145,29 +1201,33 @@ void updateEntry(NotebookEntry newEntry) {
                       styleSheet: MarkdownStyleSheet(
                         p: const TextStyle(fontSize: 15),
                         h1: const TextStyle(
-                            fontSize: 26, fontWeight: FontWeight.bold),
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                        ),
                         h2: const TextStyle(
-                            fontSize: 22, fontWeight: FontWeight.bold),
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
                         h3: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                         codeblockDecoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(4)),
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                         listBullet: const TextStyle(fontSize: 15),
                         listIndent: 24,
-                        listBulletPadding:
-                            const EdgeInsets.only(right: 8),
+                        listBulletPadding: const EdgeInsets.only(right: 8),
                       ),
-                      
+
                       extensionSet: buildMarkdownExtensionSet(),
                       sizedImageBuilder: (config) =>
                           buildMarkdownImage(config.uri),
-                       builders: buildMarkdownBuilders(),
-
+                      builders: buildMarkdownBuilders(),
                     ),
                   ),
           ),
-          
         ),
       ],
     );
@@ -1217,6 +1277,14 @@ void updateEntry(NotebookEntry newEntry) {
         widget.kernel.savingNotifier.value = false;
       }
     }
+  }
+
+  void markClean() {
+    if (!mounted) return;
+    setState(() {
+      _isDirty = false;
+      widget.kernel.dirtyNotifier.value = false;
+    });
   }
 
   Color _getTagColor(String tag) {

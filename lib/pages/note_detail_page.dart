@@ -53,6 +53,7 @@ import 'inquiry_page.dart';
 import 'richtext_editor_page.dart';
 import 'package:flutter/gestures.dart';
 import '../utils/markdown_custom_syntax.dart';
+
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -61,8 +62,8 @@ class NoteDetailPage extends StatefulWidget {
   final bool isNew;
   final bool shouldPopOnSave;
   final bool syncToCloud;
-  final bool initInEditMode;   // 批 1b 修复：从图书侧新建 → 强制进编辑态
-  final bool embedded;         // 嵌入模式 —— 不包 Scaffold
+  final bool initInEditMode; // 批 1b 修复：从图书侧新建 → 强制进编辑态
+  final bool embedded; // 嵌入模式 —— 不包 Scaffold
 
   const NoteDetailPage({
     super.key,
@@ -93,7 +94,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _isReadMode = true;
   late NotebookEntry _entry;
   late MarkdownKernel _kernel;
-  late bool _isNewLocal;   // 债-6：防保存后重挂 node
+  late bool _isNewLocal; // 债-6：防保存后重挂 node
 
   // ✅ 笔记加工台最小版：状态字段
   List<CardModel> _noteCards = [];
@@ -112,7 +113,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _showNoteMap = false;
   List<BreadcrumbItem> _mapBreadcrumb = [];
   int _mapRefreshTick = 0;
-  String? _currentNodeId;   // 当前笔记 node id（原地换根时变）
+  String? _currentNodeId; // 当前笔记 node id（原地换根时变）
   List<MaterialItem> _materialItems = [];
 
   // 专注模式
@@ -138,13 +139,15 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
     _entry = widget.entry;
     focusModeNotifier.addListener(_onFocusModeChanged);
-    _kernel = MarkdownKernel(EditorContext(
-      entry: _entry,
-      isFromCollection: widget.isFromCollection,
-      onSave: _saveNote,
-      isSaving: _isSaving,
-      onInquiryConfirmed: _handleInquiryConfirmed,
-    ));
+    _kernel = MarkdownKernel(
+      EditorContext(
+        entry: _entry,
+        isFromCollection: widget.isFromCollection,
+        onSave: _saveNote,
+        isSaving: _isSaving,
+        onInquiryConfirmed: _handleInquiryConfirmed,
+      ),
+    );
     _kernel.contentController.addListener(_onContentChanged);
     EditorKernel.focus(_kernel);
     _loadNoteCards();
@@ -174,9 +177,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (!mounted) return;
     if (focusModeNotifier.value) return;
     final m = _userSettings?.restReminderMinutes ?? 45;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('⏰ 写了 $m 分钟——起来走走')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('⏰ 写了 $m 分钟——起来走走')));
     floatingPetKey.currentState?.showMessage('休息一下吧～');
   }
 
@@ -193,7 +196,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
- @override
+  @override
   void dispose() {
     _restReminder.stop();
     // R-性能：若 pending 重建未跑 —— 立即跑 —— 不丢
@@ -407,7 +410,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           parentId: widget.currentNodeId,
           tags: tags,
         );
-        _isNewLocal = false;   // 债-6：保存后置 false——防重挂
+        _isNewLocal = false; // 债-6：保存后置 false——防重挂
         if (widget.syncToCloud && CloudSyncService().isLoggedIn) {
           try {
             await CloudSyncService().syncNote(updated);
@@ -422,17 +425,16 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
 
       final syncNode = await _db.getNodeByNoteId(updated.id);
       if (syncNode != null) {
-        await _db.updateNode(syncNode.copyWith(
-          title: updated.title,
-          tags: tags,
-        ));
+        await _db.updateNode(
+          syncNode.copyWith(title: updated.title, tags: tags),
+        );
       }
 
       if (mounted) {
         setState(() {
           _entry = updated;
           _isSaving = false;
-          if (!auto) _isReadMode = true;   // C 块 7：自动保存不切阅读
+          if (!auto) _isReadMode = true; // C 块 7：自动保存不切阅读
         });
       }
 
@@ -475,15 +477,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           _errorMessage = e.toString();
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('保存失败: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red),
         );
       }
       return false;
     }
   }
+
   Future<void> _doRebuildLinks(String noteId, String content) async {
     try {
       await NoteBookLinkService().rebuildWikiLinks(
@@ -498,6 +498,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       debugPrint('rebuildLinks 失败: $e');
     }
   }
+
   // ─── 快捷索引 ────
   Future<void> _quickGenerateIndexCard(String selectedText) async {
     final text = selectedText.trim();
@@ -518,9 +519,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     await _cardService.addCard(card);
     await _loadNoteCards();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('📇 索引卡已生成')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('📇 索引卡已生成')));
     }
   }
 
@@ -567,9 +568,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     await _cardService.addCard(card);
     await _loadNoteCards();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 卡片已生成，可以去复习了')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('✅ 卡片已生成，可以去复习了')));
     }
   }
 
@@ -578,9 +579,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (_entry.contentFormat == 'richtext') {
       final result = await Navigator.push<bool>(
         context,
-        MaterialPageRoute(
-          builder: (_) => RichtextEditorPage(entry: _entry),
-        ),
+        MaterialPageRoute(builder: (_) => RichtextEditorPage(entry: _entry)),
       );
       if (result == true && mounted) {
         await _reloadEntry();
@@ -602,8 +601,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       newTags.add('重要');
     }
     try {
-      final updated =
-          _entry.copyWith(tags: newTags, updatedAt: DateTime.now());
+      final updated = _entry.copyWith(tags: newTags, updatedAt: DateTime.now());
       await _db.updateNote(updated.toMap());
 
       if (widget.nodeId != null) {
@@ -633,8 +631,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       newTags.add('待解决');
     }
     try {
-      final updated =
-          _entry.copyWith(tags: newTags, updatedAt: DateTime.now());
+      final updated = _entry.copyWith(tags: newTags, updatedAt: DateTime.now());
       await _db.updateNote(updated.toMap());
 
       if (widget.nodeId != null) {
@@ -672,9 +669,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         const SizedBox(width: 4),
         IconButton(
           icon: Icon(
-            _entry.tags.contains('待解决')
-                ? Icons.help
-                : Icons.help_outline,
+            _entry.tags.contains('待解决') ? Icons.help : Icons.help_outline,
             color: _entry.tags.contains('待解决') ? Colors.orange : null,
           ),
           tooltip: '待解决',
@@ -774,10 +769,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => BookDetailPage(
-            bookId: node.targetId!,
-            nodeId: targetNodeId,
-          ),
+          builder: (_) =>
+              BookDetailPage(bookId: node.targetId!, nodeId: targetNodeId),
         ),
       );
     }
@@ -801,10 +794,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
         child: SizedBox(
           width: 600,
-          child: InquiryPage(
-            entry: _entry,
-            isDialog: true,
-          ),
+          child: InquiryPage(entry: _entry, isDialog: true),
         ),
       ),
     );
@@ -828,17 +818,14 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           setState(() {
             _entry = updatedEntry;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✅ 探究任务已保存')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('✅ 探究任务已保存')));
         }
       } catch (e) {
         debugPrint('保存探究数据失败: $e');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('保存失败: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -863,7 +850,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (!mounted) return;
     setState(() => _linkedBooks = books);
   }
-    Future<void> _loadBacklinks() async {
+
+  Future<void> _loadBacklinks() async {
     final svc = NoteBookLinkService();
     final backRows = await svc.getBacklinks(_entry.id);
     final outRows = await svc.getOutboundNoteLinks(_entry.id);
@@ -936,8 +924,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (!mounted) return;
     setState(() => _backlinks = enriched);
   }
-  
-  
+
   Widget _buildLinkedBooksSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -945,9 +932,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('📚 关联的书 (${_linkedBooks.length})',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w600)),
+            Text(
+              '📚 关联的书 (${_linkedBooks.length})',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
             TextButton.icon(
               onPressed: _onLinkBook,
               icon: const Icon(Icons.add, size: 16),
@@ -958,8 +946,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         if (_linkedBooks.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('还没有关联的书',
-                style: TextStyle(color: Colors.grey.shade500)),
+            child: Text(
+              '还没有关联的书',
+              style: TextStyle(color: Colors.grey.shade500),
+            ),
           )
         else
           ..._linkedBooks.map((m) {
@@ -1016,9 +1006,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('关联失败，请重试')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('关联失败，请重试')));
       }
       return;
     }
@@ -1028,9 +1018,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   Future<void> _openLinkedBook(String bookId) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => BookDetailPage(bookId: bookId),
-      ),
+      MaterialPageRoute(builder: (_) => BookDetailPage(bookId: bookId)),
     );
   }
 
@@ -1038,9 +1026,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (context) => ExploreTaskSummaryDialog(
-        entry: _entry,
-      ),
+      builder: (context) => ExploreTaskSummaryDialog(entry: _entry),
     );
   }
 
@@ -1060,10 +1046,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             onOpenMultiPane: _openMultiPane,
             onToggleFocus: _toggleFocusMode,
             isFocusMode: _focusMode,
-            onToggleOutline:
-                MediaQuery.sizeOf(context).width >= 600
-                    ? _toggleOutlinePanel
-                    : null,
+            onToggleOutline: MediaQuery.sizeOf(context).width >= 600
+                ? _toggleOutlinePanel
+                : null,
             isOutlineOpen: _showOutlinePanel,
             onToggleMaterial: _toggleMaterialPanel,
             onFileTree: !widget.isFromCollection ? _toggleFileTree : null,
@@ -1090,27 +1075,72 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               Expanded(child: body),
             ],
           ),
-          if (fab != null)
-            Positioned(right: 16, bottom: 16, child: fab),
+          if (fab != null) Positioned(right: 16, bottom: 16, child: fab),
         ],
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      appBar: appBar,
-      body: body,
-      floatingActionButton: fab,
+    return PopScope(
+      canPop: !_kernel.isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _showExitDialog();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        appBar: appBar,
+        body: body,
+        floatingActionButton: fab,
+      ),
     );
   }
-  // _buildMapMode 已撤 —— 导图嵌入 _buildReadMode 的正文段
 
+  Future<void> _showExitDialog() async {
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('未保存的更改'),
+        content: const Text('当前编辑内容未保存，是否保存？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'discard'),
+            child: const Text('不保存'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'save') {
+      final ok = await _kernel.save();
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
+        return;
+      }
+      if (ok && mounted) Navigator.pop(context);
+    } else if (choice == 'discard') {
+      _kernel.markClean();
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
+  // _buildMapMode 已撤 —— 导图嵌入 _buildReadMode 的正文段
 
   Widget _buildReadMode() {
     if (_entry.contentFormat == 'richtext') {
       return _buildRichtextReadMode();
     }
-     final isWide = MediaQuery.sizeOf(context).width >= 600;
+    final isWide = MediaQuery.sizeOf(context).width >= 600;
     final body = Padding(
       padding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
@@ -1122,19 +1152,26 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               children: [_buildReadBodySwitcher()],
             ),
             const SizedBox(height: 12),
-            Builder(builder: (_) {
-              final displayTags = _entry.tags
-                  .where((t) => t != '重要' && t != '待解决')
-                  .toList();
-              if (displayTags.isEmpty) return const SizedBox.shrink();
-              return Wrap(
-                spacing: 4,
-                children: displayTags.map((tag) => Chip(
-                  label: Text(tag),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                )).toList(),
-              );
-            }),
+            Builder(
+              builder: (_) {
+                final displayTags = _entry.tags
+                    .where((t) => t != '重要' && t != '待解决')
+                    .toList();
+                if (displayTags.isEmpty) return const SizedBox.shrink();
+                return Wrap(
+                  spacing: 4,
+                  children: displayTags
+                      .map(
+                        (tag) => Chip(
+                          label: Text(tag),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
             const SizedBox(height: 8),
             if (_showNoteMap)
               _buildMapBody()
@@ -1154,8 +1191,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                       ),
                       ContextMenuButtonItem(
                         label: '完整制卡',
-                        onPressed: () =>
-                            _showFullNoteCardDialog(selectedText: _selectedText),
+                        onPressed: () => _showFullNoteCardDialog(
+                          selectedText: _selectedText,
+                        ),
                       ),
                       ...state.contextMenuButtonItems,
                     ],
@@ -1166,9 +1204,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                   selectable: false,
                   styleSheet: MarkdownStyleSheet(
                     p: const TextStyle(fontSize: 16, height: 1.6),
-                    h1: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                    h2: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                    h3: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    h1: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    h2: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    h3: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                     code: TextStyle(
                       fontSize: 14,
                       backgroundColor: Colors.grey.shade100,
@@ -1179,8 +1226,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                     listBulletPadding: const EdgeInsets.only(right: 8),
                   ),
                   extensionSet: _mergeExtensionSets(),
-                  sizedImageBuilder: (config) =>
-                      buildMarkdownImage(config.uri),
+                  sizedImageBuilder: (config) => buildMarkdownImage(config.uri),
                   builders: {
                     ...buildMarkdownBuilders(),
                     'wikilink': _WikiLinkBuilder(onTap: _onWikilinkTap),
@@ -1222,8 +1268,8 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         Expanded(child: body),
         const VerticalDivider(width: 1),
         InkWell(
-          onTap: () => setState(
-              () => _showRightPanelWide = !_showRightPanelWide),
+          onTap: () =>
+              setState(() => _showRightPanelWide = !_showRightPanelWide),
           child: rightColumn,
         ),
       ],
@@ -1239,21 +1285,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ],
     );
   }
+
   md.ExtensionSet _mergeExtensionSets() {
     _CardRefSyntax.reset();
     final base = buildMarkdownExtensionSet();
-    return md.ExtensionSet(
-      base.blockSyntaxes,
-      [
-        _CardRefSyntax(),
-        _WikiLinkSyntax(),
-        _HashtagSyntax(),
-        ...base.inlineSyntaxes,
-      ],
-    );
+    return md.ExtensionSet(base.blockSyntaxes, [
+      _CardRefSyntax(),
+      _WikiLinkSyntax(),
+      _HashtagSyntax(),
+      ...base.inlineSyntaxes,
+    ]);
   }
 
-    /// 正文区切换 —— [正文] [导图]
+  /// 正文区切换 —— [正文] [导图]
   Widget _buildReadBodySwitcher() {
     return Row(
       children: [
@@ -1278,87 +1322,99 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ],
     );
   }
-      List<TextSpan> _buildHighlightedSpans(String content, TextStyle base) {
-      // 清旧 recognizer（防泄漏 / 防重复）
-      for (final r in _wikilinkRecognizers) {
-        r.dispose();
-      }
-      _wikilinkRecognizers.clear();
 
-      // 匹配三类：#标签 / [[标题]] / [N](card:id) —— B5 加第三类
-      final regex = RegExp(
-          r'(^|\s)(#[^\s#]+)|(\[\[[^\]\n]+\]\])|(\[\d+\]\(card:[^)]+\))');
-      final spans = <TextSpan>[];
-      int last = 0;
-      int refCounter = 0; // B5：动态编号 —— 每次渲染重算
-      for (final m in regex.allMatches(content)) {
-        if (m.start > last) {
-          spans.add(TextSpan(text: content.substring(last, m.start), style: base));
-        }
-        final raw = m.group(0)!;
-        if (m.group(3) != null) {
-          // [[X]] —— 保持 B4 紫字（老白裁 1）
-          final title = raw.substring(2, raw.length - 2).trim();
+  List<TextSpan> _buildHighlightedSpans(String content, TextStyle base) {
+    // 清旧 recognizer（防泄漏 / 防重复）
+    for (final r in _wikilinkRecognizers) {
+      r.dispose();
+    }
+    _wikilinkRecognizers.clear();
+
+    // 匹配三类：#标签 / [[标题]] / [N](card:id) —— B5 加第三类
+    final regex = RegExp(
+      r'(^|\s)(#[^\s#]+)|(\[\[[^\]\n]+\]\])|(\[\d+\]\(card:[^)]+\))',
+    );
+    final spans = <TextSpan>[];
+    int last = 0;
+    int refCounter = 0; // B5：动态编号 —— 每次渲染重算
+    for (final m in regex.allMatches(content)) {
+      if (m.start > last) {
+        spans.add(
+          TextSpan(text: content.substring(last, m.start), style: base),
+        );
+      }
+      final raw = m.group(0)!;
+      if (m.group(3) != null) {
+        // [[X]] —— 保持 B4 紫字（老白裁 1）
+        final title = raw.substring(2, raw.length - 2).trim();
+        final rec = TapGestureRecognizer()
+          ..onTapUp = (details) =>
+              _onWikilinkTap(title, details.globalPosition);
+        _wikilinkRecognizers.add(rec);
+        spans.add(
+          TextSpan(
+            text: raw,
+            style: base.copyWith(color: Colors.purple.shade700),
+            recognizer: rec,
+          ),
+        );
+      } else if (m.group(4) != null) {
+        // B5：卡片角标 [N](card:id) —— N 按出现顺序重算
+        final m2 = RegExp(r'^\[\d+\]\(card:([^)]+)\)$').firstMatch(raw);
+        if (m2 == null) {
+          spans.add(TextSpan(text: raw, style: base));
+        } else {
+          final cardId = m2.group(1)!;
+          refCounter++;
           final rec = TapGestureRecognizer()
             ..onTapUp = (details) =>
-                _onWikilinkTap(title, details.globalPosition);
+                _onCardRefTap(cardId, details.globalPosition);
           _wikilinkRecognizers.add(rec);
-          spans.add(TextSpan(
-            text: raw,
-            style: base.copyWith(
-              color: Colors.purple.shade700,
-            ),
-            recognizer: rec,
-          ));
-        } else if (m.group(4) != null) {
-          // B5：卡片角标 [N](card:id) —— N 按出现顺序重算
-          final m2 = RegExp(r'^\[\d+\]\(card:([^)]+)\)$').firstMatch(raw);
-          if (m2 == null) {
-            spans.add(TextSpan(text: raw, style: base));
-          } else {
-            final cardId = m2.group(1)!;
-            refCounter++;
-            final rec = TapGestureRecognizer()
-              ..onTapUp = (details) =>
-                  _onCardRefTap(cardId, details.globalPosition);
-            _wikilinkRecognizers.add(rec);
-            spans.add(TextSpan(
+          spans.add(
+            TextSpan(
               text: '[$refCounter]',
               style: base.copyWith(
                 color: Colors.orange.shade700,
                 fontWeight: FontWeight.w600,
               ),
               recognizer: rec,
-            ));
-          }
-        } else {
-          final prefix = m.group(1) ?? '';
-          final tag = m.group(2) ?? '';
-          if (prefix.isNotEmpty) {
-            spans.add(TextSpan(text: prefix, style: base));
-          }
-          spans.add(TextSpan(
+            ),
+          );
+        }
+      } else {
+        final prefix = m.group(1) ?? '';
+        final tag = m.group(2) ?? '';
+        if (prefix.isNotEmpty) {
+          spans.add(TextSpan(text: prefix, style: base));
+        }
+        spans.add(
+          TextSpan(
             text: '#$tag',
             style: base.copyWith(
               color: Colors.blue.shade700,
               backgroundColor: Colors.blue.shade50,
             ),
-          ));
-        }
-        last = m.end;
+          ),
+        );
       }
-      if (last < content.length) {
-        spans.add(TextSpan(text: content.substring(last), style: base));
-      }
-      return spans;
+      last = m.end;
     }
+    if (last < content.length) {
+      spans.add(TextSpan(text: content.substring(last), style: base));
+    }
+    return spans;
+  }
 
   Future<void> _onWikilinkTap(String title, Offset anchor) async {
     final linkSvc = NoteBookLinkService();
-    final noteLinks =
-        await linkSvc.getOutboundNoteLinksByText(_entry.id, title);
-    final bookLinks =
-        await linkSvc.getOutboundBookLinksByText(_entry.id, title);
+    final noteLinks = await linkSvc.getOutboundNoteLinksByText(
+      _entry.id,
+      title,
+    );
+    final bookLinks = await linkSvc.getOutboundBookLinksByText(
+      _entry.id,
+      title,
+    );
     final cards = await _cardService.getCardsByIndexTitle(title);
 
     final total = noteLinks.length + bookLinks.length + cards.length;
@@ -1400,46 +1456,44 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     }
   }
 
-
-
-    /// B5：弹笔记预览 —— 单命中 / 多命中统一走
+  /// B5：弹笔记预览 —— 单命中 / 多命中统一走
   Future<void> _showNotePreview(String noteId, Offset anchor) async {
-      final notes = await _db.getAllNotes(includeDeleted: false);
-      Map<String, dynamic>? target;
-      for (final m in notes) {
-        if (m['id'] == noteId) {
-          target = m;
-          break;
-        }
+    final notes = await _db.getAllNotes(includeDeleted: false);
+    Map<String, dynamic>? target;
+    for (final m in notes) {
+      if (m['id'] == noteId) {
+        target = m;
+        break;
       }
-      if (target == null) {
-        // 目标不存在 → 退回直跳（由 _jumpToNoteById 内部处理空）
-        _jumpToNoteById(noteId);
-        return;
-      }
-      final rawTitle = (target['title'] as String? ?? '').trim();
-      final displayTitle = rawTitle.isNotEmpty
-          ? rawTitle
-          : _virtualTitleOf(target['content'] as String? ?? '');
-      final content = target['content'] as String? ?? '';
-      final summary =
-          content.length > 100 ? content.substring(0, 100) : content;
-      final updatedAt = target['updatedAt'] as String?;
-      if (!mounted) return;
-      PreviewPopup.show(
-        context,
-        anchor,
-        PreviewData(
-          title: displayTitle.isEmpty ? '（无标题）' : displayTitle,
-          summary: summary.isEmpty ? '（空笔记）' : summary,
-          meta: updatedAt != null ? '更新于 $updatedAt' : null,
-          onOpen: () {
-            _jumpToNoteById(noteId);
-          },
-        ),
-      );
     }
-    Future<void> _onWikilinkTapFallback(String title, Offset anchor) async {
+    if (target == null) {
+      // 目标不存在 → 退回直跳（由 _jumpToNoteById 内部处理空）
+      _jumpToNoteById(noteId);
+      return;
+    }
+    final rawTitle = (target['title'] as String? ?? '').trim();
+    final displayTitle = rawTitle.isNotEmpty
+        ? rawTitle
+        : _virtualTitleOf(target['content'] as String? ?? '');
+    final content = target['content'] as String? ?? '';
+    final summary = content.length > 100 ? content.substring(0, 100) : content;
+    final updatedAt = target['updatedAt'] as String?;
+    if (!mounted) return;
+    PreviewPopup.show(
+      context,
+      anchor,
+      PreviewData(
+        title: displayTitle.isEmpty ? '（无标题）' : displayTitle,
+        summary: summary.isEmpty ? '（空笔记）' : summary,
+        meta: updatedAt != null ? '更新于 $updatedAt' : null,
+        onOpen: () {
+          _jumpToNoteById(noteId);
+        },
+      ),
+    );
+  }
+
+  Future<void> _onWikilinkTapFallback(String title, Offset anchor) async {
     final allNotes = await _db.getAllNotes(includeDeleted: false);
     final matches = allNotes.where((m) {
       final rowId = m['id'] as String;
@@ -1462,12 +1516,16 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       builder: (ctx) => SimpleDialog(
         title: const Text('选择目标笔记'),
         children: matches
-            .map((m) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, m['id'] as String),
-                  child: Text((m['title'] as String? ?? '').trim().isEmpty
+            .map(
+              (m) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, m['id'] as String),
+                child: Text(
+                  (m['title'] as String? ?? '').trim().isEmpty
                       ? _virtualTitleOf(m['content'] as String? ?? '')
-                      : (m['title'] as String).trim()),
-                ))
+                      : (m['title'] as String).trim(),
+                ),
+              ),
+            )
             .toList(),
       ),
     );
@@ -1495,9 +1553,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         onOpen: () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => BookDetailPage(bookId: bookId),
-            ),
+            MaterialPageRoute(builder: (_) => BookDetailPage(bookId: bookId)),
           );
         },
       ),
@@ -1520,13 +1576,12 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
   }
 
-    Future<Map<String, dynamic>?> _showWikilinkSelector(
+  Future<Map<String, dynamic>?> _showWikilinkSelector(
     List<Map<String, dynamic>> noteLinks,
     List<Map<String, dynamic>> bookLinks,
     List<CardModel> cards,
   ) async {
-    final noteIds =
-        noteLinks.map((l) => l['target_note_id'] as String).toSet();
+    final noteIds = noteLinks.map((l) => l['target_note_id'] as String).toSet();
     final allNotes = await _db.getAllNotes(includeDeleted: false);
     final notesById = <String, Map<String, dynamic>>{};
     for (final m in allNotes) {
@@ -1548,33 +1603,39 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       final t = raw.isNotEmpty
           ? raw
           : _virtualTitleOf(m['content'] as String? ?? '');
-      entries.add(_WikilinkSelectorEntry(
-        type: 'note',
-        id: id,
-        title: t.isEmpty ? '（无标题）' : t,
-        sortKey: _parseDt(m['updatedAt']),
-      ));
+      entries.add(
+        _WikilinkSelectorEntry(
+          type: 'note',
+          id: id,
+          title: t.isEmpty ? '（无标题）' : t,
+          sortKey: _parseDt(m['updatedAt']),
+        ),
+      );
     }
     for (final l in bookLinks) {
       final id = l['book_id'] as String;
       final b = booksById[id];
       if (b == null) continue;
       final t = (b['title'] as String? ?? '').trim();
-      entries.add(_WikilinkSelectorEntry(
-        type: 'book',
-        id: id,
-        title: t.isEmpty ? '（无书名）' : t,
-        sortKey: _parseDt(b['lastReadAt']),   // ✅ 修正：camelCase
-      ));
+      entries.add(
+        _WikilinkSelectorEntry(
+          type: 'book',
+          id: id,
+          title: t.isEmpty ? '（无书名）' : t,
+          sortKey: _parseDt(b['lastReadAt']), // ✅ 修正：camelCase
+        ),
+      );
     }
     for (final c in cards) {
       final t = c.indexTitle ?? c.highlight ?? c.displayFront;
-      entries.add(_WikilinkSelectorEntry(
-        type: 'card',
-        id: c.id,
-        title: t.isEmpty ? '（无标题卡）' : t,
-        sortKey: c.createdAt,
-      ));
+      entries.add(
+        _WikilinkSelectorEntry(
+          type: 'card',
+          id: c.id,
+          title: t.isEmpty ? '（无标题卡）' : t,
+          sortKey: c.createdAt,
+        ),
+      );
     }
 
     int typeOrder(String t) => t == 'note' ? 0 : (t == 'book' ? 1 : 2);
@@ -1590,8 +1651,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       builder: (ctx) => SimpleDialog(
         title: const Text('选择目标'),
         children: entries.map((e) {
-          final icon =
-              e.type == 'note' ? '📝' : (e.type == 'book' ? '📖' : '📇');
+          final icon = e.type == 'note'
+              ? '📝'
+              : (e.type == 'book' ? '📖' : '📇');
           return SimpleDialogOption(
             onPressed: () => Navigator.pop(ctx, {'type': e.type, 'id': e.id}),
             child: Text('$icon ${e.title}'),
@@ -1611,14 +1673,15 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (ms != null) return DateTime.fromMillisecondsSinceEpoch(ms);
     return DateTime.fromMillisecondsSinceEpoch(0);
   }
-      /// B5：点卡片角标 [N] —— 弹卡预览（卡详情入口待核 —— onOpen 暂 null）
-        Future<void> _onCardRefTap(String cardId, Offset anchor) async {
-      final card = await _cardService.getCard(cardId);
-      if (card == null) return;
-      if (!mounted) return;
-      _showCardPreview(card, anchor);
-    }
-  
+
+  /// B5：点卡片角标 [N] —— 弹卡预览（卡详情入口待核 —— onOpen 暂 null）
+  Future<void> _onCardRefTap(String cardId, Offset anchor) async {
+    final card = await _cardService.getCard(cardId);
+    if (card == null) return;
+    if (!mounted) return;
+    _showCardPreview(card, anchor);
+  }
+
   Future<void> _jumpToNoteById(String noteId) async {
     final node = await _db.getNodeByNoteId(noteId);
     final notes = await _db.getAllNotes(includeDeleted: false);
@@ -1642,16 +1705,14 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (c.isEmpty) return '无标题';
     return c.length > 20 ? '${c.substring(0, 20)}…' : c;
   }
+
   /// 导图体 —— 嵌在正文段（面包屑 + 树）
   Widget _buildMapBody() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (_mapBreadcrumb.isNotEmpty)
-          NoteMapBreadcrumb(
-            items: _mapBreadcrumb,
-            onTap: _onBreadcrumbTap,
-          ),
+          NoteMapBreadcrumb(items: _mapBreadcrumb, onTap: _onBreadcrumbTap),
         const Divider(height: 1),
         NoteMapView(
           entry: _entry,
@@ -1685,28 +1746,34 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Builder(builder: (_) {
-              final displayTags = _entry.tags
-                  .where((t) => t != '重要' && t != '待解决')
-                  .toList();
-              if (displayTags.isEmpty) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Wrap(
-                  spacing: 4,
-                  children: displayTags.map((tag) => Chip(
-                    label: Text(tag),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  )).toList(),
-                ),
-              );
-            }),
+            Builder(
+              builder: (_) {
+                final displayTags = _entry.tags
+                    .where((t) => t != '重要' && t != '待解决')
+                    .toList();
+                if (displayTags.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Wrap(
+                    spacing: 4,
+                    children: displayTags
+                        .map(
+                          (tag) => Chip(
+                            label: Text(tag),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                );
+              },
+            ),
             _RichtextReadView(
               key: ValueKey(_entry.content),
               delta: result.delta,
               onQuickIndex: _quickGenerateIndexCard,
-              onFullCard: (text) =>
-                  _showFullNoteCardDialog(selectedText: text),
+              onFullCard: (text) => _showFullNoteCardDialog(selectedText: text),
             ),
             if (_entry.exploreTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -1762,8 +1829,12 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
   }
 
   Widget _buildCraftingSection() {
-    final hasQuestion = _entry.inquiryQuestion != null && _entry.inquiryQuestion!.trim().isNotEmpty;
-    final hasConclusion = _entry.inquiryConclusion != null && _entry.inquiryConclusion!.trim().isNotEmpty;
+    final hasQuestion =
+        _entry.inquiryQuestion != null &&
+        _entry.inquiryQuestion!.trim().isNotEmpty;
+    final hasConclusion =
+        _entry.inquiryConclusion != null &&
+        _entry.inquiryConclusion!.trim().isNotEmpty;
 
     if (!hasQuestion && !hasConclusion) return const SizedBox.shrink();
 
@@ -1864,6 +1935,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ),
     );
   }
+
   Widget _buildRightColumn() {
     return SizedBox(
       width: _showRightPanelWide ? 280 : 140,
@@ -1922,16 +1994,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
               Expanded(
                 child: Text(
                   title,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
               ),
-              InkWell(
-                onTap: onAdd,
-                child: const Icon(Icons.add, size: 14),
-              ),
+              InkWell(onTap: onAdd, child: const Icon(Icons.add, size: 14)),
             ],
           ),
           const SizedBox(height: 4),
@@ -1942,23 +2008,18 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           else if (count == 0)
             Text(
               '暂无',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade400,
-              ),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
             )
           else
             Text(
               '$count 项',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
         ],
       ),
     );
   }
+
   Widget _buildSubNotesListExpanded() {
     if (_subNotesList.isEmpty) {
       return Text(
@@ -1969,22 +2030,24 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: _subNotesList
-          .map((node) => InkWell(
-                onTap: () => _openNote(context, node.id),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(
-                    node.title,
-                    style: const TextStyle(fontSize: 12),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+          .map(
+            (node) => InkWell(
+              onTap: () => _openNote(context, node.id),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  node.title,
+                  style: const TextStyle(fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ))
+              ),
+            ),
+          )
           .toList(),
     );
   }
-   
+
   Widget _buildBacklinksListExpanded() {
     if (_backlinks.isEmpty) {
       return Text(
@@ -2048,38 +2111,38 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             ),
           )
         else
-          ..._noteCards.map((card) => Container(
-                margin: const EdgeInsets.only(bottom: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Text(card.typeIcon, style: const TextStyle(fontSize: 16)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        card.displayFront,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
-                      ),
+          ..._noteCards.map(
+            (card) => Container(
+              margin: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Row(
+                children: [
+                  Text(card.typeIcon, style: const TextStyle(fontSize: 16)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      card.displayFront,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
                     ),
-                  ],
-                ),
-              )),
+                  ),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
 
   Widget _buildEditMode() {
     if (_entry.contentFormat == 'richtext') {
-      return const Center(
-        child: Text('请通过编辑按钮打开富文本编辑器'),
-      );
+      return const Center(child: Text('请通过编辑按钮打开富文本编辑器'));
     }
 
     if (_focusMode) {
@@ -2225,9 +2288,9 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     ];
     final limited = ordered.take(3).toList();
     if (ordered.length > 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('超过三栏上限，只取前 3 篇')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('超过三栏上限，只取前 3 篇')));
     }
     await Navigator.push(
       context,
@@ -2272,6 +2335,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
   }
 }
+
 class _WikilinkSelectorEntry {
   final String type;
   final String id;
@@ -2284,6 +2348,7 @@ class _WikilinkSelectorEntry {
     required this.sortKey,
   });
 }
+
 /// 富文本只读渲染 widget。
 class _RichtextReadView extends StatefulWidget {
   final List<Map<String, dynamic>> delta;
@@ -2397,6 +2462,7 @@ class _DividerEmbedBuilder extends quill.EmbedBuilder {
     return const Divider(thickness: 1);
   }
 }
+
 class _WikiLinkSyntax extends md.InlineSyntax {
   _WikiLinkSyntax() : super(r'\[\[([^\]]+)\]\]');
   @override
@@ -2417,7 +2483,7 @@ class _HashtagSyntax extends md.InlineSyntax {
 
 class _CardRefSyntax extends md.InlineSyntax {
   static int _counter = 0;
-  _CardRefSyntax() : super(r'\[\d+\]\(card:([^)]+)\)', );
+  _CardRefSyntax() : super(r'\[\d+\]\(card:([^)]+)\)');
   static void reset() => _counter = 0;
   @override
   bool onMatch(md.InlineParser parser, Match match) {
