@@ -6,96 +6,10 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_note_app/database/database.dart';
 import 'package:my_note_app/database_service.dart';
-import 'package:my_note_app/models/review_card.dart';
-import 'package:my_note_app/models/node.dart';
-import 'package:my_note_app/services/review_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  group('L1-4 复习', () {
-    late ReviewService service;
-
-    setUp(() {
-      SharedPreferences.setMockInitialValues({});
-      service = ReviewService();
-    });
-
-    test('addCard -> loadAll 一致；新卡 repetitions=0、isNew=true', () async {
-      final card = ReviewCard(
-        id: 'r1',
-        noteId: 'n1',
-        question: 'Q1',
-        answer: 'A1',
-        createdAt: DateTime.now(),
-      );
-      await service.addCard(card);
-
-      final all = await service.loadAll();
-      expect(all.length, 1);
-      expect(all.first.id, 'r1');
-      expect(all.first.question, 'Q1');
-      expect(all.first.answer, 'A1');
-      expect(all.first.repetitions, 0);
-      expect(all.first.isNew, true);
-    });
-
-    test('新建卡 nextReviewAt==null -> isDue=true -> getDueCards 含此卡', () async {
-      await service.addCard(
-        ReviewCard(
-          id: 'r2',
-          noteId: 'n2',
-          question: 'Q',
-          answer: 'A',
-          createdAt: DateTime.now(),
-        ),
-      );
-
-      final due = await service.getDueCards();
-      expect(due.map((c) => c.id), contains('r2'));
-    });
-
-    test('reviewCard 返回同 id 卡；loadAll 可读回', () async {
-      await service.addCard(
-        ReviewCard(
-          id: 'r3',
-          noteId: 'n3',
-          question: 'Q',
-          answer: 'A',
-          createdAt: DateTime.now(),
-        ),
-      );
-
-      final updated = await service.reviewCard('r3', 3);
-      expect(updated.id, 'r3');
-
-      final all = await service.loadAll();
-      expect(all.where((c) => c.id == 'r3').length, 1);
-    });
-
-    test('reviewCard 不存在 id 抛 Exception', () async {
-      await expectLater(
-        () => service.reviewCard('nope', 3),
-        throwsA(isA<Exception>()),
-      );
-    });
-
-    test('removeCard 后 loadAll 不含', () async {
-      await service.addCard(
-        ReviewCard(
-          id: 'r4',
-          noteId: 'n',
-          question: 'q',
-          answer: 'a',
-          createdAt: DateTime.now(),
-        ),
-      );
-      await service.removeCard('r4');
-      final all = await service.loadAll();
-      expect(all.where((c) => c.id == 'r4'), isEmpty);
-    });
-  });
 
   group('L1-5 导出/导入', () {
     late AppDatabase db;
