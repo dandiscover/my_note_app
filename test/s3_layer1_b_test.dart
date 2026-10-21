@@ -24,6 +24,49 @@ void main() {
       await db.close();
     });
 
+    test('四表完整往返：note + card 行数一致 + 关键字段', () async {
+      await service.insertNote({
+        'id': 'rt_n4',
+        'title': '卡批笔记',
+        'content': '卡批正文',
+        'updatedAt': '2026-10-21T01:00:00.000',
+      });
+      await service.insertCard({
+        'id': 'rt_card1',
+        'cardType': 'qa',
+        'sourceType': 'note',
+        'sourceId': 'rt_n4',
+        'question': '卡问题',
+        'answer': '卡答案',
+        'createdAt': '2026-10-21T01:00:00.000',
+        'updatedAt': '2026-10-21T01:00:00.000',
+        'memoryLevel': 0.7,
+        'stage': 3,
+        'mastered': false,
+        'totalReviews': 5,
+        'failedCount': 2,
+      });
+
+      final json = await service.exportAllData();
+      await service.importAllData(json);
+
+      final cards = await service.getAllCards();
+      final matched = cards.where((m) => (m['id'] as String) == 'rt_card1').toList();
+      expect(matched.length, 1, reason: '卡片行数应 1');
+
+      final c = matched.first;
+      expect(c['cardType'] as String, 'qa');
+      expect(c['sourceType'] as String, 'note');
+      expect(c['sourceId'] as String, 'rt_n4');
+      expect((c['memoryLevel'] as num).toDouble(), 0.7);
+      expect(c['stage'] as int, 3);
+      expect(c['mastered'] as bool, false);
+      expect(c['totalReviews'] as int, 5);
+      expect(c['failedCount'] as int, 2);
+      expect(c['question'] as String?, '卡问题');
+      expect(c['answer'] as String?, '卡答案');
+    });
+
     test('exportAllData 返回 JSON，含 version / notes / nodes / books', () async {
       await service.insertNote({
         'id': 'exp_n1',

@@ -987,6 +987,12 @@ class DatabaseService {
     });
   }
 
+  Future<void> insertCard(Map<String, dynamic> cardMap) async {
+    await _drift
+        .into(_drift.cards)
+        .insert(_cardMapToCompanion(cardMap), mode: InsertMode.insertOrReplace);
+  }
+
   Map<String, dynamic> _cardRowToMap(CardsData r) => {
         'id': r.id,
         'cardType': r.cardType,
@@ -1603,6 +1609,7 @@ class DatabaseService {
     'notes': await getAllNotes(includeDeleted: true),
     'nodes': await _getAllNodesInternal(),
     'books': await getAllBooks(),
+    'cards': await getAllCards(),
   });
 
   Future<void> importAllData(String jsonString) async {
@@ -1611,6 +1618,7 @@ class DatabaseService {
     if (data['notes'] != null) for (var note in data['notes']) await insertNote(note);
     if (data['nodes'] != null) for (var node in data['nodes']) await insertNode(node);
     if (data['books'] != null) for (var book in data['books']) await insertBook(book);
+    if (data['cards'] != null) for (var card in data['cards']) await insertCard(card);
   }
 
   Future<void> _clearAllData() async {
@@ -1618,6 +1626,7 @@ class DatabaseService {
       await _drift.delete(_drift.notes).go();
       await _drift.delete(_drift.nodes).go();
       await _drift.delete(_drift.books).go();
+      await _drift.delete(_drift.cards).go();
     });
   }
 
