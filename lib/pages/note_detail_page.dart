@@ -6,7 +6,11 @@ import 'package:markdown/markdown.dart' as md;
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:flutter_quill/flutter_quill.dart' as quill;
+import '../services/image_path_service.dart';
 import '../services/open_tabs_manager.dart';
 import '../database_service.dart';
 import '../services/sync/cloud_sync_service.dart';
@@ -1043,6 +1047,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             onToggleMode: _toggleMode,
             onCard: () => _showFullNoteCardDialog(),
                         onPrint: () => NotePrintService.printNote(_entry),
+            onInsertImage: !_isReadMode ? _insertImageToMarkdown : null,
             onQuickSwitch: () => CommandPaletteLauncher.open(),
             onOpenMultiPane: _openMultiPane,
             onToggleFocus: _toggleFocusMode,
@@ -1094,6 +1099,30 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         floatingActionButton: fab,
       ),
     );
+  }
+
+  Future<void> _insertImageToMarkdown() async {
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.image);
+      if (files == null || files.isEmpty || files.single.path == null) return;
+
+      final originalPath = files.single.path!;
+      final ext = p.extension(originalPath);
+      final filename = '${DateTime.now().millisecondsSinceEpoch}$ext';
+      final targetPath = ImagePathService.instance.targetPath(filename);
+      
+      final file = File(targetPath);
+      await file.writeAsBytes(await File(originalPath).readAsBytes());
+
+      // 插入相对路径
+      _kernel.insertText('![](note_images/$filename)');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('插入图片失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Future<void> _showExitDialog() async {

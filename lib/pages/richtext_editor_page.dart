@@ -14,16 +14,20 @@
 // ✅ divider 自定义嵌入：EmbedBuilder（B 部分实测确认）
 // ✅ T-213：initState 解析失败不静默回退——显示错误页，禁保存
 // ✅ 第四轮批 1：AppBar 加 ⭐/❓ 笔记级标记入口（依据 v5 方案 §6.2）
+// ✅ R-16 第一段：修复插入图片无响应，改用 file_picker，并加入选区兜底
 
 import 'dart:convert';
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
+
 import '../models/material_item.dart';
 import '../models/card.dart';
 import '../services/card_service.dart';
 import '../services/command_palette_launcher.dart';
 import '../widgets/writing/material_panel.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_quill/flutter_quill.dart' as quill;
-
 import '../database_service.dart';
 import '../models/note.dart';
 import '../services/epub_export/epub_exporter.dart';
@@ -31,6 +35,7 @@ import '../services/epub_export/epub_platform_saver.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
 import '../utils/debouncer.dart';
+import '../services/image_path_service.dart';
 
 class RichtextEditorPage extends StatefulWidget {
   final NotebookEntry entry;
@@ -56,8 +61,6 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
   List<MaterialItem> _materialItems = [];
 
   // ✅ 第四轮批 1 新增：笔记级标记（⭐ 重要 / ❓ 待解决）
-  // 依据老白裁定 + v5 方案 §6.2：批 1 只做笔记级标记，blockId=null。
-  // 保存时写回 entry.tags，经 DatabaseService._syncSearchIndexForNote 进 tag_index。
   late List<String> _currentTags;
 
   @override
@@ -69,23 +72,17 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     _loadMaterialItems();
 
     try {
-      // 1. 解析 entry.content 为自定义结构
       final structure =
           jsonDecode(widget.entry.content) as Map<String, dynamic>;
-
-      // 2. 结构 → Delta + memo
       final result = RichtextAdapter.structureToDelta(structure);
       _memo = result.memo;
 
-      // 3. Delta 喂 QuillController
       _quillController = quill.QuillController(
         document: quill.Document.fromJson(result.delta),
         selection: const TextSelection.collapsed(offset: 0),
       );
       _quillController!.addListener(_onQuillContentChanged);
     } catch (e) {
-      // T-213：不静默回退。记错误，build 走错误页。
-      // 用户看不到空白编辑器，也不会误保存覆盖原内容。
       _initError = e.toString();
     }
   }
@@ -94,8 +91,6 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     setState(() {});
   }
 
-  /// 切换笔记级标记（⭐ 重要 / ❓ 待解决）。
-  /// 第四轮批 1 新增。依据 v5 方案 §6.2。
   void _toggleTag(String tag) {
     setState(() {
       if (_currentTags.contains(tag)) {
@@ -165,8 +160,42 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     });
   }
 
+  Future<void> _insertImageToRichtext() async {
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.image);
+      if (files == null || files.isEmpty || files.single.path == null) return;
+
+      final originalPath = files.single.path!;
+      final ext = p.extension(originalPath);
+      final filename = '${DateTime.now().millisecondsSinceEpoch}$ext';
+      final targetPath = ImagePathService.instance.targetPath(filename);
+      
+      final file = File(targetPath);
+      await file.writeAsBytes(await File(originalPath).readAsBytes());
+
+      final relPath = 'note_images/$filename';
+      
+      // 安全兜底：如果光标无效，插在文末；否则插在光标处
+      final int index = _quillController!.selection.baseOffset == -1 
+          ? _quillController!.document.length - 1 
+          : _quillController!.selection.baseOffset;
+          
+      _quillController!.document.insert(index, quill.BlockEmbed.image(relPath));
+      // 恢复焦点并后移
+      _quillController!.updateSelection(
+        TextSelection.collapsed(offset: index + 1),
+        quill.ChangeSource.local,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('插入图片失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _save({bool isAuto = false}) async {
-    // T-213：错误页时不可达；双保险。
     final controller = _quillController;
     final memo = _memo;
     if (controller == null || memo == null) return;
@@ -175,19 +204,13 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     setState(() => _isSaving = true);
 
     try {
-      // 1. 从 QuillController 取 Delta
       final delta = controller.document.toDelta().toJson();
-
-      // 2. Delta → 自定义结构（带 memo 恢复 id / marks）
       final newStructure = RichtextAdapter.deltaToStructure(
         delta.cast<Map<String, dynamic>>(),
         memo: memo,
       );
 
-      // 3. 标题
       final newTitle = _titleController.text.trim();
-
-      // 4. 构造新 entry 并落盘
       final updated = widget.entry.copyWith(
         title: newTitle.isEmpty ? widget.entry.title : newTitle,
         content: jsonEncode(newStructure),
@@ -223,9 +246,6 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     }
   }
 
-  /// 导出当前笔记为 EPUB（单篇）
-  ///
-  /// 流程：编辑器内容 → 静默保存 → EpubExporter.exportBook([entry]) → 平台保存
   Future<void> _exportEpub() async {
     final controller = _quillController;
     final memo = _memo;
@@ -234,16 +254,12 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
 
     setState(() => _isSaving = true);
     try {
-      // 1. 从编辑器取当前 Delta
       final delta = controller.document.toDelta().toJson();
-
-      // 2. Delta → 结构
       final newStructure = RichtextAdapter.deltaToStructure(
         delta.cast<Map<String, dynamic>>(),
         memo: memo,
       );
 
-      // 3. 构造新 entry
       final newTitle = _titleController.text.trim();
       final updated = widget.entry.copyWith(
         title: newTitle.isEmpty ? widget.entry.title : newTitle,
@@ -252,13 +268,8 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
         tags: _currentTags,
       );
 
-      // 4. 静默保存到数据库（老白裁定：导出触发一次保存）
       await DatabaseService().updateNote(updated.toMap());
-
-      // 5. 导出
       final book = EpubExporter.exportBook([updated]);
-
-      // 6. 平台特定保存（抽出的公共 service）
       await EpubPlatformSaver.save(book.bytes, book.suggestedFilename);
 
       if (!mounted) return;
@@ -323,7 +334,6 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    // T-213：解析失败 → 错误页。不提供保存入口。
     if (_initError != null) {
       return _buildErrorPage();
     }
@@ -349,8 +359,6 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
           ),
           centerTitle: false,
           actions: [
-            // ✅ 第四轮批 1 新增：笔记级标记 ⭐/❓
-            // 依据 v5 方案 §6.2：批 1 只做笔记级标记，不碰光标映射。
             IconButton(
               icon: Icon(
                 _currentTags.contains('重要') ? Icons.star : Icons.star_border,
@@ -372,6 +380,11 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
               child: const Text('取消'),
             ),
             const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.image),
+              tooltip: '插入图片',
+              onPressed: _isSaving ? null : _insertImageToRichtext,
+            ),
             TextButton(
               onPressed: _isSaving ? null : _save,
               child: _isSaving
@@ -422,7 +435,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
                         controller: _quillController!,
                         config: quill.QuillEditorConfig(
                           placeholder: '开始写…',
-                          embedBuilders: [_DividerEmbedBuilder()],
+                          embedBuilders: [_DividerEmbedBuilder(), _RichtextImageEmbedBuilder()],
                         ),
                       ),
                     ),
@@ -448,11 +461,6 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     );
   }
 
-  /// T-213：解析失败错误页。
-  ///
-  /// - 显示原始错误信息（便于排查）
-  /// - 不提供保存入口
-  /// - 提供返回按钮，用户可退出
   Widget _buildErrorPage() {
     return Scaffold(
       appBar: AppBar(
@@ -505,10 +513,42 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
   }
 }
 
-/// 分割线嵌入对象的渲染器。
-///
-/// 对应 Delta 里的 `{ "insert": { "divider": true } }`。
-/// 若未注册，flutter_quill 会渲染成占位符或崩。
+class _RichtextImageEmbedBuilder extends quill.EmbedBuilder {
+  @override
+  String get key => 'image';
+
+  @override
+  Widget build(BuildContext context, quill.EmbedContext embedContext) {
+    final dynamic data = embedContext.node.value.data;
+    if (data is! String || data.isEmpty) {
+      return const Icon(Icons.broken_image, size: 48);
+    }
+    final uri = Uri.tryParse(data);
+    if (uri == null) return const Icon(Icons.broken_image, size: 48);
+    
+    if (uri.hasScheme) {
+      if (uri.scheme == 'http' || uri.scheme == 'https') {
+        return Image.network(data, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48));
+      }
+      if (uri.scheme == 'file') {
+        return Image.file(File(uri.toFilePath()), errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48));
+      }
+      if (uri.scheme == 'data') {
+        try {
+          final bytes = uri.data?.contentAsBytes();
+          if (bytes == null || bytes.isEmpty) return const Icon(Icons.broken_image, size: 48);
+          return Image.memory(bytes, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48));
+        } catch (_) {
+          return const Icon(Icons.broken_image, size: 48);
+        }
+      }
+    }
+    
+    final fullPath = ImagePathService.instance.resolve(data);
+    return Image.file(File(fullPath), errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48));
+  }
+}
+
 class _DividerEmbedBuilder extends quill.EmbedBuilder {
   @override
   String get key => DeltaAttributes.divider;
