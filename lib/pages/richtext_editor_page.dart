@@ -35,6 +35,7 @@ import '../services/epub_export/epub_platform_saver.dart';
 import '../services/richtext_adapter/richtext_adapter.dart';
 import '../services/richtext_adapter/shared/attributes.dart';
 import '../utils/debouncer.dart';
+import '../widgets/spark_dialog.dart';
 import '../services/image_path_service.dart';
 
 class RichtextEditorPage extends StatefulWidget {
@@ -380,11 +381,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
               child: const Text('取消'),
             ),
             const SizedBox(width: 4),
-            IconButton(
-              icon: const Icon(Icons.image),
-              tooltip: '插入图片',
-              onPressed: _isSaving ? null : _insertImageToRichtext,
-            ),
+
             TextButton(
               onPressed: _isSaving ? null : _save,
               child: _isSaving
@@ -427,16 +424,79 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
                   children: [
                     quill.QuillSimpleToolbar(
                       controller: _quillController!,
-                      config: const quill.QuillSimpleToolbarConfig(),
+                      config: quill.QuillSimpleToolbarConfig(
+                        multiRowsDisplay: true, // 自动换行成多行，防溢出
+                        showDividers: true,
+                        showBoldButton: true,
+                        // ... 保持你原有的其他配置不变 ...
+                        customButtons: [
+                          quill.QuillToolbarCustomButtonOptions(
+                            icon: const Icon(Icons.image),
+                            tooltip: '插入图片',
+                            onPressed: _insertImageToRichtext,
+                          ),
+                          quill.QuillToolbarCustomButtonOptions(
+                            icon: const Icon(Icons.auto_awesome, color: Colors.purple),
+                            tooltip: '火花',
+                            onPressed: () async {
+                              final result = await showDialog<SparkDialogResult>(
+                                context: context,
+                                builder: (_) => const SparkDialog(),
+                              );
+                              if (result != null && result.content.isNotEmpty) {
+                                _insertTextAtCursor(result.content);
+                              }
+                            },
+                          ),
+                        ],
+                        showItalicButton: true,
+                        showUnderLineButton: true,
+                        showStrikeThrough: true,
+                        showInlineCode: true,
+                        showColorButton: true,
+                        showBackgroundColorButton: true,
+                        showClearFormat: true,
+                        showAlignmentButtons: true, // 居中/左对齐/右对齐
+                        showHeaderStyle: true, // 标题层级 H1-H6
+                        showListNumbers: true, // 有序列表
+                        showListBullets: true, // 无序列表
+                        showListCheck: true, // 待办列表
+                        showCodeBlock: true, // 代码块
+                        showQuote: true, // 引用
+                        showIndent: true, // 缩进
+                        showLink: true, // 超链接
+                        showUndo: true,
+                        showRedo: true,
+                        showSearchButton: false, // 先关搜索，免得占位
+                        showSubscript: false,
+                        showSuperscript: false,
+                      ),
                     ),
                     const Divider(height: 1),
                     Expanded(
-                      child: quill.QuillEditor.basic(
-                        controller: _quillController!,
-                        config: quill.QuillEditorConfig(
-                          placeholder: '开始写…',
-                          embedBuilders: [_DividerEmbedBuilder(), _RichtextImageEmbedBuilder()],
-                        ),
+                      child: DragTarget<MaterialItem>(
+                        onAcceptWithDetails: (details) {
+                          final item = details.data;
+                          String text = '';
+                          if (item.type == MaterialItemType.card && item.card != null) {
+                            text = item.card!.highlight ?? item.card!.displayFront ?? '';
+                          } else if (item.type == MaterialItemType.note && item.note != null) {
+                            text = item.note!.content.isNotEmpty ? item.note!.content : item.note!.title;
+                          }
+                          
+                          if (text.isNotEmpty) {
+                            _insertTextAtCursor(text);
+                          }
+                        },
+                        builder: (context, candidateData, rejectedData) {
+                          return quill.QuillEditor.basic(
+                            controller: _quillController!,
+                            config: quill.QuillEditorConfig(
+                              placeholder: '开始写…',
+                              embedBuilders: [_DividerEmbedBuilder(), _RichtextImageEmbedBuilder()],
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
