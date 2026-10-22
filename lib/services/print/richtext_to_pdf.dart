@@ -1,4 +1,3 @@
-// lib/services/print/richtext_to_pdf.dart
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
@@ -42,13 +41,11 @@ List<pw.Widget> _deltaToPdf(
   final out = <pw.Widget>[];
   final spans = <pw.InlineSpan>[];
   Map<String, dynamic>? blockAttrs;
+  int orderedCounter = 1;
 
   void flushBlock() {
     if (spans.isEmpty && blockAttrs == null) return;
-    final plain = spans
-        .whereType<pw.TextSpan>()
-        .map((s) => s.text ?? '')
-        .join();
+
     final rich = pw.RichText(text: pw.TextSpan(children: spans));
 
     if (blockAttrs != null) {
@@ -56,14 +53,54 @@ List<pw.Widget> _deltaToPdf(
       final list = blockAttrs!['list'];
       final quote = blockAttrs!['blockquote'];
       final code = blockAttrs!['code-block'];
+      
       if (h is int) {
-        out.add(pw.Header(level: h, text: plain));
+        final size = 24.0 - (h * 2);
+        final newSpans = spans.map((s) {
+          if (s is pw.TextSpan) {
+            return pw.TextSpan(
+              text: s.text,
+              style: (s.style ?? const pw.TextStyle()).copyWith(fontSize: size, fontWeight: pw.FontWeight.bold),
+            );
+          }
+          return s;
+        }).toList();
+        out.add(pw.RichText(text: pw.TextSpan(children: newSpans)));
+        orderedCounter = 1;
       } else if (list is String) {
-        final prefix = list == 'ordered' ? '' : '• ';
-        out.add(pw.Bullet(text: '$prefix$plain'));
+        if (list == 'ordered') {
+          out.add(
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 2),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.SizedBox(width: 18, child: pw.Text('$orderedCounter. ')),
+                  pw.Expanded(child: rich),
+                ],
+              ),
+            ),
+          );
+          orderedCounter++;
+        } else {
+          out.add(
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 2),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.SizedBox(width: 12, child: pw.Text('•')),
+                  pw.Expanded(child: rich),
+                ],
+              ),
+            ),
+          );
+          orderedCounter = 1;
+        }
       } else if (quote == true) {
         out.add(
           pw.Container(
+            margin: const pw.EdgeInsets.only(bottom: 6, top: 4),
             padding: const pw.EdgeInsets.only(left: 8),
             decoration: const pw.BoxDecoration(
               border: pw.Border(
@@ -73,19 +110,24 @@ List<pw.Widget> _deltaToPdf(
             child: rich,
           ),
         );
+        orderedCounter = 1;
       } else if (code == true) {
         out.add(
           pw.Container(
-            padding: const pw.EdgeInsets.all(4),
+            margin: const pw.EdgeInsets.only(bottom: 6, top: 4),
+            padding: const pw.EdgeInsets.all(6),
             color: PdfColors.grey200,
             child: rich,
           ),
         );
+        orderedCounter = 1;
       } else {
         out.add(rich);
+        orderedCounter = 1;
       }
     } else {
       out.add(rich);
+      orderedCounter = 1;
     }
     spans.clear();
     blockAttrs = null;

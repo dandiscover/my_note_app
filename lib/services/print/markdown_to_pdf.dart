@@ -1,4 +1,3 @@
-// lib/services/print/markdown_to_pdf.dart
 import 'dart:typed_data';
 import 'package:markdown/markdown.dart' as md;
 import 'package:pdf/pdf.dart';
@@ -14,10 +13,14 @@ Future<Uint8List> buildMarkdownPdf(
 }) async {
   try {
     final doc = md.Document(extensionSet: buildMarkdownExtensionSet());
-    final nodes = doc.parseLines(content.split('\n'));
+    // 修复列表失效：清理 Windows 的 \r 换行符
+    final lines = content.split('\n').map((line) => line.replaceAll('\r', '')).toList();
+    final nodes = doc.parseLines(lines);
 
     final srcs = <String>{};
-    for (final n in nodes) _collectMdImages(n, srcs);
+    for (final n in nodes) {
+      _collectMdImages(n, srcs);
+    }
     final images = await preloadImageMap(srcs);
 
     return await buildDoc(
@@ -41,7 +44,9 @@ void _collectMdImages(md.Node node, Set<String> out) {
     }
     final kids = node.children;
     if (kids != null) {
-      for (final c in kids) _collectMdImages(c, out);
+      for (final c in kids) {
+        _collectMdImages(c, out);
+      }
     }
   }
 }
@@ -60,15 +65,51 @@ List<pw.Widget> _mdNodeToPdf(
     case 'h5':
     case 'h6':
       final level = int.parse(node.tag.substring(1));
-      return [pw.Header(level: level, text: node.textContent)];
+      final size = 24.0 - (level * 2);
+      return [
+        pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 10, bottom: 6),
+          child: pw.RichText(
+            text: pw.TextSpan(
+              children: _parseInlineToPdfSpans(
+                node,
+                style: pw.TextStyle(fontSize: size, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+          ),
+        ),
+      ];
 
     case 'p':
-      return [pw.Paragraph(text: node.textContent)];
+      return [
+        pw.Padding(
+          padding: const pw.EdgeInsets.only(bottom: 4),
+          child: pw.RichText(
+            text: pw.TextSpan(
+              children: _parseInlineToPdfSpans(node),
+            ),
+          ),
+        ),
+      ];
 
     case 'ul':
       return [
         for (final li in node.children ?? <md.Node>[])
-          if (li is md.Element) pw.Bullet(text: li.textContent),
+          if (li is md.Element)
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 2),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.SizedBox(width: 12, child: pw.Text('•')),
+                  pw.Expanded(
+                    child: pw.RichText(
+                      text: pw.TextSpan(children: _parseInlineToPdfSpans(li)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
       ];
 
     case 'ol':
@@ -76,38 +117,67 @@ List<pw.Widget> _mdNodeToPdf(
       return [
         for (var i = 0; i < items.length; i++)
           if (items[i] is md.Element)
-            pw.Bullet(text: '${i + 1}. ${(items[i] as md.Element).textContent}'),
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 2),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.SizedBox(width: 18, child: pw.Text('${i + 1}. ')),
+                  pw.Expanded(
+                    child: pw.RichText(
+                      text: pw.TextSpan(
+                        children: _parseInlineToPdfSpans(items[i]),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
       ];
 
     case 'blockquote':
       return [
         pw.Container(
+          margin: const pw.EdgeInsets.only(bottom: 6, top: 4),
           padding: const pw.EdgeInsets.only(left: 8),
           decoration: const pw.BoxDecoration(
             border: pw.Border(
               left: pw.BorderSide(width: 2, color: PdfColors.grey400),
             ),
           ),
-          child: pw.Text(node.textContent),
+          child: pw.RichText(
+            text: pw.TextSpan(
+              children: _parseInlineToPdfSpans(node),
+            ),
+          ),
         ),
       ];
 
     case 'pre':
       return [
         pw.Container(
-          padding: const pw.EdgeInsets.all(4),
+          margin: const pw.EdgeInsets.only(bottom: 6, top: 4),
+          padding: const pw.EdgeInsets.all(6),
           color: PdfColors.grey200,
-          child: pw.Text(node.textContent),
+          child: pw.RichText(
+            text: pw.TextSpan(
+              children: _parseInlineToPdfSpans(node),
+            ),
+          ),
         ),
       ];
 
     case 'img':
       final src = node.attributes['src'] ?? '';
       final p = images[src];
-      return [p == null ? imagePlaceholder(src) : pw.Image(p, fit: pw.BoxFit.contain)];
-
-    case 'styledspan':
-      return [_mdStyledSpanToPdf(node)];
+      return [
+        pw.Padding(
+          padding: const pw.EdgeInsets.only(bottom: 6),
+          child: p == null
+              ? imagePlaceholder(src)
+              : pw.Image(p, fit: pw.BoxFit.contain),
+        )
+      ];
 
     case 'hr':
       return [pw.Divider()];
@@ -126,96 +196,107 @@ List<pw.Widget> _mdNodeToPdf(
   }
 }
 
-pw.Widget _mdStyledSpanToPdf(md.Element el) {
-  final styleStr = el.attributes['style'] ?? '';
-  PdfColor? color;
-  PdfColor? bg;
-  for (final prop in styleStr.split(';')) {
-    final p = prop.trim();
-    if (p.isEmpty) continue;
-    final idx = p.indexOf(':');
-    if (idx < 0) continue;
-    final k = p.substring(0, idx).trim().toLowerCase();
-    final v = p.substring(idx + 1).trim();
-    if (k == 'color') color = parseColorPdf(v);
-    if (k == 'background') bg = parseColorPdf(v);
-  }
-
-  final raw = el.textContent;
+List<pw.InlineSpan> _parseInlineToPdfSpans(
+  md.Node node, {
+  pw.TextStyle? style,
+}) {
   final spans = <pw.InlineSpan>[];
-  final buf = StringBuffer();
+  if (node is md.Text) {
+    var text = node.text;
+    text = text.replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&');
+    spans.add(pw.TextSpan(text: text, style: style));
+  } else if (node is md.Element) {
+    final currentStyle = style ?? const pw.TextStyle();
 
-  void flush() {
-    if (buf.isNotEmpty) {
-      spans.add(
-        pw.TextSpan(
-          text: buf.toString(),
-          style: pw.TextStyle(color: color, background: bg != null ? pw.BoxDecoration(color: bg) : null),
-        ),
-      );
-      buf.clear();
+    switch (node.tag) {
+      case 'strong':
+      case 'b':
+        final newStyle = currentStyle.copyWith(fontWeight: pw.FontWeight.bold);
+        for (final c in node.children ?? <md.Node>[]) {
+          spans.addAll(_parseInlineToPdfSpans(c, style: newStyle));
+        }
+        break;
+      case 'em':
+      case 'i':
+        final newStyle = currentStyle.copyWith(fontStyle: pw.FontStyle.italic);
+        for (final c in node.children ?? <md.Node>[]) {
+          spans.addAll(_parseInlineToPdfSpans(c, style: newStyle));
+        }
+        break;
+      case 'code':
+        final newStyle = currentStyle.copyWith(
+          font: pw.Font.courier(),
+          background: pw.BoxDecoration(color: PdfColors.grey200),
+        );
+        for (final c in node.children ?? <md.Node>[]) {
+          spans.addAll(_parseInlineToPdfSpans(c, style: newStyle));
+        }
+        break;
+      case 'a':
+        final newStyle = currentStyle.copyWith(
+          color: PdfColors.blue,
+          decoration: pw.TextDecoration.underline,
+        );
+        for (final c in node.children ?? <md.Node>[]) {
+          spans.addAll(_parseInlineToPdfSpans(c, style: newStyle));
+        }
+        break;
+      case 'styledspan':
+        var newStyle = currentStyle;
+        final styleStr = node.attributes['style'] ?? '';
+        PdfColor? color;
+        PdfColor? bg;
+        for (final prop in styleStr.split(';')) {
+          final p = prop.trim();
+          if (p.isEmpty) continue;
+          final idx = p.indexOf(':');
+          if (idx < 0) continue;
+          final k = p.substring(0, idx).trim().toLowerCase();
+          final v = p.substring(idx + 1).trim();
+          if (k == 'color') color = parseColorPdf(v);
+          if (k == 'background') bg = parseColorPdf(v);
+        }
+        if (color != null) newStyle = newStyle.copyWith(color: color);
+        if (bg != null) newStyle = newStyle.copyWith(background: pw.BoxDecoration(color: bg));
+
+        final raw = node.textContent;
+        final buf = StringBuffer();
+        var i = 0;
+        while (i < raw.length) {
+          if (i + 1 < raw.length && raw[i] == '*' && raw[i + 1] == '*') {
+            final end = raw.indexOf('**', i + 2);
+            if (end > i) {
+              if (buf.isNotEmpty) { spans.add(pw.TextSpan(text: buf.toString(), style: newStyle)); buf.clear(); }
+              spans.add(pw.TextSpan(
+                text: raw.substring(i + 2, end),
+                style: newStyle.copyWith(fontWeight: pw.FontWeight.bold),
+              ));
+              i = end + 2;
+              continue;
+            }
+          }
+          if (raw[i] == '*') {
+            final end = raw.indexOf('*', i + 1);
+            if (end > i) {
+              if (buf.isNotEmpty) { spans.add(pw.TextSpan(text: buf.toString(), style: newStyle)); buf.clear(); }
+              spans.add(pw.TextSpan(
+                text: raw.substring(i + 1, end),
+                style: newStyle.copyWith(fontStyle: pw.FontStyle.italic),
+              ));
+              i = end + 1;
+              continue;
+            }
+          }
+          buf.write(raw[i]);
+          i++;
+        }
+        if (buf.isNotEmpty) { spans.add(pw.TextSpan(text: buf.toString(), style: newStyle)); }
+        break;
+      default:
+        for (final c in node.children ?? <md.Node>[]) {
+          spans.addAll(_parseInlineToPdfSpans(c, style: currentStyle));
+        }
     }
   }
-
-  var i = 0;
-  while (i < raw.length) {
-    if (i + 1 < raw.length && raw[i] == '*' && raw[i + 1] == '*') {
-      final end = raw.indexOf('**', i + 2);
-      if (end > i) {
-        flush();
-        spans.add(
-          pw.TextSpan(
-            text: raw.substring(i + 2, end),
-            style: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              color: color,
-              background: bg != null ? pw.BoxDecoration(color: bg) : null,
-            ),
-          ),
-        );
-        i = end + 2;
-        continue;
-      }
-    }
-    if (raw[i] == '*') {
-      final end = raw.indexOf('*', i + 1);
-      if (end > i) {
-        flush();
-        spans.add(
-          pw.TextSpan(
-            text: raw.substring(i + 1, end),
-            style: pw.TextStyle(
-              fontStyle: pw.FontStyle.italic,
-              color: color,
-              background: bg != null ? pw.BoxDecoration(color: bg) : null,
-            ),
-          ),
-        );
-        i = end + 1;
-        continue;
-      }
-    }
-    if (raw[i] == '`') {
-      final end = raw.indexOf('`', i + 1);
-      if (end > i) {
-        flush();
-        spans.add(
-          pw.TextSpan(
-            text: raw.substring(i + 1, end),
-            style: pw.TextStyle(
-              font: pw.Font.courier(),
-              background: pw.BoxDecoration(color: PdfColors.grey200),
-            ),
-          ),
-        );
-        i = end + 1;
-        continue;
-      }
-    }
-    buf.write(raw[i]);
-    i++;
-  }
-  flush();
-
-  return pw.RichText(text: pw.TextSpan(children: spans));
+  return spans;
 }

@@ -1,4 +1,3 @@
-// lib/services/print/note_print_service.dart
 import 'dart:typed_data';
 import 'package:pdf/pdf.dart' show PdfPageFormat;
 import 'package:pdf/widgets.dart' as pw;
