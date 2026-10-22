@@ -465,6 +465,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
                                   anchor: _quillController!.selection.baseOffset.toString(),
                                 );
                                 await CardService().addCard(card);
+                                _loadMaterialItems(); // 👈 加了这一行，刷新右侧列表
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('💫 已存入素材库'), duration: Duration(seconds: 1)),
