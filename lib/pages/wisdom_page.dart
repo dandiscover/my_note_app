@@ -727,7 +727,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
         if (ordered.isEmpty) return;
 
-        final book = EpubExporter.exportBook(ordered);
+        final book = await EpubExporter.exportBook(ordered);
         await EpubPlatformSaver.save(book.bytes, book.suggestedFilename);
 
         if (!mounted) return;
@@ -739,7 +739,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
         );
       } else {
         // 4b. 分别：跳过设置对话框，直接导出
-        final results = EpubExporter.exportSeparate(entries);
+        final results = await EpubExporter.exportSeparate(entries);
         final successes = results.where((r) => r.success).toList();
         await EpubPlatformSaver.saveMany(
           successes

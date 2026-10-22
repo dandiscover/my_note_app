@@ -6,9 +6,10 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-
+import 'dart:io';
 import 'package:path/path.dart' as path;
-
+import 'package:flutter/foundation.dart';
+import '../image_path_service.dart';
 import '../../models/note.dart';
 import 'epub_zipper.dart';
 import 'opf_builder.dart';
@@ -51,7 +52,7 @@ class EpubExporter {
   EpubExporter._();
 
   /// 合并导出：N 篇笔记 → 1 本 EPUB（N=1 即单篇）
-  static EpubBook exportBook(List<NotebookEntry> notes) {
+  static Future<EpubBook> exportBook(List<NotebookEntry> notes) async {
     if (notes.isEmpty) {
       throw EpubExportException('无笔记可导出');
     }
@@ -126,9 +127,21 @@ class EpubExporter {
       chapterMap['chapter_${i + 1}.xhtml'] = chapters[i].xhtml;
     }
 
-    // 图片字节：由调用方预加载后传入
-    // TODO（v6 记账，本轮接受）：调用方加载图片字节后注入
+    // 图片字节
     final imageMap = <String, Uint8List>{};
+    for (final imgRef in allImages) {
+      try {
+        final src = imgRef.src;
+        if (src.startsWith('http') || src.startsWith('data')) continue;
+        final fullPath = ImagePathService.instance.resolve(src);
+        final file = File(fullPath);
+        if (await file.exists()) {
+          imageMap[imgRef.packagedName] = await file.readAsBytes();
+        }
+      } catch (e) {
+        debugPrint('EPUB 图片加载失败: ${imgRef.src} - $e');
+      }
+    }
 
     final bytes = EpubZipper.pack(
       containerXml: containerXml,
@@ -149,12 +162,14 @@ class EpubExporter {
   }
 
   /// 分别导出：N 篇笔记 → N 本 EPUB（每本独立）
-  static List<ExportResult> exportSeparate(List<NotebookEntry> notes) {
+  static Future<List<ExportResult>> exportSeparate(List<NotebookEntry> notes) async {
     final results = <ExportResult>[];
     for (var i = 0; i < notes.length; i++) {
       final entry = notes[i];
       try {
-        final book = exportBook([entry]);
+        final book = await exportBook([entry]);
+
+
         results.add(ExportResult(
           success: true,
           filename: book.suggestedFilename,

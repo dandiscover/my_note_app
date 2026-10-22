@@ -214,7 +214,7 @@ class _RichtextBodyState extends State<_RichtextBody> {
       await DatabaseService().updateNote(updated.toMap());
 
       // 5. 导出
-      final book = EpubExporter.exportBook([updated]);
+      final book = await EpubExporter.exportBook([updated]);
 
       // 6. 平台特定保存
       await EpubPlatformSaver.save(book.bytes, book.suggestedFilename);

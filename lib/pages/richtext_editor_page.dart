@@ -270,7 +270,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
       );
 
       await DatabaseService().updateNote(updated.toMap());
-      final book = EpubExporter.exportBook([updated]);
+      final book = await EpubExporter.exportBook([updated]);
       await EpubPlatformSaver.save(book.bytes, book.suggestedFilename);
 
       if (!mounted) return;
