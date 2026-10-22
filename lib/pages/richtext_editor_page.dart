@@ -335,6 +335,7 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
         await _showExitDialog();
       },
       child: Scaffold(
+        backgroundColor: Colors.white,
         resizeToAvoidBottomInset: true,
         appBar: AppBar(
           title: TextField(
