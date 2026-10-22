@@ -15,7 +15,9 @@
 // ✅ T-213：initState 解析失败不静默回退——显示错误页，禁保存
 // ✅ 第四轮批 1：AppBar 加 ⭐/❓ 笔记级标记入口（依据 v5 方案 §6.2）
 // ✅ R-16 第一段：修复插入图片无响应，改用 file_picker，并加入选区兜底
-
+import '../models/card.dart';
+import '../services/card_service.dart';
+import '../services/spark_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -24,8 +26,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 import '../models/material_item.dart';
-import '../models/card.dart';
-import '../services/card_service.dart';
 import '../services/command_palette_launcher.dart';
 import '../widgets/writing/material_panel.dart';
 import '../database_service.dart';
@@ -443,8 +443,48 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
                                 context: context,
                                 builder: (_) => const SparkDialog(),
                               );
-                              if (result != null && result.content.isNotEmpty) {
+                              if (result == null || result.content.isEmpty) return;
+                              
+                              final noteId = widget.entry.id;
+                              final rawTitle = widget.entry.title.trim();
+                              final safeTitle = rawTitle.isEmpty ? '无标题笔记' : rawTitle;
+                              
+                              if (result.action == 'send') {
+                                // 1. 插入正文
                                 _insertTextAtCursor(result.content);
+                              } else if (result.action == 'save_card') {
+                                // 2. 存入素材库 (生成索引卡)
+                                final card = CardModel(
+                                  id: 'spark_${DateTime.now().millisecondsSinceEpoch}',
+                                  cardType: CardType.indexCard,
+                                  sourceType: 'note',
+                                  sourceId: noteId,
+                                  sourceTitle: safeTitle,
+                                  indexTitle: result.content.length > 50 ? '${result.content.substring(0, 50)}...' : result.content,
+                                  highlight: result.content,
+                                  anchor: _quillController!.selection.baseOffset.toString(),
+                                );
+                                await CardService().addCard(card);
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('💫 已存入素材库'), duration: Duration(seconds: 1)),
+                                  );
+                                }
+                              } else if (result.action == 'stash') {
+                                // 3. 暂存火花
+                                final spark = Spark(
+                                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                                  content: result.content,
+                                  anchorNoteId: noteId,
+                                  anchorLocation: _quillController!.selection.baseOffset.toString(),
+                                  createdAt: DateTime.now(),
+                                );
+                                await SparkService().create(spark);
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('💫 火花已暂存'), duration: Duration(seconds: 1)),
+                                  );
+                                }
                               }
                             },
                           ),
