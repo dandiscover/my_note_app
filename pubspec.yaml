@@ -1,4 +1,4 @@
-name: my_note_app
+﻿name: my_note_app
 description: "云端计划 - 个人知识管理工具"
 publish_to: 'none'
 version: 1.0.0+1
@@ -59,12 +59,12 @@ dependencies:
   wakelock_plus: 1.8.0
   mobile_scanner: ^7.4.0
   pdfrx: ^2.6.1
-  printing: ^5.15.0
-  pdf: ^3.13.0
+  printing: 5.14.3
+  pdf: 3.10.3
 
   # ✅ 第五轮新增：EPUB 导出
   archive: ^3.3.0
-  xml: ^5.0.0
+  xml: 6.3.0
   flutter_secure_storage: ^10.3.4
   sqlite3_flutter_libs: ^0.6.0+eol
 
@@ -83,7 +83,7 @@ dev_dependencies:
 dependency_overrides:
   archive: ^3.3.0
   image: ^4.0.0
-  xml: ^5.0.0
+  xml: 6.3.0
   webview_flutter: ^4.0.0
   # build_runner 2.16.1 依赖 build 4.1.0（有 librarySourceSink Bug）
   build: 4.0.11  
