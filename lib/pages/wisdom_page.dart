@@ -2658,13 +2658,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
                 iconColor: Colors.blue,
                 onTap: _createNote,
               ),
-              const SizedBox(height: 8),
-              _buildFabOption(
-                icon: Icons.article_outlined,
-                label: '新建富文本笔记',
-                iconColor: Colors.teal,
-                onTap: _createRichtextNote,
-              ),
+
               const SizedBox(height: 8),
               _buildFabOption(
                 icon: Icons.create_new_folder,

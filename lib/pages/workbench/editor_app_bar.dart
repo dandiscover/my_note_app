@@ -27,7 +27,9 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onToggleMaterial;    // 素材库（单栏）
   final VoidCallback? onFileTree;          // 文件树
   final VoidCallback? onToggleOutline;     // 大纲面板
-  final VoidCallback? onPrint;
+  final VoidCallback? onPrint;             // 打印
+  final VoidCallback? onInsertImage;       // 插入图片
+  final VoidCallback? onUpgradeToRichtext; // 升级为富文本
   final Widget? trailingExtra;             // ⭐❓尾缀
   final bool isOutlineOpen;
   // onToggleMap / isMapOpen 已撤 —— 导图切换在正文区
@@ -55,6 +57,8 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.onToggleOutline,
     this.isOutlineOpen = false,
     this.onPrint,
+    this.onInsertImage,
+    this.onUpgradeToRichtext,
     this.trailingExtra,
   });
 
@@ -93,6 +97,18 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
             icon: const Icon(Icons.print),
             tooltip: '打印',
             onPressed: onPrint,
+          ),
+        if (onInsertImage != null)
+          IconButton(
+            icon: const Icon(Icons.image),
+            tooltip: '插入图片',
+            onPressed: onInsertImage,
+          ),
+        if (onUpgradeToRichtext != null)
+          IconButton(
+            icon: const Icon(Icons.auto_fix_high, color: Colors.teal),
+            tooltip: '升级为富文本',
+            onPressed: onUpgradeToRichtext,
           ),
         if (onQuickSwitch != null)
           if (onToggleOutline != null && !isReadMode)

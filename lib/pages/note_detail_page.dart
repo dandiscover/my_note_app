@@ -577,7 +577,105 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ).showSnackBar(const SnackBar(content: Text('✅ 卡片已生成，可以去复习了')));
     }
   }
+  /// 将 Markdown 的 Token 转为 Delta 的 JSON 结构
+  List<Map<String, dynamic>> _markdownToDeltaOps(String markdownStr) {
+    final doc = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored);
+    final nodes = doc.parse(markdownStr);
+    final ops = <Map<String, dynamic>>[];
 
+    void walk(md.Node node, Map<String, dynamic> currentAttrs) {
+      if (node is md.Text) {
+        if (node.text.isNotEmpty) {
+          final data = <String, dynamic>{'insert': node.text};
+          if (currentAttrs.isNotEmpty) data['attributes'] = Map.of(currentAttrs);
+          ops.add(data);
+        }
+      } else if (node is md.Element) {
+        final newAttrs = Map<String, dynamic>.from(currentAttrs);
+        if (node.tag == 'strong') newAttrs['bold'] = true;
+        if (node.tag == 'em') newAttrs['italic'] = true;
+        if (node.tag == 'code') newAttrs['code'] = true;
+        if (node.tag == 'img') {
+          final src = node.attributes['src'];
+          if (src != null) {
+            ops.add({'insert': {'image': src}});
+          }
+        }
+        
+        if (node.children != null) {
+          for (final child in node.children!) {
+            walk(child, newAttrs);
+          }
+        }
+
+        // 处理块级属性（标题、列表、换行）
+        if (node.tag.startsWith('h') && node.tag.length == 2) {
+          final level = int.tryParse(node.tag[1]);
+          if (level != null) ops.add({'insert': '\n', 'attributes': {'header': level}});
+        } else if (node.tag == 'li') {
+          ops.add({'insert': '\n', 'attributes': {'list': 'bullet'}});
+        } else if (node.tag == 'p' || node.tag == 'blockquote' || node.tag == 'pre') {
+          ops.add({'insert': '\n'});
+        }
+      }
+    }
+
+    for (final n in nodes) {
+      walk(n, {});
+    }
+    // 确保末尾有换行
+    if (ops.isEmpty || (ops.last['insert'] != '\n')) {
+      ops.add({'insert': '\n'});
+    }
+    return ops;
+  }
+
+  /// 将 Markdown 笔记升级为富文本格式
+  Future<void> _upgradeToRichtext() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('升级为富文本'),
+        content: const Text('升级后，您可以获得更丰富的排版能力（颜色、对齐等）。\n注意：部分复杂 Markdown 语法可能降级，且该操作单向不可逆。是否继续？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认升级')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      final deltaOps = _markdownToDeltaOps(_entry.content);
+      final newStructure = RichtextAdapter.deltaToStructure(deltaOps, memo: []);
+      
+      final updated = _entry.copyWith(
+        contentFormat: 'richtext',
+        content: jsonEncode(newStructure),
+        updatedAt: DateTime.now(),
+      );
+      
+      await _db.updateNote(updated.toMap());
+      
+      if (mounted) {
+        setState(() {
+          _entry = updated;
+          _isReadMode = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ 已成功升级为富文本格式')),
+        );
+        // 刷新页面进入富文本阅读模式
+        _kernel.updateEntry(updated);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('升级失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
   // ─── 切换模式 ─────────────────────────────
   Future<void> _toggleMode() async {
     if (_entry.contentFormat == 'richtext') {
@@ -1048,6 +1146,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
             onCard: () => _showFullNoteCardDialog(),
                         onPrint: () => NotePrintService.printNote(_entry),
             onInsertImage: !_isReadMode ? _insertImageToMarkdown : null,
+            onUpgradeToRichtext: (!_isReadMode && _entry.contentFormat == 'markdown') ? _upgradeToRichtext : null,
             onQuickSwitch: () => CommandPaletteLauncher.open(),
             onOpenMultiPane: _openMultiPane,
             onToggleFocus: _toggleFocusMode,
