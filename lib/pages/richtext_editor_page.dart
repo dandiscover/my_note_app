@@ -160,12 +160,12 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
     setState(() => _isDirty = true);
     _autoSaveDebouncer.run(() {
       if (mounted && _isDirty && !_isSaving) {
-        _save();
+        _save(isAuto: true);
       }
     });
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool isAuto = false}) async {
     // T-213：错误页时不可达；双保险。
     final controller = _quillController;
     final memo = _memo;
@@ -197,19 +197,27 @@ class _RichtextEditorPageState extends State<RichtextEditorPage> {
       await DatabaseService().updateNote(updated.toMap());
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 已保存'), duration: Duration(seconds: 1)),
-      );
+      if (!isAuto) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ 已保存'), duration: Duration(seconds: 1)),
+        );
+      }
       setState(() {
         _isDirty = false;
         _isSaving = false;
       });
-      Navigator.pop(context, true);
+      if (!isAuto) {
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red),
-      );
+      if (!isAuto) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red),
+        );
+      } else {
+        debugPrint('自动保存失败: $e');
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
