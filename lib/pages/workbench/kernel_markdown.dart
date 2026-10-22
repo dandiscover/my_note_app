@@ -374,10 +374,12 @@ class _MarkdownBodyState extends State<_MarkdownBody> {
               Positioned(
                 left: _sparkAnchorOffset!.dx + 8,
                 top: _sparkAnchorOffset!.dy,
-                child: SparkCursor(
-                  onTap: () {
-                    _onSparkTap();
-                  },
+                child: TextFieldTapRegion(
+                  child: SparkCursor(
+                    onTap: () {
+                      _onSparkTap();
+                    },
+                  ),
                 ),
               ),
             ..._pendingSparks.map((s) {
