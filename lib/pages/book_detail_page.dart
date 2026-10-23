@@ -503,6 +503,7 @@ class _BookDetailPageState extends State<BookDetailPage>
     }
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: _buildAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
