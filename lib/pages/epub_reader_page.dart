@@ -23,6 +23,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../utils/debouncer.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:epubx/epubx.dart' hide Image;
@@ -43,7 +44,6 @@ import '../services/card_service.dart';
 import '../widgets/reader/card_box_peek.dart';
 import '../widgets/reader/reading_guide_card.dart';
 import '../widgets/floating_pet.dart';   // ✅ Spike：PetVisibilityController
-
 class EpubReaderPage extends StatefulWidget {
   final String bookId;
   final String? filePath;
@@ -97,6 +97,9 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   double _fontSize = 16.0;
   double _lineHeight = 1.8;
+  double _maxWidth = 800.0;
+  double _pageMargin = 16.0;
+  final Debouncer _layoutDebouncer = Debouncer(const Duration(milliseconds: 200));
   String _fontFamily = 'sans-serif';
   int _themeMode = 0;
   Color _customBackgroundColor = const Color(0xFFF5F0E1);
@@ -147,6 +150,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   @override
   void dispose() {
+    _layoutDebouncer.cancel();
     _pageController.dispose();
     _scrollController.dispose();
     _reminderTimer?.cancel();
@@ -364,6 +368,8 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       final prefs = await SharedPreferences.getInstance();
       _fontSize = prefs.getDouble('reader_font_size') ?? 16.0;
       _lineHeight = prefs.getDouble('reader_line_height') ?? 1.8;
+      _maxWidth = prefs.getDouble('reader_max_width') ?? 800.0;
+      _pageMargin = prefs.getDouble('reader_page_margin') ?? 16.0;
       _fontFamily = prefs.getString('reader_font_family') ?? 'sans-serif';
       _themeMode = prefs.getInt('reader_theme_mode') ?? 0;
       _customBackgroundColor = Color(prefs.getInt('reader_custom_bg') ?? 0xFFF5F0E1);
@@ -377,6 +383,8 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble('reader_font_size', _fontSize);
       await prefs.setDouble('reader_line_height', _lineHeight);
+      await prefs.setDouble('reader_max_width', _maxWidth);
+      await prefs.setDouble('reader_page_margin', _pageMargin);
       await prefs.setString('reader_font_family', _fontFamily);
       await prefs.setInt('reader_theme_mode', _themeMode);
       await prefs.setInt('reader_custom_bg', _customBackgroundColor.value);
@@ -505,6 +513,44 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                           ),
                         ),
                         Text(_lineHeight.toStringAsFixed(1), style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Text('宽度', style: TextStyle(fontSize: 13)),
+                        Expanded(
+                          child: Slider(
+                            value: _maxWidth,
+                            min: 400,
+                            max: 1200,
+                            divisions: 16,
+                            label: _maxWidth.round().toString(),
+                            onChanged: (value) {
+                              setModalState(() => _maxWidth = value);
+                              _layoutDebouncer.run(() => setState(() {}));
+                            },
+                          ),
+                        ),
+                        Text('${_maxWidth.round()}', style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Text('边距', style: TextStyle(fontSize: 13)),
+                        Expanded(
+                          child: Slider(
+                            value: _pageMargin,
+                            min: 0,
+                            max: 64,
+                            divisions: 16,
+                            label: _pageMargin.round().toString(),
+                            onChanged: (value) {
+                              setModalState(() => _pageMargin = value);
+                              _layoutDebouncer.run(() => setState(() {}));
+                            },
+                          ),
+                        ),
+                        Text('${_pageMargin.round()}', style: const TextStyle(fontSize: 12)),
                       ],
                     ),
                     Row(
@@ -1883,7 +1929,13 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
                 SingleChildScrollView(
                   controller: _scrollController,
                   padding: const EdgeInsets.only(bottom: 40),
-                  child: _buildRichText(content, index),
+                  child: Center(
+                    child: Container(
+                      constraints: BoxConstraints(maxWidth: _maxWidth),
+                      padding: EdgeInsets.symmetric(horizontal: _pageMargin),
+                      child: _buildRichText(content, index),
+                    ),
+                  ),
                 ),
                 Positioned(
                   right: 0,
