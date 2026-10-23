@@ -1268,6 +1268,10 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     }
   }
   // ---------------------- 构建富文本 ----------------------
+  
+  
+  
+    // ---------------------- 构建富文本 ----------------------
   Widget _buildRichText(String content, int chapterIndex) {
     if (content.isEmpty) {
       return Text(
@@ -1316,8 +1320,21 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       }
       mapNodes(body);
 
-      // 4. 直接用 _stripHtmlTags 生成 plain 保证和旧逻辑完全对齐
-      final plain = _stripHtmlTags(content);
+      // 4. 用 mapNodes 同款遍历规则生成 plain，确保偏移量完全一致
+      final textBuffer = StringBuffer();
+      void extractText(html_dom.Node node) {
+        if (node is html_dom.Text) {
+          textBuffer.write(node.data);
+        } else if (node is html_dom.Element) {
+          if (node.localName == 'br') textBuffer.write('\n');
+          for (var c in node.nodes) {
+            extractText(c);
+          }
+          if (node.localName == 'p') textBuffer.write('\n');
+        }
+      }
+      extractText(body);
+      final plain = textBuffer.toString();
 
       // 5. 查找所有高亮区间
       final targets = <Map<String, dynamic>>[];
@@ -1412,56 +1429,95 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       }
     }
 
-    // 6. 渲染处理过后的 HTML
-    return HtmlWidget(
-      body.outerHtml,
-      textStyle: TextStyle(
-        fontSize: _fontSize,
-        height: _lineHeight,
-        color: _textColor,
-        fontFamily: _fontFamily,
-      ),
-      onTapUrl: (url) {
-        if (url.startsWith('hl://')) {
-          final noteId = url.replaceFirst('hl://', '');
-          final note = _notes.firstWhere(
-            (n) => n.id == noteId,
-            orElse: () => BookNote(id: '', bookId: '', pageNumber: 0, selectedText: '', isHighlight: false),
-          );
-          if (note.id.isNotEmpty) {
-            _showNoteOptions(note);
-          }
-          return true;
-        }
-        return false;
+    // 6. 渲染处理过后的 HTML，并包裹 SelectionArea 恢复划词
+    return SelectionArea(
+      onSelectionChanged: (content) {
+        _selectedText = content?.plainText ?? '';
       },
-      customWidgetBuilder: (element) {
-        if (element.localName == 'img') {
-          final src = element.attributes['src'];
-          if (src == null) return null;
-          
-          final images = _epubBook?.Content?.Images;
-          if (images == null) return null;
-          
-          var imgFile = images[src];
-          if (imgFile == null) {
-            final fileName = src.split('/').last;
-            for (var entry in images.entries) {
-              if (entry.key.endsWith(fileName)) {
-                imgFile = entry.value;
-                break;
+          contextMenuBuilder: (context, selectableRegionState) {
+        if ((_selectedText ?? '').isEmpty) return const SizedBox.shrink();
+        return AdaptiveTextSelectionToolbar.buttonItems(
+          anchors: selectableRegionState.contextMenuAnchors,
+          buttonItems: [
+            ContextMenuButtonItem(
+              label: '高亮',
+              onPressed: () {
+                selectableRegionState.hideToolbar();
+                _saveHighlight(_selectedText!);
+              },
+            ),
+            ContextMenuButtonItem(
+              label: '写想法',
+              onPressed: () {
+                selectableRegionState.hideToolbar();
+                _showWriteThoughtDialog(_selectedText!);
+              },
+            ),
+            ContextMenuButtonItem(
+              label: '生成卡片',
+              onPressed: () {
+                selectableRegionState.hideToolbar();
+                // 如果这里报错，说明你原本生成卡片的方法不叫这个，换成你原来的方法名
+                _createCardDirectly(_selectedText!); 
+              },
+            ),
+            ...selectableRegionState.contextMenuButtonItems,
+          ],
+        );
+      },
+      
+      
+      child: HtmlWidget(
+        body.outerHtml,
+        textStyle: TextStyle(
+          fontSize: _fontSize,
+          height: _lineHeight,
+          color: _textColor,
+          fontFamily: _fontFamily,
+        ),
+        onTapUrl: (url) {
+          if (url.startsWith('hl://')) {
+            final noteId = url.replaceFirst('hl://', '');
+            final note = _notes.firstWhere(
+              (n) => n.id == noteId,
+              orElse: () => BookNote(id: '', bookId: '', pageNumber: 0, selectedText: '', isHighlight: false),
+            );
+            if (note.id.isNotEmpty) {
+              _showNoteOptions(note);
+            }
+            return true;
+          }
+          return false;
+        },
+        customWidgetBuilder: (element) {
+          if (element.localName == 'img') {
+            final src = element.attributes['src'];
+            if (src == null) return null;
+            
+            final images = _epubBook?.Content?.Images;
+            if (images == null) return null;
+            
+            var imgFile = images[src];
+            if (imgFile == null) {
+              final fileName = src.split('/').last;
+              for (var entry in images.entries) {
+                if (entry.key.endsWith(fileName)) {
+                  imgFile = entry.value;
+                  break;
+                }
               }
             }
+            
+            if (imgFile != null && imgFile.Content != null) {
+              return Image.memory(Uint8List.fromList(imgFile.Content!));
+            }
           }
-          
-          if (imgFile != null && imgFile.Content != null) {
-            return Image.memory(Uint8List.fromList(imgFile.Content!));
-          }
-        }
-        return null;
-      },
+          return null;
+        },
+      ),
     );
   }
+  
   void _showQuickNoteInput() {
     showDialog(
       context: context,
