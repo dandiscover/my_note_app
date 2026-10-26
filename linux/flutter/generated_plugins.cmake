@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   gtk
   printing
   url_launcher_linux
+  webview_ultra
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

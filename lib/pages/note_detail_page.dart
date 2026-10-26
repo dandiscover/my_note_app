@@ -13,6 +13,7 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 import '../services/image_path_service.dart';
 import '../services/open_tabs_manager.dart';
 import '../database_service.dart';
+import '../services/multi_pane_bus.dart';
 import '../services/sync/cloud_sync_service.dart';
 import '../services/sync/sync_manager.dart';
 import '../services/note_opener.dart';
@@ -58,6 +59,7 @@ import 'richtext_editor_page.dart';
 import 'package:flutter/gestures.dart';
 import '../utils/markdown_custom_syntax.dart';
 import '../services/print/note_print_service.dart';
+
 class NoteDetailPage extends StatefulWidget {
   final NotebookEntry entry;
   final bool isFromCollection;
@@ -68,6 +70,7 @@ class NoteDetailPage extends StatefulWidget {
   final bool syncToCloud;
   final bool initInEditMode; // 批 1b 修复：从图书侧新建 → 强制进编辑态
   final bool embedded; // 嵌入模式 —— 不包 Scaffold
+  final MultiPaneBus? paneBus;
 
   const NoteDetailPage({
     super.key,
@@ -80,6 +83,7 @@ class NoteDetailPage extends StatefulWidget {
     this.syncToCloud = false,
     this.initInEditMode = false,
     this.embedded = false,
+    this.paneBus,
   });
 
   @override
@@ -153,7 +157,10 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ),
     );
     _kernel.contentController.addListener(_onContentChanged);
-    EditorKernel.focus(_kernel);
+    // 只有在非多栏（单页）模式下，才自己抢焦点
+    if (widget.paneBus == null) {
+      EditorKernel.focus(_kernel);
+    }
     _loadNoteCards();
     _loadSubNotesCount();
     _loadMaterialItems();
@@ -544,13 +551,19 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       ),
     );
     if (result == null || !mounted) return;
+    final linkedBookTitle = widget.paneBus?.findActiveBookTitle();
+    final finalTags = List<String>.from((result['tags'] as List?)?.cast<String>() ?? []);
+    if (linkedBookTitle != null && linkedBookTitle.isNotEmpty) {
+      finalTags.add('关联书: $linkedBookTitle');
+    }
+
     final card = CardModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       cardType: result['cardType'] as CardType,
-      sourceType: 'note',
-      sourceId: _entry.id,
-      sourceTitle: _entry.title,
-      tags: List.from((result['tags'] as List).cast<String>()),
+      sourceType: 'note',        // 本源永远属于当前笔记
+      sourceId: _entry.id,       // 笔记本源 ID
+      sourceTitle: _entry.title, // 笔记标题
+      tags: finalTags,           // 书名放在标签里
       importance: result['importance'] as Importance,
       stage: 0,
       nextReviewDate: DateTime.now().add(const Duration(minutes: 20)),
