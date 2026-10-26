@@ -133,7 +133,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   final ScrollController _scrollController = ScrollController();
 
   String? _selectedText;
-  final PageController _pageController = PageController();
 
   final Map<int, WebviewUltraController> _webviewControllers = {};
   Timer? _webviewPollTimer;
@@ -155,7 +154,6 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   @override
   void dispose() {
     _layoutDebouncer.cancel();
-    _pageController.dispose();
     _scrollController.dispose();
     _reminderTimer?.cancel();
     _cardBoxDelayTimer?.cancel();
@@ -282,14 +280,37 @@ if (controller == null) return;
 
   Future<void> _toggleBookmark() async {
     final page = _currentChapterIndex + 1;
+    final isRemoving = _bookmarks.contains(page);
     setState(() {
-      if (_bookmarks.contains(page)) {
+      if (isRemoving) {
         _bookmarks.remove(page);
       } else {
         _bookmarks.add(page);
       }
     });
     await _saveBookmarks();
+
+    // 同步到 BookNote
+    if (isRemoving) {
+      try {
+        final bookmarkNote = _notes.firstWhere((n) => n.pageNumber == page && n.selectedText == '【书签】');
+        await _bookService.deleteNote(widget.bookId, bookmarkNote.id);
+        await _loadNotes();
+      } catch (_) {}
+    } else {
+      final newNote = BookNote(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        bookId: widget.bookId,
+        pageNumber: page,
+        location: 'page:$page',
+        selectedText: '【书签】',
+        comment: '',
+        color: '#FFD93D',
+        isHighlight: false,
+      );
+      await _bookService.saveNote(newNote);
+      await _loadNotes();
+    }
   }
 
   Future<void> _saveBookmarks() async {
@@ -611,6 +632,8 @@ if (controller == null) return;
                             onSelectionChanged: (values) {
                               setModalState(() => _fontFamily = values.first);
                               setState(() {});
+                              debugPrint('DEBUG fontFamily: ${values.first}');
+                              _webviewControllers[_currentChapterIndex]?.runJavaScript("document.body.style.fontFamily = '${values.first}';");
                             },
                             style: const ButtonStyle(visualDensity: VisualDensity.compact),
                           ),
@@ -633,6 +656,12 @@ if (controller == null) return;
                             onSelectionChanged: (values) {
                               setModalState(() => _themeMode = values.first);
                               setState(() {});
+                              final _bgHex = '#${_backgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+                              final _fgHex = '#${_textColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+                              _webviewControllers[_currentChapterIndex]?.runJavaScript(
+                                "document.body.style.backgroundColor = '$_bgHex';"
+                                "document.body.style.color = '$_fgHex';"
+                              );
                             },
                             style: const ButtonStyle(visualDensity: VisualDensity.compact),
                           ),
@@ -761,6 +790,13 @@ if (controller == null) return;
           if (isBg) _customBackgroundColor = color; else _customTextColor = color;
         });
         setState(() {});
+        final _bgHex = '#${_customBackgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+        final _fgHex = '#${_customTextColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+        debugPrint('DEBUG colorOption: isBg=$isBg, bg=$_bgHex, fg=$_fgHex');
+        _webviewControllers[_currentChapterIndex]?.runJavaScript(
+          "document.body.style.backgroundColor = '$_bgHex';"
+          "document.body.style.color = '$_fgHex';"
+        );
       },
       child: Container(
         width: 30,
@@ -887,6 +923,7 @@ if (controller == null) return;
                     selected: index == _currentChapterIndex,
                     title: Text(title),
                     onTap: () {
+                      debugPrint('DEBUG toc tap: index=$index, beforeCurrent=$_currentChapterIndex, chapters=${_chapters?.length}');
                       Navigator.pop(context);
                       setState(() => _currentChapterIndex = index);
                       _loadChapterContent(index);
@@ -1315,11 +1352,13 @@ if (controller == null) return;
   }
   // ---------------------- 构建富文本 ----------------------
     String _buildWebViewHtml(String content, int chapterIndex) {
+    debugPrint('DEBUG buildWebViewHtml: chapterIndex=$chapterIndex, contentLen=${content.length}, themeMode=$_themeMode, bg=$_backgroundColor, fg=$_textColor');
     if (content.isEmpty) return '<html><body>（本章无内容）</body></html>';
 
     final document = html_parser.parse(content);
     final body = document.body;
     if (body == null) return '<html><body>解析失败</body></html>';
+    debugPrint('DEBUG bodyLen=${body.outerHtml.length}, chapterIndex=$chapterIndex');
 
     final scripts = body.querySelectorAll('style, script');
     for (var el in scripts) { el.remove(); }
@@ -1454,6 +1493,13 @@ if (controller == null) return;
                 e.preventDefault();
                 window._hl = this.getAttribute('href');
             });
+        });
+        document.addEventListener('click', function(e) {
+            var target = e.target.closest('a');
+            if (target && target.href && !target.href.startsWith('hl://') && !target.href.startsWith('javascript:')) {
+                e.preventDefault();
+                window._tocJump = target.getAttribute('href');
+            }
         });
     </script>
 </body>
@@ -1697,6 +1743,9 @@ if (controller == null) return;
       if (index >= _chapterContents.length) _chapterContents.addAll(List.filled(index - _chapterContents.length + 1, ''));
       _chapterContents[index] = content;
       _rebuildHighlightRanges();
+      if (mounted) setState(() {});
+      debugPrint('DEBUG loadChapterContent done: index=$index, contentLen=${content.length}');
+      _saveProgress(); // 自动保存进度
     } catch (_) {}
   }
 
@@ -1729,7 +1778,10 @@ if (controller == null) return;
               child: SafeArea(
                 child: _NotesPanelContent(
                   getNotes: () => _notes,
-                  pageController: _pageController,
+                  onJumpToChapter: (idx) {
+                    setState(() => _currentChapterIndex = idx);
+                    _loadChapterContent(idx);
+                  },
                   chaptersLength: _chapters?.length ?? 0,
                   onGenerateCard: _generateCardFromNote,
                   onDeleteHighlight: _deleteHighlightNote,
@@ -1829,7 +1881,8 @@ if (controller == null) return;
                                     title: Text(note.selectedText, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
                                     onTap: () {
                                       Navigator.pop(context);
-                                      _pageController.jumpToPage(index);
+                                      setState(() => _currentChapterIndex = index);
+                                      _loadChapterContent(index);
                                     },
                                   )),
                           ],
@@ -1904,6 +1957,7 @@ if (controller == null) return;
   }
 
   Widget _buildChapterContent(int index) {
+    debugPrint('DEBUG buildChapterContent: index=$index, current=$_currentChapterIndex, cacheLen=${_chapterContents.length}, hasContent=${index < _chapterContents.length && _chapterContents[index].isNotEmpty}');
     if (_chapters == null || index >= _chapters!.length) return const Center(child: Text('章节不存在'));
     final chapter = _chapters![index];
     final content = index < _chapterContents.length ? _chapterContents[index] : '（加载中...）';
@@ -1911,6 +1965,8 @@ if (controller == null) return;
     final page = index + 1;
     final isBookmarked = _isBookmarked(page);
     final summary = _summaries[page];
+    final _dbgController = _webviewControllers[index];
+    debugPrint('DEBUG controller: index=$index, exists=${_dbgController != null}, hashCode=${_dbgController?.hashCode}');
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -1928,6 +1984,9 @@ if (controller == null) return;
                   key: ValueKey('webview_$index'), 
                   controller: _webviewControllers.putIfAbsent(index, () => WebviewUltraController()),
                   initialHtml: _buildWebViewHtml(content, index),
+                  onPageStarted: (url) => debugPrint('DEBUG webview start: index=$index, url=$url'),
+                  onPageFinished: (url) => debugPrint('DEBUG webview finish: index=$index, url=$url'),
+                  onWebResourceError: (e) => debugPrint('DEBUG webview error: index=$index, error=$e'),
                 ),
                 Positioned(
                   right: 0,
@@ -1970,7 +2029,7 @@ if (controller == null) return;
               Row(
                 children: [
                   Text('第 $page / ${_chapters!.length} 章', style: TextStyle(fontSize: 11, color: _textColor.withOpacity(0.6))),
-                  IconButton(icon: Icon(Icons.bookmark_border, size: 20, color: _textColor.withOpacity(0.6)), onPressed: _saveProgress, tooltip: '保存进度'),
+
                 ],
               ),
             ],
@@ -2138,7 +2197,7 @@ if (controller == null) return;
               case 'stats': _showReadingStats(); break;
               case 'batch_cards': _showBatchCardDialog(); break;
               case 'export_notes': _exportNotes(); break;
-              case 'save_progress': _saveProgress(); break;
+
               case 'settings': _openSettings(); break;
             }
           },
@@ -2151,7 +2210,7 @@ if (controller == null) return;
             const PopupMenuItem(value: 'stats', child: Text('阅读统计')),
             const PopupMenuItem(value: 'batch_cards', child: Text('批量生成卡片')),
             const PopupMenuItem(value: 'export_notes', child: Text('导出笔记')),
-            const PopupMenuItem(value: 'save_progress', child: Text('保存进度')),
+
             const PopupMenuItem(value: 'settings', child: Text('设置')),
           ],
         ),
@@ -2218,14 +2277,14 @@ if (controller == null) return;
 // ---- 标注面板内容组件（带筛选功能，支持动态刷新） ----
 class _NotesPanelContent extends StatefulWidget {
   final List<BookNote> Function() getNotes;
-  final PageController pageController;
+  final ValueChanged<int> onJumpToChapter;
   final int chaptersLength;
   final Future<void> Function(BookNote) onGenerateCard;
   final Future<void> Function(BookNote) onDeleteHighlight;
 
   const _NotesPanelContent({
     required this.getNotes,
-    required this.pageController,
+    required this.onJumpToChapter,
     required this.chaptersLength,
     required this.onGenerateCard,
     required this.onDeleteHighlight,
@@ -2253,15 +2312,21 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
 
   List<BookNote> get _filteredNotes {
     if (_filter == 'highlight') {
-      return _notes.where((n) => n.isHighlight).toList();
+      return _notes.where((n) => n.isHighlight && n.comment.isEmpty && n.selectedText != '【书签】').toList();
     } else if (_filter == 'comment') {
-      return _notes.where((n) => n.comment.isNotEmpty).toList();
+      return _notes.where((n) => n.comment.isNotEmpty && n.selectedText != '【书签】').toList();
+    } else if (_filter == 'bookmark') {
+      return _notes.where((n) => n.selectedText == '【书签】').toList();
+    } else if (_filter == 'card') {
+      return _notes.where((n) => n.selectedText != '【书签】').toList(); // B2 包会加入真正的卡片匹配
     }
     return _notes;
   }
 
-  int get _highlightCount => _notes.where((n) => n.isHighlight).length;
-  int get _commentCount => _notes.where((n) => n.comment.isNotEmpty).length;
+  int get _highlightCount => _notes.where((n) => n.isHighlight && n.comment.isEmpty && n.selectedText != '【书签】').length;
+  int get _commentCount => _notes.where((n) => n.comment.isNotEmpty && n.selectedText != '【书签】').length;
+  int get _bookmarkCount => _notes.where((n) => n.selectedText == '【书签】').length;
+  int get _cardCount => 0; // B2 包会改为真正的已制卡数量
 
   void _refresh() {
     setState(() {
@@ -2291,14 +2356,21 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              _buildFilterChip('全部', _notes.length, 'all'),
-              const SizedBox(width: 8),
-              _buildFilterChip('高亮', _highlightCount, 'highlight'),
-              const SizedBox(width: 8),
-              _buildFilterChip('批注', _commentCount, 'comment'),
-            ],
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip('全部', _notes.length, 'all'),
+                const SizedBox(width: 8),
+                _buildFilterChip('高亮', _highlightCount, 'highlight'),
+                const SizedBox(width: 8),
+                _buildFilterChip('批注', _commentCount, 'comment'),
+                const SizedBox(width: 8),
+                _buildFilterChip('卡片', _cardCount, 'card'),
+                const SizedBox(width: 8),
+                _buildFilterChip('书签', _bookmarkCount, 'bookmark'),
+              ],
+            ),
           ),
         ),
         Expanded(
@@ -2332,7 +2404,7 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                       onTap: () {
                         Navigator.pop(context);
                         if (note.pageNumber > 0 && note.pageNumber <= widget.chaptersLength) {
-                          widget.pageController.jumpToPage(note.pageNumber - 1);
+                          widget.onJumpToChapter(note.pageNumber - 1);
                         }
                       },
                       onLongPress: () {
