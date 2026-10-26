@@ -128,13 +128,14 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   String _bookTitle = '';
   String _bookAuthor = '';
+  int _totalWords = 0;
 
   Color _highlightColor = const Color(0xFFFFEB3B);
   final ScrollController _scrollController = ScrollController();
 
   String? _selectedText;
 
-  final Map<int, WebviewUltraController> _webviewControllers = {};
+  WebviewUltraController? _mainController;
   Timer? _webviewPollTimer;
   String _webviewSelectedText = '';
 
@@ -161,10 +162,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     _cardBoxVisible.dispose();
     _webviewPollTimer?.cancel();
     // 清理所有 WebView 控制器防内存泄漏
-    for (final controller in _webviewControllers.values) {
-       try { controller.dispose(); } catch (_) {}
-    }
-    _webviewControllers.clear();
+    _mainController?.dispose();
     PetVisibilityController.exitFullscreen();    // ✅ Spike：恢复全局悬浮宠物
     _saveReadingTime();
     super.dispose();
@@ -173,7 +171,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     _webviewPollTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) async {
       if (!mounted) return;
       try {
-        final controller = _webviewControllers[_currentChapterIndex];
+        final controller = _mainController;
 if (controller == null) return;
         final selResult = await controller.runJavaScriptReturningResult("window._sel || ''");
         final selText = selResult.toString().trim().replaceAll("'", "").replaceAll('"', '');
@@ -183,6 +181,21 @@ if (controller == null) return;
           _selectedText = selText;
           _startCardBoxDelayTimer(selText);
           await controller.runJavaScript('window._sel = "";');
+        }
+
+        final actionResult = await controller.runJavaScriptReturningResult("window._selAction || ''");
+        final actionText = actionResult.toString().trim().replaceAll("'", "").replaceAll('"', '');
+        if (actionText.isNotEmpty) {
+           final actionSelResult = await controller.runJavaScriptReturningResult("window._selActionText || ''");
+           final actionSel = actionSelResult.toString().trim().replaceAll("'", "").replaceAll('"', '');
+           if (actionSel.isNotEmpty) {
+               if (actionText == 'highlight') {
+                   _saveHighlight(actionSel);
+               } else if (actionText == 'card') {
+                   _createCardDirectly(actionSel);
+               }
+           }
+           await controller.runJavaScript('window._selAction = ""; window._selActionText = "";');
         }
 
         final hlResult = await controller.runJavaScriptReturningResult("window._hl || ''");
@@ -553,7 +566,7 @@ if (controller == null) return;
                             label: _fontSize.round().toString(),
                             onChanged: (value) {
                               setModalState(() => _fontSize = value);
-                              _webviewControllers[_currentChapterIndex]?.runJavaScript("document.body.style.fontSize = '${value}px';");
+                              _mainController?.runJavaScript("document.body.style.fontSize = '${value}px';");
                             },
                           ),
                         ),
@@ -572,7 +585,7 @@ if (controller == null) return;
                             label: _lineHeight.toStringAsFixed(1),
                             onChanged: (value) {
                               setModalState(() => _lineHeight = value);
-                              _webviewControllers[_currentChapterIndex]?.runJavaScript("document.body.style.lineHeight = '$value';");
+                              _mainController?.runJavaScript("document.body.style.lineHeight = '$value';");
                             },
                           ),
                         ),
@@ -633,7 +646,7 @@ if (controller == null) return;
                               setModalState(() => _fontFamily = values.first);
                               setState(() {});
                               debugPrint('DEBUG fontFamily: ${values.first}');
-                              _webviewControllers[_currentChapterIndex]?.runJavaScript("document.body.style.fontFamily = '${values.first}';");
+                              _mainController?.runJavaScript("document.body.style.fontFamily = '${values.first}';");
                             },
                             style: const ButtonStyle(visualDensity: VisualDensity.compact),
                           ),
@@ -658,7 +671,7 @@ if (controller == null) return;
                               setState(() {});
                               final _bgHex = '#${_backgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
                               final _fgHex = '#${_textColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
-                              _webviewControllers[_currentChapterIndex]?.runJavaScript(
+                              _mainController?.runJavaScript(
                                 "document.body.style.backgroundColor = '$_bgHex';"
                                 "document.body.style.color = '$_fgHex';"
                               );
@@ -793,7 +806,7 @@ if (controller == null) return;
         final _bgHex = '#${_customBackgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
         final _fgHex = '#${_customTextColor.value.toRadixString(16).padLeft(8, '0').substring(2)}';
         debugPrint('DEBUG colorOption: isBg=$isBg, bg=$_bgHex, fg=$_fgHex');
-        _webviewControllers[_currentChapterIndex]?.runJavaScript(
+        _mainController?.runJavaScript(
           "document.body.style.backgroundColor = '$_bgHex';"
           "document.body.style.color = '$_fgHex';"
         );
@@ -888,7 +901,6 @@ if (controller == null) return;
               onTap: () {
                 Navigator.pop(context);
                 final idx = r['index'] as int;
-                setState(() => _currentChapterIndex = idx);
                 _loadChapterContent(idx);
               },
             );
@@ -925,7 +937,6 @@ if (controller == null) return;
                     onTap: () {
                       debugPrint('DEBUG toc tap: index=$index, beforeCurrent=$_currentChapterIndex, chapters=${_chapters?.length}');
                       Navigator.pop(context);
-                      setState(() => _currentChapterIndex = index);
                       _loadChapterContent(index);
                     },
                   );
@@ -1173,7 +1184,7 @@ if (controller == null) return;
     );
     await _bookService.saveNote(note);
     await _loadNotes();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🖍️ 已高亮')));
+      // 静默保存
   }
 
   void _showWriteThoughtDialog(String selectedText) {
@@ -1241,7 +1252,7 @@ if (controller == null) return;
                   await _bookService.saveNote(note);
                 }
                 await _loadNotes();
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('💭 想法已保存')));
+      // 静默保存
               },
               child: const Text('保存'),
             ),
@@ -1262,7 +1273,7 @@ if (controller == null) return;
           c.sourceType == 'book');
       if (exists) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📇 卡片已存在')));
+      // 静默保存
         }
         return;
       }
@@ -1289,7 +1300,7 @@ if (controller == null) return;
     await _refreshCardMarkers();
     setState(() {});
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📇 卡片已生成')));
+      // 静默保存
     }
   }
 
@@ -1347,7 +1358,7 @@ if (controller == null) return;
     } catch (_) {}
     await _loadNotes();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🔄 已删除高亮')));
+      // 静默保存
     }
   }
   // ---------------------- 构建富文本 ----------------------
@@ -1366,32 +1377,41 @@ if (controller == null) return;
     // 1. 处理高亮
     final pageNotes = _notes.where((n) => n.pageNumber == chapterIndex + 1 && n.isHighlight).toList();
     if (pageNotes.isNotEmpty) {
-      final plain = _stripHtmlTags(content);
-      final targets = <Map<String, dynamic>>[];
-      for (var note in pageNotes) {
-        final text = note.selectedText.trim();
-        if (text.isEmpty) continue;
-        final start = plain.indexOf(text);
-        if (start != -1) targets.add({'start': start, 'end': start + text.length, 'note': note});
-      }
-      targets.sort((a, b) => (b['start'] as int).compareTo(a['start'] as int));
-
       final textNodes = <html_dom.Text>[];
       final nodeRanges = <Map<String, dynamic>>[];
       int currentPos = 0;
+      final StringBuffer plainBuffer = StringBuffer();
+      
       void mapNodes(html_dom.Node node) {
         if (node is html_dom.Text) {
           final len = node.data.length;
           textNodes.add(node);
           nodeRanges.add({'node': node, 'start': currentPos, 'end': currentPos + len});
+          plainBuffer.write(node.data);
           currentPos += len;
         } else if (node is html_dom.Element) {
-          if (node.localName == 'br') currentPos += 1;
+          if (node.localName == 'br') {
+            currentPos += 1;
+            plainBuffer.write('\n');
+          }
           for (var c in node.nodes) { mapNodes(c); }
-          if (node.localName == 'p') currentPos += 1;
+          if (node.localName == 'p') {
+            currentPos += 1;
+            plainBuffer.write('\n');
+          }
         }
       }
       mapNodes(body);
+      final plainText = plainBuffer.toString();
+      
+      final targets = <Map<String, dynamic>>[];
+      for (var note in pageNotes) {
+        final text = note.selectedText.trim();
+        if (text.isEmpty) continue;
+        final start = plainText.indexOf(text);
+        if (start != -1) targets.add({'start': start, 'end': start + text.length, 'note': note});
+      }
+      targets.sort((a, b) => (b['start'] as int).compareTo(a['start'] as int));
 
       for (var target in targets) {
         final start = target['start'] as int;
@@ -1477,10 +1497,50 @@ if (controller == null) return;
         body { font-family: $_fontFamily; padding: 20px; margin: 0; line-height: $_lineHeight; font-size: ${_fontSize}px; background: #${_backgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}; color: #${_textColor.value.toRadixString(16).padLeft(8, '0').substring(2)}; }
         img { max-width: 100%; height: auto; margin: 10px 0; }
         a[href^="hl://"] { text-decoration: none; color: inherit; }
+        .epub-menu {
+            position: absolute;
+            display: none;
+            background-color: #333333;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 6px 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 99999;
+            font-size: 14px;
+            font-family: sans-serif;
+            align-items: center;
+            gap: 12px;
+            user-select: none;
+        }
+        .epub-menu::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            margin-left: -6px;
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: #333333 transparent transparent transparent;
+        }
+        .epub-menu-item {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s;
+        }
+        .epub-menu-item:hover {
+            color: #FFD93D;
+        }
     </style>
 </head>
 <body id="reader-body">
     ${body.outerHtml}
+    <div id="epub-menu" class="epub-menu">
+        <div class="epub-menu-item" onclick="handleAction('highlight')">🖍️ 高亮</div>
+        <div class="epub-menu-item" onclick="handleAction('copy')">📋 复制</div>
+        <div class="epub-menu-item" onclick="handleAction('card')">📇 做卡</div>
+    </div>
     <script>
         window._sel = '';
         window._hl = '';
@@ -1501,6 +1561,90 @@ if (controller == null) return;
                 window._tocJump = target.getAttribute('href');
             }
         });
+
+        // 气泡菜单逻辑
+        var menu = document.getElementById('epub-menu');
+        var currentSelText = '';
+
+        document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+        document.addEventListener('mouseup', function(e) {
+            var sel = window.getSelection();
+            if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+                currentSelText = sel.toString().trim();
+                var range = sel.getRangeAt(0);
+                var rect = range.getBoundingClientRect();
+                
+                menu.style.display = 'flex';
+                var menuWidth = menu.offsetWidth;
+                var menuHeight = menu.offsetHeight;
+                
+                var top = rect.top + window.scrollY - menuHeight - 10;
+                if (top < 10) top = rect.bottom + window.scrollY + 10;
+                var left = rect.left + window.scrollX + (rect.width / 2) - (menuWidth / 2);
+                if (left < 10) left = 10;
+                
+                menu.style.top = top + 'px';
+                menu.style.left = left + 'px';
+            } else {
+                menu.style.display = 'none';
+            }
+        });
+
+        function handleAction(action) {
+            menu.style.display = 'none';
+            if (action === 'highlight') {
+                try {
+                    var sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {
+                        var range = sel.getRangeAt(0);
+                        var startNode = range.startContainer;
+                        var endNode = range.endContainer;
+                        var startOffset = range.startOffset;
+                        var endOffset = range.endOffset;
+                        var textNodes = [];
+
+                        if (startNode.nodeType === 3 && endNode.nodeType === 3) {
+                            if (startNode === endNode) {
+                                textNodes.push({ node: startNode, start: startOffset, end: endOffset });
+                            } else {
+                                textNodes.push({ node: startNode, start: startOffset, end: startNode.length });
+                                textNodes.push({ node: endNode, start: 0, end: endOffset });
+                                var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                                var inBetween = false;
+                                while (walker.nextNode()) {
+                                    var node = walker.currentNode;
+                                    if (node === startNode) inBetween = true;
+                                    else if (node === endNode) inBetween = false;
+                                    else if (inBetween) textNodes.push({ node: node, start: 0, end: node.length });
+                                }
+                            }
+                        }
+
+                        // 倒序处理，防止影响后面的节点偏移量
+                        textNodes.reverse().forEach(function(item) {
+                            var node = item.node;
+                            var start = item.start;
+                            var end = item.end;
+                            if (start < end) {
+                                if (end < node.length) node.splitText(end);
+                                var selectedNode = node;
+                                if (start > 0) selectedNode = node.splitText(start);
+                                
+                                var span = document.createElement('span');
+                                span.style.backgroundColor = '#FFD93D';
+                                selectedNode.parentNode.insertBefore(span, selectedNode);
+                                span.appendChild(selectedNode);
+                            }
+                        });
+                    }
+                } catch(e) {}
+            } else if (action === 'copy') {
+                try { navigator.clipboard.writeText(currentSelText); } catch(e) {}
+            }
+            window._selAction = action;
+            window._selActionText = currentSelText;
+        }
     </script>
 </body>
 </html>
@@ -1557,7 +1701,7 @@ if (controller == null) return;
     await _bookService.saveNote(note);
     _selectedText = null;
     await _loadNotes();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 书摘已保存')));
+      // 静默保存
   }
 
   void _showBatchCardDialog() {
@@ -1599,7 +1743,7 @@ if (controller == null) return;
     await _refreshCardMarkers();
     setState(() {});
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ 已生成 $count 张卡片')));
+      // 静默保存
     }
   }
 
@@ -1625,7 +1769,13 @@ if (controller == null) return;
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('最近7天阅读时长（分钟）', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('最近7天阅读时长（分钟）', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Text('本书共 $_totalWords 字', style: const TextStyle(fontSize: 13, color: Colors.grey)),
+              ],
+            ),
             const SizedBox(height: 16),
             Expanded(
               child: Row(
@@ -1654,6 +1804,71 @@ if (controller == null) return;
       ),
     );
   }
+  // 强行拆开合并的烂排版章节
+  List<EpubChapter> _splitMergedChapters(List<EpubChapter> original) {
+    final List<EpubChapter> result = [];
+    // 只认 h1 标签作为切分点，防止 h2/h3 导致碎片化
+    final regex = RegExp(r'<h1[^>]*>.*?</h1>', caseSensitive: false, dotAll: true);
+
+    for (var chapter in original) {
+      final html = chapter.HtmlContent ?? '';
+      final matches = regex.allMatches(html).toList();
+
+      // 如果只有 1 个或 0 个标题，说明是正常章节，不拆
+      if (matches.length <= 1) {
+        result.add(chapter);
+        continue;
+      }
+
+      // 提取原书的 <head> 和样式
+      String headHtml = '<html><head></head><body>';
+      final bodyMatch = RegExp(r'<body[^>]*>', caseSensitive: false).firstMatch(html);
+      int bodyStart = 0;
+      if (bodyMatch != null) {
+        headHtml = html.substring(0, bodyMatch.end);
+        bodyStart = bodyMatch.end;
+      }
+      
+      int bodyEnd = html.lastIndexOf('</body>');
+      if (bodyEnd == -1) bodyEnd = html.length;
+
+      for (int i = 0; i < matches.length; i++) {
+        final start = matches[i].start;
+        
+        // 截取第一个匹配前的内容（比如序、推荐序）
+        if (i == 0 && start > bodyStart) {
+          final headChunk = html.substring(bodyStart, start).trim();
+          // 修复：去掉 HTML 标签后，如果还有文字，才认为是真正的卷首/前言，避免空标签生成空白页
+          final plainHead = headChunk.replaceAll(RegExp(r'<[^>]+>'), '').replaceAll(RegExp(r'\s+'), '');
+          if (plainHead.isNotEmpty) {
+            final newChapter = EpubChapter();
+            newChapter.Title = '卷首';
+            newChapter.HtmlContent = '$headHtml\n$headChunk\n</body></html>';
+            newChapter.ContentFileName = chapter.ContentFileName;
+            debugPrint('DEBUG SPLIT: 卷首');
+            result.add(newChapter);
+          }
+        }
+
+        final end = (i < matches.length - 1) ? matches[i + 1].start : bodyEnd;
+        if (start >= end) continue;
+
+        var contentChunk = html.substring(start, end).trim();
+        // 提取标题文本并去掉内部标签
+        final titleText = matches[i].group(0)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+
+        final newChapter = EpubChapter();
+        newChapter.Title = titleText;
+        newChapter.HtmlContent = '$headHtml\n$contentChunk\n</body></html>';
+        newChapter.ContentFileName = chapter.ContentFileName; 
+        
+        debugPrint('DEBUG SPLIT: $titleText');
+        result.add(newChapter);
+      }
+    }
+    return result;
+  }
+
   // 递归展平 EPUB 的多级章节目录，并进行去重
   List<EpubChapter> _flattenChapters(List<EpubChapter>? chapters) {
     if (chapters == null) return [];
@@ -1715,9 +1930,28 @@ if (controller == null) return;
       _epubBook = await EpubReader.readBook(epubData);
       // 调用展平方法，把所有层级的章节全部拉平
       _chapters = _flattenChapters(_epubBook?.Chapters);
+      _chapters = _splitMergedChapters(_chapters!);
+
+      // 初始化唯一 Controller
+      _mainController?.dispose(); // 防内存泄漏
+      _mainController = WebviewUltraController(
+        onPageStarted: (url) => debugPrint('DEBUG webview start: $url'),
+        onPageFinished: (url) => debugPrint('DEBUG webview finish: $url'),
+        onWebResourceError: (e) => debugPrint('DEBUG webview error: $e'),
+      );
       if (_epubBook != null) {
         _bookTitle = _epubBook!.Title ?? widget.fileName;
         _bookAuthor = _epubBook!.Author ?? '未知作者';
+      }
+      if (_chapters != null) {
+        int count = 0;
+        for (var chapter in _chapters!) {
+          final text = _stripHtmlTags(chapter.HtmlContent ?? '');
+          count += text.replaceAll(RegExp(r'\s+'), '').length;
+        }
+        _totalWords = count;
+
+        // 调试代码已移除
       }
       if (widget.initialChapterIndex != null) {
         _currentChapterIndex = widget.initialChapterIndex!;
@@ -1725,6 +1959,18 @@ if (controller == null) return;
         _currentChapterIndex = _book?.readingProgress ?? 0;
       }
       if (_currentChapterIndex >= (_chapters?.length ?? 0)) _currentChapterIndex = 0;
+      
+      // --- 临时调试：打印前 5 章的 HTML 特征，用于分析烂排版 ---
+      if (_chapters != null) {
+        for (int i = 0; i < min(5, _chapters!.length); i++) {
+          final ch = _chapters![i];
+          final html = ch.HtmlContent ?? '';
+          debugPrint('DEBUG chapter $i Title=${ch.Title}');
+          debugPrint('DEBUG chapter $i Preview=${html.replaceAll("\n", " ").substring(0, min(300, html.length))}');
+        }
+      }
+      // --------------------------------------------------------
+
       await _loadChapterContent(_currentChapterIndex);
       setState(() => _isLoading = false);
       _startReminderTimer();
@@ -1743,7 +1989,14 @@ if (controller == null) return;
       if (index >= _chapterContents.length) _chapterContents.addAll(List.filled(index - _chapterContents.length + 1, ''));
       _chapterContents[index] = content;
       _rebuildHighlightRanges();
-      if (mounted) setState(() {});
+      
+      final targetHtml = _buildWebViewHtml(content, index);
+      if (mounted) {
+        setState(() {
+          _currentChapterIndex = index;
+        });
+        _mainController?.loadHtmlString(targetHtml);
+      }
       debugPrint('DEBUG loadChapterContent done: index=$index, contentLen=${content.length}');
       _saveProgress(); // 自动保存进度
     } catch (_) {}
@@ -1756,7 +2009,7 @@ if (controller == null) return;
       final updated = _book!.copyWith(readingProgress: progress, totalPages: total, lastReadAt: DateTime.now());
       await _bookService.saveBook(updated);
       _book = updated;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('📖 已保存进度: 第 ${_currentChapterIndex + 1} / $total 章')));
+      // 静默保存
     }
   }
 
@@ -1779,7 +2032,6 @@ if (controller == null) return;
                 child: _NotesPanelContent(
                   getNotes: () => _notes,
                   onJumpToChapter: (idx) {
-                    setState(() => _currentChapterIndex = idx);
                     _loadChapterContent(idx);
                   },
                   chaptersLength: _chapters?.length ?? 0,
@@ -1881,7 +2133,6 @@ if (controller == null) return;
                                     title: Text(note.selectedText, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
                                     onTap: () {
                                       Navigator.pop(context);
-                                      setState(() => _currentChapterIndex = index);
                                       _loadChapterContent(index);
                                     },
                                   )),
@@ -1965,9 +2216,6 @@ if (controller == null) return;
     final page = index + 1;
     final isBookmarked = _isBookmarked(page);
     final summary = _summaries[page];
-    final _dbgController = _webviewControllers[index];
-    debugPrint('DEBUG controller: index=$index, exists=${_dbgController != null}, hashCode=${_dbgController?.hashCode}');
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
@@ -1980,14 +2228,12 @@ if (controller == null) return;
           Expanded(
             child: Stack(
               children: [
-                WebviewUltra(
-                  key: ValueKey('webview_$index'), 
-                  controller: _webviewControllers.putIfAbsent(index, () => WebviewUltraController()),
-                  initialHtml: _buildWebViewHtml(content, index),
-                  onPageStarted: (url) => debugPrint('DEBUG webview start: index=$index, url=$url'),
-                  onPageFinished: (url) => debugPrint('DEBUG webview finish: index=$index, url=$url'),
-                  onWebResourceError: (e) => debugPrint('DEBUG webview error: index=$index, error=$e'),
-                ),
+                if (_mainController != null)
+                  WebviewUltra(
+                    key: const ValueKey('main_webview'), 
+                    controller: _mainController!,
+                    initialHtml: _buildWebViewHtml(content, index),
+                  ),
                 Positioned(
                   right: 0,
                   bottom: 0,
@@ -2249,16 +2495,14 @@ if (controller == null) return;
                 children: [
                   TextButton.icon(
                     onPressed: current > 0 ? () {
-                      setState(() => _currentChapterIndex = current - 1);
-                      _loadChapterContent(_currentChapterIndex);
+                      _loadChapterContent(current - 1);
                     } : null,
                     icon: const Icon(Icons.arrow_back, size: 16),
                     label: const Text('上一章', style: TextStyle(fontSize: 12)),
                   ),
                   TextButton.icon(
                     onPressed: current < total - 1 ? () {
-                      setState(() => _currentChapterIndex = current + 1);
-                      _loadChapterContent(_currentChapterIndex);
+                      _loadChapterContent(current + 1);
                     } : null,
                     icon: const Icon(Icons.arrow_forward, size: 16),
                     label: const Text('下一章', style: TextStyle(fontSize: 12)),
