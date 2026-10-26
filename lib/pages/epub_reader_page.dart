@@ -1543,14 +1543,14 @@ if (controller == null) return;
   }
 
   Future<void> _saveQuickNote(String text) async {
-    if (text.isEmpty && _selectedText == null) return;
+    if (text.isEmpty) return;
     final note = BookNote(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bookId: widget.bookId,
       pageNumber: _currentChapterIndex + 1,
       location: 'page:${_currentChapterIndex + 1}',
-      selectedText: _selectedText ?? text,
-      comment: _selectedText != null ? text : '',
+      selectedText: _selectedText ?? '页边书摘',
+      comment: text,
       color: '#FFD93D',
       isHighlight: false,
     );
@@ -2297,11 +2297,20 @@ class _NotesPanelContent extends StatefulWidget {
 class _NotesPanelContentState extends State<_NotesPanelContent> {
   String _filter = 'all';
   List<BookNote> _notes = [];
+  List<CardModel> _allCards = [];
 
   @override
   void initState() {
     super.initState();
     _notes = widget.getNotes();
+    _loadCards();
+  }
+
+  Future<void> _loadCards() async {
+    try {
+      final cards = await CardService().getAllCards();
+      if (mounted) setState(() => _allCards = cards);
+    } catch (_) {}
   }
 
   @override
@@ -2318,15 +2327,15 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
     } else if (_filter == 'bookmark') {
       return _notes.where((n) => n.selectedText == '【书签】').toList();
     } else if (_filter == 'card') {
-      return _notes.where((n) => n.selectedText != '【书签】').toList(); // B2 包会加入真正的卡片匹配
+      return _notes.where((n) => n.selectedText != '【书签】' && _allCards.any((c) => c.sourceId == n.bookId && c.highlight == n.selectedText)).toList();
     }
     return _notes;
   }
 
   int get _highlightCount => _notes.where((n) => n.isHighlight && n.comment.isEmpty && n.selectedText != '【书签】').length;
-  int get _commentCount => _notes.where((n) => n.comment.isNotEmpty && n.selectedText != '【书签】').length;
+  int get _commentCount => _notes.where((n) => (n.comment.isNotEmpty || !n.isHighlight) && n.selectedText != '【书签】').length;
   int get _bookmarkCount => _notes.where((n) => n.selectedText == '【书签】').length;
-  int get _cardCount => 0; // B2 包会改为真正的已制卡数量
+  int get _cardCount => _notes.where((n) => n.selectedText != '【书签】' && _allCards.any((c) => c.sourceId == n.bookId && c.highlight == n.selectedText)).length;
 
   void _refresh() {
     setState(() {
@@ -2380,25 +2389,79 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                   itemCount: _filteredNotes.length,
                   itemBuilder: (context, index) {
                     final note = _filteredNotes[index];
+                    // 查找关联的卡片
+                    CardModel? matchedCard;
+                    for (var c in _allCards) {
+                      if (c.sourceId == note.bookId && c.highlight == note.selectedText) {
+                        matchedCard = c;
+                        break;
+                      }
+                    }
+                    final isSticky = note.selectedText == '页边书摘';
+                    final isBookmark = note.selectedText == '【书签】';
+
                     return ListTile(
                       dense: true,
                       leading: Icon(
-                        note.isHighlight ? Icons.highlight : Icons.comment,
-                        color: note.isHighlight ? Colors.yellow.shade700 : Colors.orange,
+                        matchedCard != null
+                            ? Icons.credit_card
+                            : (isBookmark
+                                ? Icons.bookmark
+                                : (isSticky
+                                    ? Icons.sticky_note_2
+                                    : (note.isHighlight ? Icons.highlight : Icons.comment))),
+                        color: matchedCard != null
+                            ? Colors.green
+                            : (isBookmark
+                                ? Colors.red
+                                : (isSticky
+                                    ? Colors.amber.shade700
+                                    : (note.isHighlight ? Colors.yellow.shade700 : Colors.orange))),
                         size: 20,
                       ),
-                      title: Text(
-                        note.selectedText,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13),
+                      title: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: isSticky
+                                ? const Text('📝 随笔', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange))
+                                : (isBookmark
+                                    ? const Text('🔖 书签', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red))
+                                    : Container(
+                                        margin: const EdgeInsets.only(bottom: 4),
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4)),
+                                        child: Text(note.selectedText, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                                      )),
+                          ),
+                          if (matchedCard != null)
+                            Container(
+                              margin: const EdgeInsets.only(left: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: matchedCard.cardType == CardType.guide ? Colors.amber.shade100 : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: matchedCard.cardType == CardType.guide ? Colors.amber.shade700 : Colors.grey.shade400),
+                              ),
+                              child: Text(
+                                matchedCard.cardType == CardType.guide ? '读透卡' : '原子卡',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: matchedCard.cardType == CardType.guide ? Colors.orange.shade900 : Colors.grey.shade800,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       subtitle: note.comment.isNotEmpty
-                          ? Text(
-                              note.comment,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                note.comment,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 13, color: Colors.black87),
+                              ),
                             )
                           : null,
                       onTap: () {
