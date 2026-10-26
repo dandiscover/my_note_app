@@ -67,12 +67,12 @@ dependencies:
   xml: 6.3.0
   flutter_secure_storage: ^10.3.4
   sqlite3_flutter_libs: ^0.6.0+eol
-
+  webview_ultra: ^0.0.6+8
 
   # ✅ PDF Spike 验证所需
 dev_dependencies:
   flutter_test:
-    sdk: flutter
+    sdk: flutter    
   mocktail: ^1.0.0
   integration_test:
     sdk: flutter
