@@ -99,6 +99,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   double _maxWidth = 800.0;
   double _pageMargin = 16.0;
   final Debouncer _layoutDebouncer = Debouncer(const Duration(milliseconds: 200));
+  final Debouncer _searchDebouncer = Debouncer(const Duration(milliseconds: 300));
   String _fontFamily = 'sans-serif';
   int _themeMode = 0;
   Color _customBackgroundColor = const Color(0xFFF5F0E1);
@@ -155,6 +156,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   @override
   void dispose() {
     _layoutDebouncer.cancel();
+    _searchDebouncer.cancel();
     _scrollController.dispose();
     _reminderTimer?.cancel();
     _cardBoxDelayTimer?.cancel();
@@ -195,11 +197,13 @@ if (controller == null) return;
            if (actionSel.isNotEmpty) {
                if (actionText == 'highlight') {
                    _saveHighlight(actionSel, actionId);
-               } else if (actionText == 'card') {
-                   _createCardDirectly(actionSel, actionId);
                } else if (actionText == 'comment') {
                    _selectedText = actionSel;
                    _showWriteThoughtDialog(actionSel, actionId);
+               } else if (actionText == 'search') {
+                   _showSearch(actionSel);
+               } else if (actionText == 'translate') {
+                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🌐 翻译功能即将上线，敬请期待')));
                }
            }
            await controller.runJavaScript('window._selAction = ""; window._selActionText = ""; window._selActionId = "";');
@@ -852,48 +856,113 @@ if (controller == null) return;
     } catch (_) {}
   }
 
-  void _showSearch() {
-    showDialog(
+  Future<void> _showSearch([String? initialText]) async {
+    final controller = TextEditingController(text: initialText ?? _searchQuery);
+    var dialogResults = _executeSearch(controller.text);
+    var dialogOpen = true;
+
+    await showDialog(
       context: context,
-      builder: (context) {
-        final controller = TextEditingController(text: _searchQuery);
-        return AlertDialog(
-          title: const Text('全文搜索'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: '输入关键词', border: OutlineInputBorder()),
-            onSubmitted: (value) {
-              setState(() => _searchQuery = value.trim());
-              Navigator.pop(context);
-              _performSearch();
-            },
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-            ElevatedButton(onPressed: () {
-              setState(() => _searchQuery = controller.text.trim());
-              Navigator.pop(context);
-              _performSearch();
-            }, child: const Text('搜索')),
-          ],
-        );
-      },
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('全文搜索'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(hintText: '输入关键词', border: OutlineInputBorder()),
+                    onChanged: (val) {
+                      _searchDebouncer.run(() {
+                        if (!dialogOpen) return;
+                        final newResults = _executeSearch(val);
+                        setDialogState(() {
+                          dialogResults = newResults;
+                        });
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (dialogResults.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text('未找到结果', style: TextStyle(color: Colors.grey)),
+                    )
+                  else
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 300),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: dialogResults.length,
+                        itemBuilder: (context, idx) {
+                          final r = dialogResults[idx];
+                          return ListTile(
+                            leading: const Icon(Icons.search),
+                            title: Text(r['title']),
+                            subtitle: Text(r['snippet'] as String? ?? ''),
+                            onTap: () {
+                              Navigator.pop(context);
+                              final idx = r['index'] as int;
+                              _loadChapterContent(idx);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
+            ],
+          );
+        },
+      ),
     );
+
+    dialogOpen = false;
+    _searchDebouncer.cancel();
+    controller.dispose();
   }
 
-  void _performSearch() {
-    if (_searchQuery.isEmpty || _chapters == null) return;
+  List<Map<String, dynamic>> _executeSearch(String query) {
+    if (query.isEmpty || _chapters == null) return [];
     final results = <Map<String, dynamic>>[];
+    final regex = RegExp(RegExp.escape(query), caseSensitive: false);
     for (int i = 0; i < _chapters!.length; i++) {
       final title = _chapters![i].Title ?? '第 ${i + 1} 章';
       final content = i < _chapterContents.length ? _stripHtmlTags(_chapterContents[i]) : '';
-      final titleMatch = title.toLowerCase().contains(_searchQuery.toLowerCase());
-      final contentMatches = content.toLowerCase().split(_searchQuery.toLowerCase()).length - 1;
+      final titleMatch = title.toLowerCase().contains(query.toLowerCase());
+      final contentMatches = content.toLowerCase().split(query.toLowerCase()).length - 1;
       if (titleMatch || contentMatches > 0) {
-        results.add({'index': i, 'title': title, 'count': contentMatches});
+        String snippet = '标题匹配';
+        if (contentMatches > 0) {
+          final match = regex.firstMatch(content);
+          if (match != null) {
+            final textRunes = content.runes.toList();
+            final matchStartRune = content.substring(0, match.start).runes.length;
+            final matchLengthRunes = content.substring(match.start, match.end).runes.length;
+            final snippetStart = (matchStartRune - 20).clamp(0, textRunes.length);
+            final snippetEnd = (matchStartRune + matchLengthRunes + 20).clamp(0, textRunes.length);
+            final before = String.fromCharCodes(textRunes.sublist(snippetStart, matchStartRune));
+            final matched = String.fromCharCodes(textRunes.sublist(matchStartRune, matchStartRune + matchLengthRunes));
+            final after = String.fromCharCodes(textRunes.sublist(matchStartRune + matchLengthRunes, snippetEnd));
+            snippet = '$before【$matched】$after';
+          }
+        }
+        results.add({'index': i, 'title': title, 'count': contentMatches, 'snippet': snippet});
+        if (results.length >= 50) break;
       }
     }
+    return results;
+  }
+
+  void _performSearch() {
+    final results = _executeSearch(_searchQuery);
     setState(() => _searchResults = results);
     if (results.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('未找到结果')));
@@ -1672,9 +1741,10 @@ if (controller == null) return;
     ${body.outerHtml}
     <div id="epub-menu" class="epub-menu">
         <div class="epub-menu-item" onclick="handleAction('highlight')">🖍️ 高亮</div>
-        <div class="epub-menu-item" onclick="handleAction('comment')">💭 批注</div>
         <div class="epub-menu-item" onclick="handleAction('copy')">📋 复制</div>
-        <div class="epub-menu-item" onclick="handleAction('card')">📇 做卡</div>
+        <div class="epub-menu-item" onclick="handleAction('comment')">💭 批注</div>
+        <div class="epub-menu-item" onclick="handleAction('search')">🔍 搜索</div>
+        <div class="epub-menu-item" onclick="handleAction('translate')">🌐 翻译</div>
     </div>
     <script>
         window._sel = '';
@@ -1730,7 +1800,7 @@ if (controller == null) return;
         function handleAction(action) {
             window._tempId = 'hl-tmp-' + Date.now();
             menu.style.display = 'none';
-            if (action === 'highlight' || action === 'comment' || action === 'card') {
+            if (action === 'highlight' || action === 'comment') {
                 try {
                     var sel = window.getSelection();
                     if (sel && sel.rangeCount > 0) {
@@ -2140,7 +2210,9 @@ if (controller == null) return;
       }
       debugPrint('DEBUG loadChapterContent done: index=$index, contentLen=${content.length}');
       _saveProgress(); // 自动保存进度
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('_loadChapterContent 失败: $e\n$st');
+    }
   }
 
   Future<void> _saveProgress() async {
