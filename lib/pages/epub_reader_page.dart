@@ -29,12 +29,11 @@ import 'package:flutter/services.dart';
 import 'package:epubx/epubx.dart' hide Image;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:typed_data';
 import 'dart:math';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import '../database_service.dart';
-import '../services/reader_jump_service.dart';
+
 import '../services/epub_jump_service.dart';
 import '../models/book.dart';
 import '../models/book_note.dart';
@@ -55,8 +54,8 @@ class EpubReaderPage extends StatefulWidget {
   //   null = 不定位，用 Book.readingProgress（现状不变）
   //   非 null = 定位到该章节（0 是有效值，表示第一页）
   final int? initialChapterIndex;
-  final BookNote? initialJumpNote = null;        // 全智库入口：加载后跳转
-  final String? initialLocation = null;          // 全智库入口：location 字符串
+  final BookNote? initialJumpNote;               // 全智库入口：加载后跳转
+  final String? initialLocation;                 // 全智库入口：location 字符串
   final bool embedMode;                          // 批 3：嵌入模式——只 body 无 Scaffold
   final VoidCallback? onExit;                    // 批 3：embed 错误态返回
   final ValueChanged<bool>? onFocusModeChanged;  // 批 3：专注态变更同步
@@ -69,6 +68,8 @@ class EpubReaderPage extends StatefulWidget {
     this.isWeb = false,
     this.fileName = '文档',
     this.initialChapterIndex,
+    this.initialJumpNote,
+    this.initialLocation,
     this.embedMode = false,
     this.onExit,
     this.onFocusModeChanged,
@@ -112,7 +113,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   DateTime? _readingStartTime;
   late bool _isFocusMode;   // 批 3：initState 赋值（依赖 widget.embedMode）
   String _searchQuery = '';
-  List<Map<String, dynamic>> _searchResults = [];
+
   double _dailyGoalMinutes = 0.0;
   bool _reminderEnabled = false;
   double _reminderInterval = 30.0;
@@ -984,33 +985,7 @@ if (controller == null) return;
     return results;
   }
 
-  void _performSearch() {
-    final results = _executeSearch(_searchQuery);
-    setState(() => _searchResults = results);
-    if (results.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('未找到结果')));
-    } else {
-      showModalBottomSheet(
-        context: context,
-        builder: (context) => ListView.builder(
-          itemCount: results.length,
-          itemBuilder: (context, idx) {
-            final r = results[idx];
-            return ListTile(
-              leading: const Icon(Icons.search),
-              title: Text(r['title']),
-              subtitle: Text('匹配 ${r['count']} 处'),
-              onTap: () {
-                Navigator.pop(context);
-                final idx = r['index'] as int;
-                _loadChapterContent(idx);
-              },
-            );
-          },
-        ),
-      );
-    }
-  }
+
 
   void _showToc() {
     showModalBottomSheet(
@@ -1278,7 +1253,8 @@ if (controller == null) return;
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bookId: widget.bookId,
       pageNumber: _currentChapterIndex + 1,
-      location: 'page:${_currentChapterIndex + 1}',
+      // location 格式：type|page:N|top:M，type 预留 pdf/txt
+      location: 'epub|page:${_currentChapterIndex + 1}|top:0',
       selectedText: selectedText,
       comment: '',
       color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
@@ -1347,7 +1323,7 @@ if (controller == null) return;
                   id: DateTime.now().millisecondsSinceEpoch.toString(),
                   bookId: widget.bookId,
                   pageNumber: _currentChapterIndex + 1,
-                  location: 'page:${_currentChapterIndex + 1}',
+                  location: 'epub|page:${_currentChapterIndex + 1}|top:0',
                   selectedText: selectedText,
                   comment: comment,
                   color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
@@ -1453,7 +1429,7 @@ if (controller == null) return;
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         bookId: widget.bookId,
         pageNumber: _currentChapterIndex + 1,
-        location: 'page:${_currentChapterIndex + 1}',
+        location: 'epub|page:${_currentChapterIndex + 1}|top:0',
         selectedText: selectedText,
         comment: '',
         color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
@@ -1926,7 +1902,7 @@ if (controller == null) return;
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bookId: widget.bookId,
       pageNumber: _currentChapterIndex + 1,
-      location: 'page:${_currentChapterIndex + 1}',
+      location: 'epub|page:${_currentChapterIndex + 1}|top:0',
       selectedText: _selectedText ?? '页边书摘',
       comment: text,
       color: '#FFD93D',
@@ -2339,16 +2315,6 @@ if (controller == null) return;
                 ),
               ),
             ListTile(
-              leading: const Icon(Icons.my_location),
-              title: const Text('定位'),
-              onTap: () {
-                Navigator.pop(context);
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  _jumpService.jumpToText(note.selectedText);
-                });
-              },
-            ),
-            ListTile(
               leading: const Icon(Icons.credit_card),
               title: const Text('生成卡片'),
               onTap: () {
@@ -2485,13 +2451,7 @@ if (controller == null) return;
     );
   }
 
-  Future<void> _convertToNote(BookNote note) async {
-    final content = '书籍：${_bookTitle.isEmpty ? _book?.title ?? widget.fileName : _bookTitle}\n章节：第${note.pageNumber}章\n原文：${note.selectedText}\n批注：${note.comment}';
-    await _appendToBookNote(content);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 已转为智库笔记')));
-    }
-  }
+
 
   Widget _buildChapterContent(int index) {
     debugPrint('DEBUG buildChapterContent: index=$index, current=$_currentChapterIndex, cacheLen=${_chapterContents.length}, hasContent=${index < _chapterContents.length && _chapterContents[index].isNotEmpty}');
@@ -2686,7 +2646,6 @@ if (controller == null) return;
     // ✅ v2：Listener 是 Stack 的 parent，不是 child。
     //   Stack.hitTestChildren 命中即停，Stack 内部的 Listener 会阻断下层 PageView / SelectableText。
     //   现在 Stack 内部只有 PageView 和 CardBoxPeek，两个都能正常接收手势。
-    final total = _chapters!.length;
     return Listener(
       onPointerDown: _onFocusPointerDown,
       onPointerUp: _onFocusPointerUp,
