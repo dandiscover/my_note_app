@@ -34,6 +34,8 @@ import 'dart:math';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import '../database_service.dart';
+import '../services/reader_jump_service.dart';
+import '../services/epub_jump_service.dart';
 import '../models/book.dart';
 import '../models/book_note.dart';
 import '../models/card.dart';
@@ -53,6 +55,8 @@ class EpubReaderPage extends StatefulWidget {
   //   null = 不定位，用 Book.readingProgress（现状不变）
   //   非 null = 定位到该章节（0 是有效值，表示第一页）
   final int? initialChapterIndex;
+  final BookNote? initialJumpNote = null;        // 全智库入口：加载后跳转
+  final String? initialLocation = null;          // 全智库入口：location 字符串
   final bool embedMode;                          // 批 3：嵌入模式——只 body 无 Scaffold
   final VoidCallback? onExit;                    // 批 3：embed 错误态返回
   final ValueChanged<bool>? onFocusModeChanged;  // 批 3：专注态变更同步
@@ -137,6 +141,16 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   String? _selectedText;
 
   WebviewUltraController? _mainController;
+  Completer<void>? _pageLoadCompleter;
+  int _jumpGeneration = 0;
+  EpubJumpService? _jumpServiceInstance;
+
+  EpubJumpService get _jumpService => _jumpServiceInstance ??= EpubJumpService(runJs: (js) async {
+    if (_mainController != null) {
+      await _mainController!.runJavaScript(js);
+    }
+    return null;
+  });
   Timer? _webviewPollTimer;
   String _webviewSelectedText = '';
 
@@ -325,11 +339,20 @@ if (controller == null) return;
         await _loadNotes();
       } catch (_) {}
     } else {
+      int scrollTop = 0;
+      try {
+        final r = await _mainController?.runJavaScriptReturningResult('window.scrollY || 0');
+        String rStr = r?.toString() ?? '0';
+        rStr = rStr.replaceAll('"', '').replaceAll("'", '');
+        final parsedScroll = double.tryParse(rStr) ?? 0.0;
+        scrollTop = parsedScroll.toInt();
+      } catch (_) {}
       final newNote = BookNote(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         bookId: widget.bookId,
         pageNumber: page,
-        location: 'page:$page',
+        // location 格式：type|page:N|top:M，type 预留 pdf/txt
+        location: 'epub|page:$page|top:$scrollTop',
         selectedText: '【书签】',
         comment: '',
         color: '#FFD93D',
@@ -1698,6 +1721,8 @@ if (controller == null) return;
         img { max-width: 100%; height: auto; margin: 10px 0; }
         a[href^="hl://"] { text-decoration: none; color: inherit; }
         a[data-comment="true"]::after { content: '💭'; font-size: 12px; margin-left: 2px; pointer-events: none; }
+        @keyframes flashHL { 0% { background-color: #FFD93D; } 50% { background-color: #FF9800; } 100% { background-color: #FFD93D; } }
+        .flash-target { animation: flashHL 0.9s ease-in-out 2; }
         a[data-card="true"]::after { content: '📇'; font-size: 12px; margin-left: 2px; pointer-events: none; }
         a[data-comment="true"][data-card="true"]::after { content: '💭📇'; font-size: 12px; margin-left: 2px; pointer-events: none; }
         .epub-menu {
@@ -2147,7 +2172,12 @@ if (controller == null) return;
       _mainController?.dispose(); // 防内存泄漏
       _mainController = WebviewUltraController(
         onPageStarted: (url) => debugPrint('DEBUG webview start: $url'),
-        onPageFinished: (url) => debugPrint('DEBUG webview finish: $url'),
+        onPageFinished: (url) {
+          debugPrint('DEBUG webview finish: $url');
+          if (!(_pageLoadCompleter?.isCompleted ?? true)) {
+            _pageLoadCompleter!.complete();
+          }
+        },
         onWebResourceError: (e) => debugPrint('DEBUG webview error: $e'),
       );
       if (_epubBook != null) {
@@ -2193,6 +2223,13 @@ if (controller == null) return;
 
   Future<void> _loadChapterContent(int index) async {
     if (_epubBook == null || _chapters == null || index >= _chapters!.length) return;
+    _jumpGeneration++;
+    final myGeneration = _jumpGeneration;
+    if (_pageLoadCompleter != null && !_pageLoadCompleter!.isCompleted) {
+      _pageLoadCompleter!.complete();
+    }
+    _pageLoadCompleter = Completer<void>();
+    final completer = _pageLoadCompleter!;
     try {
       final chapter = _chapters![index];
       String content = chapter.HtmlContent ?? '（本章无内容）';
@@ -2208,6 +2245,12 @@ if (controller == null) return;
         });
         _mainController?.loadHtmlString(targetHtml);
       }
+      try {
+        await completer.future.timeout(const Duration(seconds: 5));
+      } on TimeoutException {
+        debugPrint('_loadChapterContent 加载超时: index=$index');
+      }
+      if (myGeneration != _jumpGeneration) return;
       debugPrint('DEBUG loadChapterContent done: index=$index, contentLen=${content.length}');
       _saveProgress(); // 自动保存进度
     } catch (e, st) {
@@ -2244,8 +2287,9 @@ if (controller == null) return;
               child: SafeArea(
                 child: _NotesPanelContent(
                   getNotes: () => _notes,
-                  onJumpToChapter: (idx) {
-                    _loadChapterContent(idx);
+                  onJumpToNote: (note) async {
+                    await _loadChapterContent(note.pageNumber - 1);
+                    await _jumpService.jumpToNote(note);
                   },
                   chaptersLength: _chapters?.length ?? 0,
                   onGenerateCard: _generateCardFromNote,
@@ -2294,6 +2338,16 @@ if (controller == null) return;
                   ],
                 ),
               ),
+            ListTile(
+              leading: const Icon(Icons.my_location),
+              title: const Text('定位'),
+              onTap: () {
+                Navigator.pop(context);
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  _jumpService.jumpToText(note.selectedText);
+                });
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.credit_card),
               title: const Text('生成卡片'),
@@ -2753,14 +2807,14 @@ if (controller == null) return;
 // ---- 标注面板内容组件（带筛选功能，支持动态刷新） ----
 class _NotesPanelContent extends StatefulWidget {
   final List<BookNote> Function() getNotes;
-  final ValueChanged<int> onJumpToChapter;
+  final ValueChanged<BookNote> onJumpToNote;
   final int chaptersLength;
   final Future<void> Function(BookNote) onGenerateCard;
   final Future<void> Function(BookNote) onDeleteHighlight;
 
   const _NotesPanelContent({
     required this.getNotes,
-    required this.onJumpToChapter,
+    required this.onJumpToNote,
     required this.chaptersLength,
     required this.onGenerateCard,
     required this.onDeleteHighlight,
@@ -2948,7 +3002,7 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                       onTap: () {
                         Navigator.pop(context);
                         if (note.pageNumber > 0 && note.pageNumber <= widget.chaptersLength) {
-                          widget.onJumpToChapter(note.pageNumber - 1);
+                          widget.onJumpToNote(note);
                         }
                       },
                       onLongPress: () {
