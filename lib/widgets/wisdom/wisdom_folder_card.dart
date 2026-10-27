@@ -64,20 +64,15 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
           onEnter: (_) => setState(() => _isHovered = true),
           onExit: (_) => setState(() => _isHovered = false),
           child: DragTarget<String>(
-  onWillAccept: (data) {
-    if (data == null) return false;
-    // ✅ data 是 node.id（String）
-    if (data == widget.node.id) return false;
-    if (widget.isDescendantOf(data, widget.node.id)) return false;
-
-    if (_isCardBox) {
-      return false;
-    }
-    return true;
-  },
-  onAccept: (data) async {
-    // ✅ data 是 node.id（String）
-    await _db.moveNode(data, widget.node.id);
+            onWillAccept: (data) {
+              if (data == null) return false;
+              if (data == widget.node.id) return false;
+              if (widget.isDescendantOf(data, widget.node.id)) return false;
+              if (_isCardBox) return false;
+              return true;
+            },
+            onAccept: (data) async {
+              await _db.moveNode(data, widget.node.id);
               WisdomLightToast.show(context, '✅ 已移动到「${widget.node.title}」');
               widget.onDataChanged?.call();
               widget.onEnterFolder();
@@ -127,6 +122,7 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               if (widget.isSelectMode)
                                 WisdomCheckbox(
@@ -157,6 +153,8 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
                           if (_isCardBox) ...[
                             Text(
                               '📇 卡片盒',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 9,
                                 color: widget.isSelected ? Colors.purple.shade600 : Colors.purple.shade400,
@@ -165,6 +163,8 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
                             ),
                             Text(
                               '${widget.cardCount} 张卡片',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 8,
                                 color: widget.isSelected ? Colors.purple.shade500 : Colors.grey.shade500,
@@ -172,25 +172,34 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
                             ),
                           ] else ...[
                             Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 if (widget.subFolderCount > 0) ...[
                                   Text('📂 ${widget.subFolderCount}',
-                                    style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade500 : Colors.grey.shade600)),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade500 : Colors.grey.shade600)),
                                   const SizedBox(width: 4),
                                 ],
                                 if (widget.noteCount > 0) ...[
                                   Text('📄 ${widget.noteCount}',
-                                    style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade500 : Colors.grey.shade600)),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade500 : Colors.grey.shade600)),
                                   const SizedBox(width: 4),
                                 ],
                                 if (widget.cardCount > 0) ...[
                                   Text('🎴 ${widget.cardCount}',
-                                    style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade500 : Colors.grey.shade600)),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade500 : Colors.grey.shade600)),
                                   const SizedBox(width: 4),
                                 ],
                                 if (widget.subFolderCount == 0 && widget.noteCount == 0 && widget.cardCount == 0)
                                   Text('空文件夹',
-                                    style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade400 : Colors.grey.shade500)),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 8, color: widget.isSelected ? Colors.blue.shade400 : Colors.grey.shade500)),
                               ],
                             ),
                           ],
@@ -204,9 +213,7 @@ class _WisdomFolderCardState extends State<WisdomFolderCard> {
           ),
         );
 
-        if (_isCardBox) {
-          return cardContent;
-        }
+        if (_isCardBox) return cardContent;
 
         return WisdomDraggable(
           node: widget.node,

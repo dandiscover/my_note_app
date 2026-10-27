@@ -956,6 +956,45 @@ class DatabaseService {
         .insert(companion, mode: InsertMode.insertOrReplace);
   }
 
+  // Reader Hub 三合一搜索：笔记（title/content）
+  Future<List<Map<String, dynamic>>> searchNotes(String keyword, {int limit = 20}) async {
+    final kw = keyword.trim();
+    if (kw.isEmpty) return [];
+    final rows = await (_drift.select(_drift.notes)
+          ..where((t) =>
+              (t.title.like('%$kw%') | t.content.like('%$kw%')) &
+              t.status.equals('deleted').not())
+          ..limit(limit))
+        .get();
+    return rows.map(_noteRowToMap).toList();
+  }
+
+  // Reader Hub 三合一搜索：卡片（front/back/indexTitle/highlight）
+  Future<List<Map<String, dynamic>>> searchCards(String keyword, {int limit = 20}) async {
+    final kw = keyword.trim();
+    if (kw.isEmpty) return [];
+    final rows = await (_drift.select(_drift.cards)
+          ..where((t) =>
+              t.front.like('%$kw%') |
+              t.back.like('%$kw%') |
+              t.indexTitle.like('%$kw%') |
+              t.highlight.like('%$kw%'))
+          ..limit(limit))
+        .get();
+    return rows.map(_cardRowToMap).toList();
+  }
+
+  // Reader Hub 三合一搜索：书籍（title/author）
+  Future<List<Map<String, dynamic>>> searchBooks(String keyword, {int limit = 20}) async {
+    final kw = keyword.trim();
+    if (kw.isEmpty) return [];
+    final rows = await (_drift.select(_drift.books)
+          ..where((t) => t.title.like('%$kw%') | t.author.like('%$kw%'))
+          ..limit(limit))
+        .get();
+    return rows.map(_bookRowToMap).toList();
+  }
+
   Future<List<Map<String, dynamic>>> getAllBooks() async {
     final rows = await (_drift.select(_drift.books)
           ..orderBy([

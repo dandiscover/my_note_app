@@ -35,6 +35,8 @@ import 'package:html/dom.dart' as html_dom;
 import '../database_service.dart';
 
 import '../services/epub_jump_service.dart';
+import '../services/navigation_service.dart' show NavigationService;
+import '../widgets/reader_hub_search_dialog.dart' show ReaderHubSearchDialog;
 import '../models/book.dart';
 import '../models/book_note.dart';
 import '../models/card.dart';
@@ -881,76 +883,34 @@ if (controller == null) return;
   }
 
   Future<void> _showSearch([String? initialText]) async {
-    final controller = TextEditingController(text: initialText ?? _searchQuery);
-    var dialogResults = _executeSearch(controller.text);
-    var dialogOpen = true;
-
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            title: const Text('全文搜索'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    decoration: const InputDecoration(hintText: '输入关键词', border: OutlineInputBorder()),
-                    onChanged: (val) {
-                      _searchDebouncer.run(() {
-                        if (!dialogOpen) return;
-                        final newResults = _executeSearch(val);
-                        setDialogState(() {
-                          dialogResults = newResults;
-                        });
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  if (dialogResults.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Text('未找到结果', style: TextStyle(color: Colors.grey)),
-                    )
-                  else
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 300),
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: dialogResults.length,
-                        itemBuilder: (context, idx) {
-                          final r = dialogResults[idx];
-                          return ListTile(
-                            leading: const Icon(Icons.search),
-                            title: Text(r['title']),
-                            subtitle: Text(r['snippet'] as String? ?? ''),
-                            onTap: () {
-                              Navigator.pop(context);
-                              final idx = r['index'] as int;
-                              _loadChapterContent(idx);
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
-            ],
-          );
+      builder: (_) => ReaderHubSearchDialog(
+        initialText: initialText ?? _searchQuery,
+        bookId: widget.bookId,
+        onExecuteBookSearch: (query) async => _executeSearch(query),
+        onJumpToBook: (payload) async {
+          final targetBookId = payload['bookId'] as String?;
+          final pageNumber = payload['pageNumber'] as int?;
+          final selectedText = payload['selectedText'] as String?;
+          if (targetBookId == null || targetBookId.isEmpty) return;
+          if (targetBookId == widget.bookId && pageNumber != null) {
+            await _loadChapterContent(pageNumber - 1);
+            if (selectedText != null && selectedText.isNotEmpty) {
+              await _jumpService.jumpToText(selectedText);
+            }
+          } else if (targetBookId != widget.bookId) {
+            await NavigationService.openBook(context, targetBookId);
+          }
+        },
+        onOpenNote: (noteId) {
+          NavigationService.openNote(context, noteId);
+        },
+        onOpenCard: (cardMap) {
+          NavigationService.openCard(context, cardMap);
         },
       ),
     );
-
-    dialogOpen = false;
-    _searchDebouncer.cancel();
-    controller.dispose();
   }
 
   List<Map<String, dynamic>> _executeSearch(String query) {

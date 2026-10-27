@@ -1067,7 +1067,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
       padding: const EdgeInsets.all(16),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
-        childAspectRatio: 1.2,
+        childAspectRatio: 1.1,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
@@ -1367,12 +1367,14 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
   Widget _buildSplitView(List<Node> children, Map<String, Map<String, int>> folderStats, List<Map<String, dynamic>> systemFolders) {
     // ✅ 应用书籍状态筛选
     final filteredChildren = _applyBookFilter(children);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final leftWidth = (screenWidth * 0.28).clamp(140.0, 220.0);
 
     return Row(
       children: [
         // ── R-4 批A：左栏树 ──
         Container(
-          width: 220,
+          width: leftWidth,
           decoration: BoxDecoration(
             border: Border(right: BorderSide(color: Colors.grey.shade200)),
           ),
@@ -1555,7 +1557,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
     return GridView.builder(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: _getCrossAxisCount(),
+        crossAxisCount: _getCrossAxisCount(context),
         crossAxisSpacing: 6,
         mainAxisSpacing: 6,
         childAspectRatio: _getAspectRatio(),
@@ -1581,7 +1583,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           crossAxisCount: 2,
           crossAxisSpacing: 8,
           mainAxisSpacing: 8,
-          childAspectRatio: 1.5,
+          childAspectRatio: 1.3,
         ),
         itemCount: nodes.length,
         itemBuilder: (context, index) {
@@ -1876,7 +1878,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
 
     return GridView.builder(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: _getCrossAxisCount(),
+        crossAxisCount: _getCrossAxisCount(context),
         crossAxisSpacing: 6,
         mainAxisSpacing: 6,
         childAspectRatio: _getAspectRatio(),
@@ -1938,6 +1940,8 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
             Expanded(
               child: Text(
                 label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: color),
               ),
             ),
@@ -2037,13 +2041,14 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     );
   }
 
-  int _getCrossAxisCount() {
+  int _getCrossAxisCount(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
     switch (_viewMode) {
       case WisdomViewMode.list: return 1;
-      case WisdomViewMode.grid: return 6;
-      case WisdomViewMode.large: return 3;
-      case WisdomViewMode.split: return 4;
-      default: return 6;
+      case WisdomViewMode.grid: return (width / 100).floor().clamp(2, 6);
+      case WisdomViewMode.large: return (width / 150).floor().clamp(2, 4);
+      case WisdomViewMode.split: return (width / 160).floor().clamp(2, 4);
+      default: return (width / 100).floor().clamp(2, 6);
     }
   }
 

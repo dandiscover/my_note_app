@@ -41,52 +41,57 @@ class WisdomToolbar extends StatelessWidget {
       child: Row(
         children: [
           if (!isSelectMode)
-            Row(
-              children: [
-                _buildModeIcon(Icons.list, WisdomViewMode.list),
-                const SizedBox(width: 4),
-                _buildModeIcon(Icons.grid_view, WisdomViewMode.grid),
-                const SizedBox(width: 4),
-                _buildModeIcon(Icons.grid_on, WisdomViewMode.large),
-                const SizedBox(width: 4),
-                _buildModeIcon(Icons.view_column, WisdomViewMode.split),
-                const SizedBox(width: 4),
-                _buildModeIcon(Icons.dashboard_outlined, WisdomViewMode.cardWall),
-                const SizedBox(width: 4),
-                _buildModeIcon(Icons.timeline, WisdomViewMode.timeline),
-                const SizedBox(width: 4),
-                _buildModeIcon(Icons.photo_library_outlined, WisdomViewMode.gallery),
-                const SizedBox(width: 12),
-                GestureDetector(
-                  onTap: onTagFilter,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: selectedTagCount > 0 ? Colors.teal.shade100 : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.filter_alt_outlined,
-                          size: 20,
-                          color: selectedTagCount > 0 ? Colors.teal.shade700 : Colors.grey.shade600,
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildModeIcon(Icons.list, WisdomViewMode.list),
+                    const SizedBox(width: 4),
+                    _buildModeIcon(Icons.grid_view, WisdomViewMode.grid),
+                    const SizedBox(width: 4),
+                    _buildModeIcon(Icons.grid_on, WisdomViewMode.large),
+                    const SizedBox(width: 4),
+                    _buildModeIcon(Icons.view_column, WisdomViewMode.split),
+                    const SizedBox(width: 4),
+                    _buildModeIcon(Icons.dashboard_outlined, WisdomViewMode.cardWall),
+                    const SizedBox(width: 4),
+                    _buildModeIcon(Icons.timeline, WisdomViewMode.timeline),
+                    const SizedBox(width: 4),
+                    _buildModeIcon(Icons.photo_library_outlined, WisdomViewMode.gallery),
+                    const SizedBox(width: 12),
+                    GestureDetector(
+                      onTap: onTagFilter,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: selectedTagCount > 0 ? Colors.teal.shade100 : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
                         ),
-                        if (selectedTagCount > 0) ...[
-                          const SizedBox(width: 2),
-                          Text(
-                            '$selectedTagCount',
-                            style: TextStyle(fontSize: 11, color: Colors.teal.shade700, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ],
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.filter_alt_outlined,
+                              size: 20,
+                              color: selectedTagCount > 0 ? Colors.teal.shade700 : Colors.grey.shade600,
+                            ),
+                            if (selectedTagCount > 0) ...[
+                              const SizedBox(width: 2),
+                              Text(
+                                '$selectedTagCount',
+                                style: TextStyle(fontSize: 11, color: Colors.teal.shade700, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          const Spacer(),
+          if (isSelectMode) const Spacer(),
           if (isSelectMode)
             Row(
               children: [
