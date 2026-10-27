@@ -2808,23 +2808,23 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                     return ListTile(
                       dense: true,
                       leading: Icon(
-                        note.comment.isNotEmpty
-                            ? Icons.comment
-                            : (matchedCard != null
-                                ? Icons.credit_card
-                                : (isBookmark
-                                    ? Icons.bookmark
-                                    : (isSticky
-                                        ? Icons.sticky_note_2
+                        isBookmark
+                            ? Icons.bookmark
+                            : (isSticky
+                                ? Icons.sticky_note_2
+                                : (note.comment.isNotEmpty
+                                    ? Icons.comment
+                                    : (matchedCard != null
+                                        ? Icons.credit_card
                                         : (note.isHighlight ? Icons.highlight : Icons.comment)))),
-                        color: note.comment.isNotEmpty
-                            ? Colors.orange
-                            : (matchedCard != null
-                                ? Colors.green
-                                : (isBookmark
-                                    ? Colors.red
-                                    : (isSticky
-                                        ? Colors.amber.shade700
+                        color: isBookmark
+                            ? Colors.red
+                            : (isSticky
+                                ? Colors.amber.shade700
+                                : (note.comment.isNotEmpty
+                                    ? Colors.orange
+                                    : (matchedCard != null
+                                        ? Colors.green
                                         : (note.isHighlight ? Colors.yellow.shade700 : Colors.orange)))),
                         size: 20,
                       ),
