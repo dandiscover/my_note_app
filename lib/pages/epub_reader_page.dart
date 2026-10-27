@@ -186,16 +186,23 @@ if (controller == null) return;
         final actionResult = await controller.runJavaScriptReturningResult("window._selAction || ''");
         final actionText = actionResult.toString().trim().replaceAll("'", "").replaceAll('"', '');
         if (actionText.isNotEmpty) {
+           debugPrint('DEBUG 轮询收到 action: $actionText');
            final actionSelResult = await controller.runJavaScriptReturningResult("window._selActionText || ''");
            final actionSel = actionSelResult.toString().trim().replaceAll("'", "").replaceAll('"', '');
+           final actionIdResult = await controller.runJavaScriptReturningResult("window._selActionId || ''");
+           final actionId = actionIdResult.toString().trim().replaceAll("'", "").replaceAll('"', '');
+           
            if (actionSel.isNotEmpty) {
                if (actionText == 'highlight') {
-                   _saveHighlight(actionSel);
+                   _saveHighlight(actionSel, actionId);
                } else if (actionText == 'card') {
-                   _createCardDirectly(actionSel);
+                   _createCardDirectly(actionSel, actionId);
+               } else if (actionText == 'comment') {
+                   _selectedText = actionSel;
+                   _showWriteThoughtDialog(actionSel, actionId);
                }
            }
-           await controller.runJavaScript('window._selAction = ""; window._selActionText = "";');
+           await controller.runJavaScript('window._selAction = ""; window._selActionText = ""; window._selActionId = "";');
         }
 
         final hlResult = await controller.runJavaScriptReturningResult("window._hl || ''");
@@ -203,6 +210,7 @@ if (controller == null) return;
         
         if (hlText.isNotEmpty && hlText.startsWith('hl://')) {
           final noteId = hlText.replaceFirst('hl://', '');
+          debugPrint('DEBUG 收到高亮点击: noteId=$noteId');
           final note = _notes.firstWhere(
             (n) => n.id == noteId,
             orElse: () => BookNote(id: '', bookId: '', pageNumber: 0, selectedText: '', isHighlight: false),
@@ -212,7 +220,9 @@ if (controller == null) return;
           }
           await controller.runJavaScript('window._hl = "";');
         }
-      } catch (e) {}
+      } catch (e) {
+        debugPrint('DEBUG 轮询异常: $e');
+      }
     });
   }
 
@@ -1158,14 +1168,14 @@ if (controller == null) return;
         },
         onCreateIndexCard: () {
           final text = _peekSelectedText ?? '';
-          if (text.isNotEmpty) _createCardDirectly(text);
+          if (text.isNotEmpty) _createCardDirectly(text, '');
         },
       ),
     );
   }
 
   // ---------------------- 核心交互 ----------------------
-  Future<void> _saveHighlight(String selectedText) async {
+  Future<void> _saveHighlight(String selectedText, String actionId) async {
     if (selectedText.isEmpty) return;
     final exists = _notes.any((n) =>
         n.selectedText == selectedText &&
@@ -1183,11 +1193,30 @@ if (controller == null) return;
       isHighlight: true,
     );
     await _bookService.saveNote(note);
-    await _loadNotes();
-      // 静默保存
+    await _loadNotes(); // 提前刷新内存，防点击时找不到数据
+
+    debugPrint('DEBUG 开始活化高亮: actionId=$actionId');
+    // 活化前端 DOM，让刚变黄的 span 立刻变成可点击的 <a>
+    if (_mainController != null && actionId.isNotEmpty) {
+      final js = """
+        var els = document.querySelectorAll('span.${actionId}');
+        els.forEach(function(el) {
+          var a = document.createElement('a');
+          a.setAttribute('href', 'hl://${note.id}');
+          a.setAttribute('data-id', '${note.id}');
+          a.setAttribute('onclick', "event.preventDefault(); window._hl = 'hl://${note.id}';");
+          a.style.backgroundColor = '#FFD93D';
+          a.style.textDecoration = 'none';
+          a.style.color = 'inherit';
+          a.innerHTML = el.innerHTML;
+          el.parentNode.replaceChild(a, el);
+        });
+      """;
+      await _mainController!.runJavaScript(js);
+    }
   }
 
-  void _showWriteThoughtDialog(String selectedText) {
+  void _showWriteThoughtDialog(String selectedText, String actionId) {
     showDialog(
       context: context,
       builder: (context) {
@@ -1232,11 +1261,14 @@ if (controller == null) return;
                   color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
                   isHighlight: true,
                 );
+                
+                String finalNoteId = '';
                 if (exists) {
                   final existing = _notes.firstWhere((n) =>
                       n.selectedText == selectedText &&
                       n.pageNumber == _currentChapterIndex + 1 &&
                       n.isHighlight);
+                  finalNoteId = existing.id;
                   final updated = BookNote(
                     id: existing.id,
                     bookId: existing.bookId,
@@ -1249,10 +1281,32 @@ if (controller == null) return;
                   );
                   await _bookService.saveNote(updated);
                 } else {
+                  finalNoteId = note.id;
                   await _bookService.saveNote(note);
                 }
+                
+                await _loadNotes(); // 提前刷新内存
+
+                if (_mainController != null && actionId.isNotEmpty) {
+                  final js = """
+                    var els = document.querySelectorAll('span.' + '$actionId');
+                    els.forEach(function(el) {
+                      var a = document.createElement('a');
+                      a.setAttribute('href', 'hl://$finalNoteId');
+                      a.setAttribute('data-id', '$finalNoteId');
+                      a.setAttribute('onclick', "event.preventDefault(); window._hl = 'hl://$finalNoteId';");
+                      a.setAttribute('data-comment', 'true');
+                      a.style.backgroundColor = '#FFD93D';
+                      a.style.textDecoration = 'none';
+                      a.style.color = 'inherit';
+                      a.innerHTML = el.innerHTML;
+                      el.parentNode.replaceChild(a, el);
+                    });
+                  """;
+                  await _mainController!.runJavaScript(js);
+                }
+
                 await _loadNotes();
-      // 静默保存
               },
               child: const Text('保存'),
             ),
@@ -1262,7 +1316,7 @@ if (controller == null) return;
     );
   }
 
-  Future<void> _createCardDirectly(String selectedText) async {
+  Future<void> _createCardDirectly(String selectedText, String actionId) async {
     if (selectedText.isEmpty) return;
     _onMenuActionTapped();
     try {
@@ -1273,7 +1327,7 @@ if (controller == null) return;
           c.sourceType == 'book');
       if (exists) {
         if (mounted) {
-      // 静默保存
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📇 卡片已存在')));
         }
         return;
       }
@@ -1297,10 +1351,51 @@ if (controller == null) return;
       nextReviewDate: DateTime.now().add(const Duration(minutes: 20)),
     );
     await _cardService.addCard(card);
+    
+    String finalNoteId = '';
+    try {
+      final savedNote = _notes.firstWhere((n) => n.selectedText == selectedText && n.pageNumber == _currentChapterIndex + 1);
+      finalNoteId = savedNote.id;
+    } catch (_) {
+      final newNote = BookNote(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        bookId: widget.bookId,
+        pageNumber: _currentChapterIndex + 1,
+        location: 'page:${_currentChapterIndex + 1}',
+        selectedText: selectedText,
+        comment: '',
+        color: '#${_highlightColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
+        isHighlight: false,
+      );
+      finalNoteId = newNote.id;
+      await _bookService.saveNote(newNote);
+    }
+    
     await _refreshCardMarkers();
+    await _loadNotes();
+
+    if (_mainController != null && actionId.isNotEmpty && finalNoteId.isNotEmpty) {
+      final js = """
+        var els = document.querySelectorAll('span.' + '$actionId');
+        els.forEach(function(el) {
+          var a = document.createElement('a');
+          a.setAttribute('href', 'hl://$finalNoteId');
+          a.setAttribute('data-id', '$finalNoteId');
+          a.setAttribute('onclick', "event.preventDefault(); window._hl = 'hl://$finalNoteId';");
+          a.setAttribute('data-card', 'true');
+          a.style.backgroundColor = '#FFD93D';
+          a.style.textDecoration = 'none';
+          a.style.color = 'inherit';
+          a.innerHTML = el.innerHTML;
+          el.parentNode.replaceChild(a, el);
+        });
+      """;
+      await _mainController!.runJavaScript(js);
+    }
+
     setState(() {});
     if (mounted) {
-      // 静默保存
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📇 卡片已生成')));
     }
   }
 
@@ -1346,6 +1441,19 @@ if (controller == null) return;
 
   Future<void> _deleteHighlightNote(BookNote note) async {
     await _bookService.deleteNote(widget.bookId, note.id);
+
+    // JS 定点拔除当前 DOM 上的高亮（不重载页面，不闪屏，不丢进度）
+    if (_mainController != null) {
+      final js = """
+        var els = document.querySelectorAll('a[data-id="${note.id}"]');
+        els.forEach(function(el) {
+          var text = document.createTextNode(el.textContent);
+          el.parentNode.replaceChild(text, el);
+        });
+      """;
+      await _mainController!.runJavaScript(js);
+    }
+
     try {
       final allCards = await _cardService.getAllCards();
       for (var card in allCards) {
@@ -1408,8 +1516,28 @@ if (controller == null) return;
       for (var note in pageNotes) {
         final text = note.selectedText.trim();
         if (text.isEmpty) continue;
-        final start = plainText.indexOf(text);
-        if (start != -1) targets.add({'start': start, 'end': start + text.length, 'note': note});
+        
+        int start = plainText.indexOf(text);
+        int end = start != -1 ? start + text.length : -1;
+        
+        if (start == -1) {
+          final parts = text.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).map(RegExp.escape).toList();
+          if (parts.isNotEmpty) {
+            final pattern = parts.join(r'\s+');
+            final match = RegExp(pattern).firstMatch(plainText);
+            if (match != null) {
+              start = match.start;
+              end = match.end;
+            }
+          }
+        }
+
+        if (start != -1 && end != -1) {
+          targets.add({'start': start, 'end': end, 'note': note});
+          debugPrint('DEBUG 高亮匹配成功: text=${text.substring(0, min(20, text.length))}, start=$start, end=$end');
+        } else {
+          debugPrint('DEBUG 高亮匹配失败: text=$text');
+        }
       }
       targets.sort((a, b) => (b['start'] as int).compareTo(a['start'] as int));
 
@@ -1439,7 +1567,10 @@ if (controller == null) return;
 
           final a = html_dom.Element.tag('a');
           a.attributes['href'] = 'hl://${note.id}';
+          a.attributes['data-id'] = note.id;
           a.attributes['style'] = style;
+          if (note.comment.isNotEmpty) a.attributes['data-comment'] = 'true';
+          if (hasCard) a.attributes['data-card'] = 'true';
           
           String textContent = tn.data.substring(relStart, relEnd);
           if (isLong && overlapStart == start) textContent = '「$textContent';
@@ -1497,6 +1628,9 @@ if (controller == null) return;
         body { font-family: $_fontFamily; padding: 20px; margin: 0; line-height: $_lineHeight; font-size: ${_fontSize}px; background: #${_backgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}; color: #${_textColor.value.toRadixString(16).padLeft(8, '0').substring(2)}; }
         img { max-width: 100%; height: auto; margin: 10px 0; }
         a[href^="hl://"] { text-decoration: none; color: inherit; }
+        a[data-comment="true"]::after { content: '💭'; font-size: 12px; margin-left: 2px; pointer-events: none; }
+        a[data-card="true"]::after { content: '📇'; font-size: 12px; margin-left: 2px; pointer-events: none; }
+        a[data-comment="true"][data-card="true"]::after { content: '💭📇'; font-size: 12px; margin-left: 2px; pointer-events: none; }
         .epub-menu {
             position: absolute;
             display: none;
@@ -1538,6 +1672,7 @@ if (controller == null) return;
     ${body.outerHtml}
     <div id="epub-menu" class="epub-menu">
         <div class="epub-menu-item" onclick="handleAction('highlight')">🖍️ 高亮</div>
+        <div class="epub-menu-item" onclick="handleAction('comment')">💭 批注</div>
         <div class="epub-menu-item" onclick="handleAction('copy')">📋 复制</div>
         <div class="epub-menu-item" onclick="handleAction('card')">📇 做卡</div>
     </div>
@@ -1547,12 +1682,13 @@ if (controller == null) return;
         document.addEventListener('selectionchange', function() {
             window._sel = window.getSelection().toString();
         });
-        var links = document.querySelectorAll('a[href^="hl://"]');
-        links.forEach(function(link) {
-            link.addEventListener('click', function(e) {
+        document.addEventListener('click', function(e) {
+            var target = e.target.closest('a[data-id]');
+            if (target) {
                 e.preventDefault();
-                window._hl = this.getAttribute('href');
-            });
+                window._hl = 'hl://' + target.getAttribute('data-id');
+                console.log('DEBUG JS 触发点击高亮: ' + window._hl);
+            }
         });
         document.addEventListener('click', function(e) {
             var target = e.target.closest('a');
@@ -1592,8 +1728,9 @@ if (controller == null) return;
         });
 
         function handleAction(action) {
+            window._tempId = 'hl-tmp-' + Date.now();
             menu.style.display = 'none';
-            if (action === 'highlight') {
+            if (action === 'highlight' || action === 'comment' || action === 'card') {
                 try {
                     var sel = window.getSelection();
                     if (sel && sel.rangeCount > 0) {
@@ -1632,18 +1769,20 @@ if (controller == null) return;
                                 if (start > 0) selectedNode = node.splitText(start);
                                 
                                 var span = document.createElement('span');
+                                span.className = 'fresh-hl ' + window._tempId;
                                 span.style.backgroundColor = '#FFD93D';
                                 selectedNode.parentNode.insertBefore(span, selectedNode);
                                 span.appendChild(selectedNode);
                             }
                         });
                     }
-                } catch(e) {}
+                } catch(e) { console.log('DEBUG JS handleAction异常: ' + e.message); }
             } else if (action === 'copy') {
                 try { navigator.clipboard.writeText(currentSelText); } catch(e) {}
             }
             window._selAction = action;
             window._selActionText = currentSelText;
+            window._selActionId = window._tempId;
         }
     </script>
 </body>
@@ -1700,8 +1839,10 @@ if (controller == null) return;
     );
     await _bookService.saveNote(note);
     _selectedText = null;
+    
+    // 页边书摘无高亮锚点，无需 JS 追加
+
     await _loadNotes();
-      // 静默保存
   }
 
   void _showBatchCardDialog() {
@@ -2021,11 +2162,11 @@ if (controller == null) return;
       transitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (context, animation, secondaryAnimation) {
         return Material(
-          color: Colors.white,
+          color: Colors.transparent,
           child: Align(
             alignment: Alignment.centerRight,
             child: Container(
-              width: MediaQuery.of(context).size.width * 0.8,
+              width: MediaQuery.of(context).size.width * 0.65,
               height: double.infinity,
               color: Colors.white,
               child: SafeArea(
@@ -2062,6 +2203,25 @@ if (controller == null) return;
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // 如果已有批注，直接在菜单上方展示批注内容
+            if (note.comment.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.1),
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('💭 我的批注：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 8),
+                    Text(note.comment, style: const TextStyle(fontSize: 15, height: 1.5)),
+                  ],
+                ),
+              ),
             ListTile(
               leading: const Icon(Icons.credit_card),
               title: const Text('生成卡片'),
@@ -2585,6 +2745,7 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
     setState(() {
       _notes = widget.getNotes();
     });
+    _loadCards();
   }
 
   @override
@@ -2647,20 +2808,24 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                     return ListTile(
                       dense: true,
                       leading: Icon(
-                        matchedCard != null
-                            ? Icons.credit_card
-                            : (isBookmark
-                                ? Icons.bookmark
-                                : (isSticky
-                                    ? Icons.sticky_note_2
-                                    : (note.isHighlight ? Icons.highlight : Icons.comment))),
-                        color: matchedCard != null
-                            ? Colors.green
-                            : (isBookmark
-                                ? Colors.red
-                                : (isSticky
-                                    ? Colors.amber.shade700
-                                    : (note.isHighlight ? Colors.yellow.shade700 : Colors.orange))),
+                        note.comment.isNotEmpty
+                            ? Icons.comment
+                            : (matchedCard != null
+                                ? Icons.credit_card
+                                : (isBookmark
+                                    ? Icons.bookmark
+                                    : (isSticky
+                                        ? Icons.sticky_note_2
+                                        : (note.isHighlight ? Icons.highlight : Icons.comment)))),
+                        color: note.comment.isNotEmpty
+                            ? Colors.orange
+                            : (matchedCard != null
+                                ? Colors.green
+                                : (isBookmark
+                                    ? Colors.red
+                                    : (isSticky
+                                        ? Colors.amber.shade700
+                                        : (note.isHighlight ? Colors.yellow.shade700 : Colors.orange)))),
                         size: 20,
                       ),
                       title: Row(
@@ -2668,7 +2833,7 @@ class _NotesPanelContentState extends State<_NotesPanelContent> {
                         children: [
                           Expanded(
                             child: isSticky
-                                ? const Text('📝 随笔', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange))
+                                ? const Text('随笔', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange))
                                 : (isBookmark
                                     ? const Text('🔖 书签', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red))
                                     : Container(
