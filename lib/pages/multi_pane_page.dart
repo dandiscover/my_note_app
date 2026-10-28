@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../database_service.dart';
 import '../models/card.dart';
 import '../models/explore_task.dart';
@@ -696,6 +697,63 @@ class _MultiPanePageState extends State<MultiPanePage> {
     }
   }
 
+  Future<void> _saveActivePane() async {
+    final ctx = MultiPaneBus.instance.activeContext.value;
+    switch (ctx) {
+      case MultiPaneContext.note:
+        final pane = _panes[_activePane];
+        if (pane is _NotePane) {
+          final ok = await pane.kernel.save();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ok ? '💾 笔记已保存' : '⚠️ 保存失败，请重试')),
+          );
+        }
+        break;
+      case MultiPaneContext.reader:
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ℹ️ 阅读进度已自动保存')),
+        );
+        break;
+      case MultiPaneContext.clueBoard:
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ℹ️ 画板状态已自动保存')),
+        );
+        break;
+      case MultiPaneContext.empty:
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ℹ️ 没有可保存的内容')),
+        );
+        break;
+    }
+  }
+
+  Widget _wrapWithShortcuts(Widget child) {
+    return Focus(
+      autofocus: false,
+      child: Shortcuts(
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.keyS, control: true):
+              _SaveActivePaneIntent(),
+        },
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            _SaveActivePaneIntent: CallbackAction<_SaveActivePaneIntent>(
+              onInvoke: (_) {
+                _saveActivePane();
+                return null;
+              },
+            ),
+          },
+          child: child,
+        ),
+      ),
+    );
+  }
+
   Future<void> _fillPaneWithNote(int i) async {
     final maps = await DatabaseService().getAllNotes(includeDeleted: false);
     final notes = maps.map((m) => NotebookEntry.fromMap(m)).toList();
@@ -774,7 +832,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
             if (didPop) return;
             await _showExitDialog();
           },
-          child: Scaffold(
+          child: _wrapWithShortcuts(Scaffold(
             backgroundColor: Colors.white,
             appBar: AppBar(
               title: ValueListenableBuilder<MultiPaneContext>(
@@ -833,7 +891,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
                 ],
               ],
             ),
-          ),
+          )),
         );
       },
     );
@@ -947,6 +1005,10 @@ class _MultiPanePageState extends State<MultiPanePage> {
       },
     );
   }
+}
+
+class _SaveActivePaneIntent extends Intent {
+  const _SaveActivePaneIntent();
 }
 
 /// 可拖拽分隔线——宽 [width]（默认 8，视觉线仅 1 宽居中）
