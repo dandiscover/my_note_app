@@ -64,6 +64,7 @@ import '../services/board_revision.dart';
 import '../widgets/tree/node_tree_view.dart';
 import 'dart:io';
 import 'package:flutter/gestures.dart';
+import 'txt_reader_page.dart';
 enum WisdomViewMode { list, grid, large, split, cardWall, timeline, gallery }
 
 class WisdomPage extends StatefulWidget {
@@ -869,6 +870,21 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               fileUrl: kIsWeb ? book.filePath : null,
               isWeb: kIsWeb,
               initialChapterIndex: item.chapterIndex,
+            ),
+          ),
+        );
+        _cache.invalidate(_cacheKeyBooks);
+        await _loadData();
+      } else if (book.fileType == 'txt' || book.fileType == 'md') {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TxtReaderPage(
+              bookId: book.id,
+              filePath: kIsWeb ? '' : book.filePath,
+              fileUrl: kIsWeb ? book.filePath : null,
+              fileName: book.title,
+              isWeb: kIsWeb,
             ),
           ),
         );

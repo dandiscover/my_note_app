@@ -3,7 +3,7 @@
 // ✅ 修复：file_picker 12.x API 兼容（pickFiles 返回 List<PlatformFile>?）
 // ✅ 新增：来源标识展示（电子书/实体书）
 // ✅ 新增：封面展示
-
+import 'txt_reader_page.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -210,7 +210,7 @@ class _BookDetailPageState extends State<BookDetailPage>
       // ✅ file_picker 12.x: pickFiles 返回 List<PlatformFile>?
       final files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'epub', 'mobi', 'azw3'],
+        allowedExtensions: ['pdf', 'epub', 'mobi', 'azw3', 'txt', 'md'],
       );
       if (files == null || files.isEmpty) {
         setState(() => _isImporting = false);
@@ -423,6 +423,19 @@ class _BookDetailPageState extends State<BookDetailPage>
         context,
         MaterialPageRoute(
           builder: (_) => EpubReaderPage(
+            bookId: widget.bookId,
+            filePath: isWeb ? '' : finalPath,
+            fileUrl: isUrl ? finalPath : '',
+            fileName: _book!.title,
+            isWeb: isWeb,
+          ),
+        ),
+      ).then((_) => _loadData());
+    } else if (fileType == 'txt' || fileType == 'md') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TxtReaderPage(
             bookId: widget.bookId,
             filePath: isWeb ? '' : finalPath,
             fileUrl: isUrl ? finalPath : '',
