@@ -37,6 +37,8 @@ import '../database_service.dart';
 import '../services/epub_jump_service.dart';
 import '../services/navigation_service.dart' show NavigationService;
 import '../services/multi_pane_bus.dart';
+import '../services/tts_service.dart';
+import '../services/translation_service.dart';
 import 'reader/reader_shell.dart';
 import 'multi_pane_page.dart';
 import '../widgets/reader_hub_search_dialog.dart' show ReaderHubSearchDialog;
@@ -232,7 +234,7 @@ if (controller == null) return;
                } else if (actionText == 'search') {
                    showSearch(actionSel);
                } else if (actionText == 'translate') {
-                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🌐 翻译功能即将上线，敬请期待')));
+                   _translateAndShow(actionSel);
                }
            }
            await controller.runJavaScript('window._selAction = ""; window._selActionText = ""; window._selActionId = "";');
@@ -2504,6 +2506,37 @@ if (controller == null) return;
     );
   }
 
+  Future<void> _translateAndShow(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('🌐 正在翻译...'), duration: Duration(seconds: 1)),
+      );
+    }
+    final result = await EmptyTranslationService().translate(trimmed);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('翻译结果'),
+        content: SingleChildScrollView(child: SelectableText(result)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _readCurrentChapter() async {
+    if (_chapters == null) return;
+    if (_currentChapterIndex < 0 || _currentChapterIndex >= _chapterContents.length) return;
+    final html = _chapterContents[_currentChapterIndex];
+    final plain = _stripHtmlTags(html);
+    if (plain.trim().isEmpty) return;
+    await EmptyTtsService().speak(plain);
+  }
+
   String _stripHtmlTags(String html) {
     var text = html.replaceAll(RegExp(r'<style[^>]*>.*?</style>', caseSensitive: false), '');
     text = text.replaceAll(RegExp(r'<script[^>]*>.*?</script>', caseSensitive: false), '');
@@ -2686,6 +2719,8 @@ if (controller == null) return;
               case 'stats': showReadingStats(); break;
               case 'batch_cards': showBatchCardDialog(); break;
               case 'export_notes': exportNotes(); break;
+              case 'tts_read': _readCurrentChapter(); break;
+              case 'tts_stop': EmptyTtsService().stop(); break;
 
               case 'settings': openSettings(); break;
             }
@@ -2699,6 +2734,8 @@ if (controller == null) return;
             const PopupMenuItem(value: 'stats', child: Text('阅读统计')),
             const PopupMenuItem(value: 'batch_cards', child: Text('批量生成卡片')),
             const PopupMenuItem(value: 'export_notes', child: Text('导出笔记')),
+            const PopupMenuItem(value: 'tts_read', child: Text('🔊 朗读本页')),
+            const PopupMenuItem(value: 'tts_stop', child: Text('⏹ 停止朗读')),
 
             const PopupMenuItem(value: 'settings', child: Text('设置')),
           ],
