@@ -69,6 +69,10 @@ dependencies:
   sqlite3_flutter_libs: ^0.6.0+eol
   webview_ultra: ^0.0.6+8
 
+  # ✅ Step 3A：TTS 与翻译
+  flutter_tts: ^4.2.5
+  translator: ^1.0.4+1
+
   # ✅ PDF Spike 验证所需
 dev_dependencies:
   flutter_test:
