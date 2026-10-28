@@ -466,7 +466,15 @@ class ClueBoardState extends State<ClueBoard> {
     }
   }
 
-  void _undo() {
+  void resetBoard() => _handleToolbarAction(_ClueToolbarAction.reset);
+  void setSelectMode() => setState(() => _drawMode = DrawMode.select);
+  void setLineMode() => setState(() { _drawMode = DrawMode.line; _lineStartId = null; });
+  void setTextMode() => setState(() { _drawMode = DrawMode.text; _addTextNode(); });
+  void setPenMode() => setState(() => _drawMode = DrawMode.pen);
+  void setEraserMode() => setState(() => _drawMode = DrawMode.eraser);
+
+  void undo() {
+    if (!mounted) return;
     if (_undoStack.isEmpty) return;
     final snap = _undoStack.removeLast();
     setState(() {
@@ -1126,10 +1134,9 @@ class ClueBoardState extends State<ClueBoard> {
   }
 
    Widget _buildToolbar(double paneWidth) {
-    if (!widget.embedded) return _buildToolbarWide();
-    if (paneWidth >= 480) return _buildToolbarWide();
-    if (paneWidth >= 380) return _buildToolbarMid();
-    return _buildToolbarNarrow();
+    // 多栏模式下，工具栏由外部的全局顶栏接管，画板内部不再渲染，避免出现双层工具栏
+    if (widget.embedded) return const SizedBox.shrink();
+    return _buildToolbarWide();
   }
 
   Widget _buildToolbarMid() {
@@ -1158,7 +1165,7 @@ class ClueBoardState extends State<ClueBoard> {
               _selectEraser),
           IconButton(
             icon: const Icon(Icons.undo),
-            onPressed: _undo,
+            onPressed: undo,
             tooltip: '撤销',
           ),
           const Spacer(),
@@ -1240,7 +1247,7 @@ class ClueBoardState extends State<ClueBoard> {
           ),
           IconButton(
             icon: const Icon(Icons.undo),
-            onPressed: _undo,
+            onPressed: undo,
             tooltip: '撤销',
           ),
           IconButton(
@@ -1354,7 +1361,7 @@ class ClueBoardState extends State<ClueBoard> {
       case _ClueToolbarAction.saveAlbum:
         _saveToAlbum();
       case _ClueToolbarAction.undo:
-        _undo();
+        undo();
     }
   }
 

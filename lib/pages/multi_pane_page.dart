@@ -12,6 +12,7 @@ import 'workbench/kernel_markdown.dart';
 import 'workbench/workbench_body.dart';
 import '../widgets/quick_switch_dialog.dart';
 import 'epub_reader_page.dart';
+import '../services/multi_pane_bus.dart';
 import '../widgets/writing/clue_board.dart';
 
 sealed class _PaneState {
@@ -83,6 +84,9 @@ class _MultiPanePageState extends State<MultiPanePage> {
   // 线索墙 pane 的 GlobalKey —— 供分派上墙调用
   final _clueBoardKey = GlobalKey<ClueBoardState>();
 
+  // 每个阅读器 pane 独立 GlobalKey
+  final Map<int, GlobalKey<EpubReaderPageState>?> _readerKeys = {};
+
   // ─── 拖拽分隔线 ───
   // 三个 pane 的比例——和恒 1——只前 _layoutMode 有效
   List<double> _paneRatios = [1 / 3, 1 / 3, 1 / 3];
@@ -119,6 +123,17 @@ class _MultiPanePageState extends State<MultiPanePage> {
     }
     // 批：焦点归属——Workbench 不抢焦——同步调成立
     _syncFocus();
+    // 补全初始化顶栏状态：无论是阅读器、笔记还是画板，一进来就立刻接管全局顶栏
+    if (_panes.isNotEmpty) {
+      final firstPane = _panes[0];
+      if (firstPane is _ReaderPane) {
+        MultiPaneBus.instance.setContext(MultiPaneContext.reader);
+      } else if (firstPane is _NotePane) {
+        MultiPaneBus.instance.setContext(MultiPaneContext.note);
+      } else if (firstPane is _ClueBoardPane) {
+        MultiPaneBus.instance.setContext(MultiPaneContext.clueBoard);
+      }
+    }
     // 批 2-4：监听卡片库变化——自动刷素材区
     CardService.revision.addListener(_onCardsChanged);
   }
@@ -132,6 +147,178 @@ class _MultiPanePageState extends State<MultiPanePage> {
       EditorContext(entry: note, isFromCollection: false, onSave: _savePane),
     );
     return _NotePane(note: note, kernel: kernel);
+  }
+
+  List<Widget> _buildTopBarActions(MultiPaneContext ctx, bool narrow) {
+    final pane = _activePane < _panes.length ? _panes[_activePane] : const _EmptyPane();
+    final actions = <Widget>[];
+
+    if (ctx == MultiPaneContext.reader && pane is _ReaderPane) {
+      final key = _readerKeys[_activePane];
+      actions.add(IconButton(
+        icon: const Icon(Icons.menu_book),
+        tooltip: '目录',
+        onPressed: () => key?.currentState?.showToc(),
+      ));
+      actions.add(IconButton(
+        icon: const Icon(Icons.search),
+        tooltip: '搜索',
+        onPressed: () => key?.currentState?.showSearch(),
+      ));
+      if (narrow) {
+        actions.add(PopupMenuButton<String>(
+          icon: const Icon(Icons.more_horiz),
+          tooltip: '更多',
+          onSelected: (v) => _handleReaderMoreAction(v, key?.currentState),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'notes', child: Text('标注列表')),
+            PopupMenuItem(value: 'focus', child: Text('专注模式')),
+            PopupMenuItem(value: 'mindmap', child: Text('思维导图')),
+            PopupMenuItem(value: 'export_mindmap', child: Text('导出思维导图')),
+            PopupMenuItem(value: 'aggregate', child: Text('关联聚合')),
+            PopupMenuItem(value: 'rating', child: Text('评分书评')),
+            PopupMenuItem(value: 'stats', child: Text('阅读统计')),
+            PopupMenuItem(value: 'batch_cards', child: Text('批量生成卡片')),
+            PopupMenuItem(value: 'export_notes', child: Text('导出笔记')),
+            PopupMenuItem(value: 'settings', child: Text('设置')),
+            PopupMenuItem(value: 'material', child: Text('素材栏')),
+          ],
+        ));
+      } else {
+        actions.add(IconButton(
+          icon: const Icon(Icons.format_list_bulleted),
+          tooltip: '标注',
+          onPressed: () => key?.currentState?.showNotesPanel(),
+        ));
+        actions.add(PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: '更多',
+          onSelected: (v) => _handleReaderMoreAction(v, key?.currentState),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'focus', child: Text('专注模式')),
+            PopupMenuItem(value: 'mindmap', child: Text('思维导图')),
+            PopupMenuItem(value: 'export_mindmap', child: Text('导出思维导图')),
+            PopupMenuItem(value: 'aggregate', child: Text('关联聚合')),
+            PopupMenuItem(value: 'rating', child: Text('评分书评')),
+            PopupMenuItem(value: 'stats', child: Text('阅读统计')),
+            PopupMenuItem(value: 'batch_cards', child: Text('批量生成卡片')),
+            PopupMenuItem(value: 'export_notes', child: Text('导出笔记')),
+            PopupMenuItem(value: 'settings', child: Text('设置')),
+          ],
+        ));
+      }
+    } else if (ctx == MultiPaneContext.note && pane is _NotePane) {
+      actions.add(IconButton(
+        icon: const Icon(Icons.save),
+        tooltip: '保存',
+        onPressed: () => pane.kernel.save(),
+      ));
+      actions.add(IconButton(
+        icon: const Icon(Icons.credit_card),
+        tooltip: '制卡',
+        onPressed: () => pane.kernel.createReviewCard(),
+      ));
+      actions.add(PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert),
+        tooltip: '更多',
+        onSelected: (v) {
+          switch (v) {
+            case 'outline':
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('大纲功能开发中')));
+              break;
+            case 'export':
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('导出功能开发中')));
+              break;
+            case 'preview':
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('预览模式开发中')));
+              break;
+          }
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'outline', child: Text('文档大纲')),
+          PopupMenuItem(value: 'export', child: Text('导出笔记')),
+          PopupMenuItem(value: 'preview', child: Text('预览模式')),
+        ],
+      ));
+    } else if (ctx == MultiPaneContext.clueBoard) {
+      actions.addAll([
+        IconButton(
+          icon: const Icon(Icons.select_all),
+          tooltip: '选择',
+          onPressed: () => _clueBoardKey.currentState?.setSelectMode(),
+        ),
+        IconButton(
+          icon: const Icon(Icons.edit),
+          tooltip: '画笔',
+          onPressed: () => _clueBoardKey.currentState?.setPenMode(),
+        ),
+        IconButton(
+          icon: const Icon(Icons.cleaning_services_outlined),
+          tooltip: '橡皮',
+          onPressed: () => _clueBoardKey.currentState?.setEraserMode(),
+        ),
+        IconButton(
+          icon: const Icon(Icons.title),
+          tooltip: '文字',
+          onPressed: () => _clueBoardKey.currentState?.setTextMode(),
+        ),
+        IconButton(
+          icon: const Icon(Icons.undo),
+          tooltip: '撤销',
+          onPressed: () => _clueBoardKey.currentState?.undo(),
+        ),
+        IconButton(
+          icon: const Icon(Icons.clear_all, color: Colors.red),
+          tooltip: '重置画板',
+          onPressed: () => _clueBoardKey.currentState?.resetBoard(),
+        ),
+      ]);
+    }
+
+    actions.add(PopupMenuButton<String>(
+      icon: const Icon(Icons.view_quilt),
+      tooltip: '布局',
+      onSelected: (v) {
+        if (v == '1') _setLayout(1);
+        if (v == '2') _setLayout(2);
+        if (v == '3') _setLayout(3);
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: '1', child: Text('单栏')),
+        PopupMenuItem(value: '2', child: Text('双栏')),
+        PopupMenuItem(value: '3', child: Text('三栏')),
+      ],
+    ));
+
+    if (!narrow) {
+      actions.add(IconButton(
+        icon: Icon(
+          _showMaterialPanel ? Icons.view_sidebar : Icons.view_sidebar_outlined,
+        ),
+        tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
+        isSelected: _showMaterialPanel,
+        onPressed: _toggleMaterialPanel,
+      ));
+    }
+
+    return actions;
+  }
+
+  void _handleReaderMoreAction(String v, EpubReaderPageState? s) {
+    if (s == null) return;
+    switch (v) {
+      case 'notes': s.showNotesPanel(); break;
+      case 'focus': s.toggleFocusMode(); break;
+      case 'mindmap': s.showMindMap(); break;
+      case 'export_mindmap': s.exportMindMap(); break;
+      case 'aggregate': s.showAggregatedNotes(); break;
+      case 'rating': s.showRatingReviewDialog(); break;
+      case 'stats': s.showReadingStats(); break;
+      case 'batch_cards': s.showBatchCardDialog(); break;
+      case 'export_notes': s.exportNotes(); break;
+      case 'settings': s.openSettings(); break;
+      case 'material': _toggleMaterialPanel(); break;
+    }
   }
 
   void _syncFocus() {
@@ -459,15 +646,30 @@ class _MultiPanePageState extends State<MultiPanePage> {
       }
     }
     if (!mounted) return;
+    if (_activePane >= n && _panes[_activePane] is _ClueBoardPane) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('线索墙在将关闭的栏位，不可保留')),
+      );
+      return;
+    }
     setState(() {
+      if (_activePane >= n) {
+        final tmp = _panes[n - 1];
+        _panes[n - 1] = _panes[_activePane];
+        _panes[_activePane] = tmp;
+        final tmpKey = _readerKeys[n - 1];
+        _readerKeys[n - 1] = _readerKeys[_activePane];
+        _readerKeys[_activePane] = tmpKey;
+      }
       for (var i = n; i < _layoutMode; i++) {
         final old = _panes[i];
         if (old is _NotePane) old.kernel.dispose();
         _panes[i] = const _EmptyPane();
+        _readerKeys.remove(i);
       }
       _layoutMode = n;
-      if (_activePane >= n) _activePane = n - 1;
-      _paneRatios = [1 / 3, 1 / 3, 1 / 3]; // 栏数变——重置等分
+      _activePane = _activePane.clamp(0, n - 1);
+      _paneRatios = [1 / 3, 1 / 3, 1 / 3];
     });
     _syncFocus();
     if (_showMaterialPanel) _reloadMaterialItems();
@@ -475,9 +677,23 @@ class _MultiPanePageState extends State<MultiPanePage> {
 
   void _setActivePane(int i) {
     if (i == _activePane) return;
+    final oldPane = _panes[_activePane];
+    if (oldPane is _ReaderPane) {
+      _readerKeys[_activePane]?.currentState?.hideCardBoxPeek();
+    }
     setState(() => _activePane = i);
     _syncFocus();
     if (_showMaterialPanel) _reloadMaterialItems();
+    final pane = _panes[i];
+    if (pane is _ReaderPane) {
+      MultiPaneBus.instance.setContext(MultiPaneContext.reader);
+    } else if (pane is _NotePane) {
+      MultiPaneBus.instance.setContext(MultiPaneContext.note);
+    } else if (pane is _ClueBoardPane) {
+      MultiPaneBus.instance.setContext(MultiPaneContext.clueBoard);
+    } else {
+      MultiPaneBus.instance.setContext(MultiPaneContext.empty);
+    }
   }
 
   Future<void> _fillPaneWithNote(int i) async {
@@ -522,6 +738,7 @@ class _MultiPanePageState extends State<MultiPanePage> {
     if (activeKernel != null && EditorKernel.active == activeKernel) {
       EditorKernel.blur();
     }
+    MultiPaneBus.instance.clearReaderState();
     // 批 2-4：移除监听
     CardService.revision.removeListener(_onCardsChanged);
     super.dispose();
@@ -529,70 +746,57 @@ class _MultiPanePageState extends State<MultiPanePage> {
 
   @override
   Widget build(BuildContext context) {
-    final activeHasNote = _panes[_activePane] is _NotePane;
-    final activeHasContent =
-        _panes[_activePane] is _NotePane ||
-        _panes[_activePane] is _ReaderPane ||
-        _panes[_activePane] is _ClueBoardPane;
-    return PopScope(
-      canPop: !_panes.any((p) => p is _NotePane && p.kernel.isDirty),
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        await _showExitDialog();
-      },
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        appBar: AppBar(
-          title: const Text('多栏工作台'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.crop_square),
-              tooltip: '单栏',
-              onPressed: () => _setLayout(1),
-            ),
-            IconButton(
-              icon: const Icon(Icons.view_column),
-              tooltip: '双栏',
-              onPressed: () => _setLayout(2),
-            ),
-            IconButton(
-              icon: const Icon(Icons.view_week),
-              tooltip: '三栏',
-              onPressed: () => _setLayout(3),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: Icon(
-                _showMaterialPanel
-                    ? Icons.view_sidebar
-                    : Icons.view_sidebar_outlined,
+    return LayoutBuilder(
+      builder: (outerContext, outerConstraints) {
+        final activeHasNote = _panes[_activePane] is _NotePane;
+        final activeHasContent =
+            _panes[_activePane] is _NotePane ||
+            _panes[_activePane] is _ReaderPane ||
+            _panes[_activePane] is _ClueBoardPane;
+
+        final availW = outerConstraints.maxWidth;
+        const dividerW = 16.0;
+        const materialW = 280.0;
+        final showMaterial = _showMaterialPanel && activeHasContent;
+        final panesArea = availW -
+            (_layoutMode - 1) * dividerW -
+            (showMaterial ? dividerW + materialW : 0);
+        final paneRatios = _paneRatios.take(_layoutMode).toList();
+        final paneWidths = _computePaneWidths(paneRatios, panesArea);
+        final ratioSum = paneRatios.reduce((a, b) => a + b);
+        final perRatio = ratioSum > 0 ? panesArea / ratioSum : 0.0;
+        final activePaneWidth =
+            _activePane < paneWidths.length ? paneWidths[_activePane] : availW;
+
+        return PopScope(
+          canPop: !_panes.any((p) => p is _NotePane && p.kernel.isDirty),
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
+            await _showExitDialog();
+          },
+          child: Scaffold(
+            backgroundColor: Colors.white,
+            appBar: AppBar(
+              title: ValueListenableBuilder<MultiPaneContext>(
+                valueListenable: MultiPaneBus.instance.activeContext,
+                builder: (_, ctx, __) => Text(
+                  ctx == MultiPaneContext.reader ? '阅读中' : '多栏工作台',
+                ),
               ),
-              tooltip: _showMaterialPanel ? '收起素材栏' : '展开素材栏',
-              isSelected: _showMaterialPanel,
-              onPressed: _toggleMaterialPanel,
+              actions: [
+                ValueListenableBuilder<MultiPaneContext>(
+                  valueListenable: MultiPaneBus.instance.activeContext,
+                  builder: (_, ctx, __) {
+                    final narrow = activePaneWidth < 500;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: _buildTopBarActions(ctx, narrow),
+                    );
+                  },
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-          ],
-        ),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final availW = constraints.maxWidth;
-            const dividerW = 16.0;
-            const materialW = 280.0;
-            final showMaterial = _showMaterialPanel && activeHasContent;
-
-            // 可用宽 = 总宽 - 分隔线占位 - (素材栏 + 其前分隔线)
-            final panesArea =
-                availW -
-                (_layoutMode - 1) * dividerW -
-                (showMaterial ? dividerW + materialW : 0);
-
-            final paneRatios = _paneRatios.take(_layoutMode).toList();
-            final paneWidths = _computePaneWidths(paneRatios, panesArea);
-            final ratioSum = paneRatios.reduce((a, b) => a + b);
-            final perRatio = ratioSum > 0 ? panesArea / ratioSum : 0.0;
-
-            return Row(
+            body: Row(
               children: [
                 for (var i = 0; i < _layoutMode; i++) ...[
                   if (i > 0)
@@ -628,10 +832,10 @@ class _MultiPanePageState extends State<MultiPanePage> {
                   ),
                 ],
               ],
-            );
-          },
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -674,12 +878,16 @@ class _MultiPanePageState extends State<MultiPanePage> {
         },
       ),
       _ReaderPane(:final bookId, :final fileName, :final filePath) =>
-        EpubReaderPage(
-          bookId: bookId,
-          fileName: fileName,
-          filePath: filePath,
-          embedMode: true,
-          onExit: () => setState(() => _panes[i] = const _EmptyPane()),
+        ClipRect(
+          child: EpubReaderPage(
+            key: _readerKeys.putIfAbsent(i, () => GlobalKey<EpubReaderPageState>()),
+            bookId: bookId,
+            fileName: fileName,
+            filePath: filePath,
+            multiPaneBus: MultiPaneBus.instance,
+            embedMode: true,
+            onExit: () => setState(() => _panes[i] = const _EmptyPane()),
+          ),
         ),
       _ClueBoardPane(:final viewId) => ClueBoard(
         key: _clueBoardKey,

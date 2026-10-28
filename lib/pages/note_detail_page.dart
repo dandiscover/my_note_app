@@ -2439,7 +2439,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
       MaterialPageRoute(
         builder: (_) => MultiPanePage(
           initialEntries: limited,
-          initialLayout: limited.length.clamp(1, 3),
+          initialLayout: 2,
         ),
       ),
     );

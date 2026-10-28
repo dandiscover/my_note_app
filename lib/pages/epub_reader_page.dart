@@ -36,6 +36,9 @@ import '../database_service.dart';
 
 import '../services/epub_jump_service.dart';
 import '../services/navigation_service.dart' show NavigationService;
+import '../services/multi_pane_bus.dart';
+import 'reader/reader_shell.dart';
+import 'multi_pane_page.dart';
 import '../widgets/reader_hub_search_dialog.dart' show ReaderHubSearchDialog;
 import '../models/book.dart';
 import '../models/book_note.dart';
@@ -58,6 +61,7 @@ class EpubReaderPage extends StatefulWidget {
   final int? initialChapterIndex;
   final BookNote? initialJumpNote;               // 全智库入口：加载后跳转
   final String? initialLocation;                 // 全智库入口：location 字符串
+  final MultiPaneBus? multiPaneBus;              // 多栏融合：主动推送上下文
   final bool embedMode;                          // 批 3：嵌入模式——只 body 无 Scaffold
   final VoidCallback? onExit;                    // 批 3：embed 错误态返回
   final ValueChanged<bool>? onFocusModeChanged;  // 批 3：专注态变更同步
@@ -72,16 +76,17 @@ class EpubReaderPage extends StatefulWidget {
     this.initialChapterIndex,
     this.initialJumpNote,
     this.initialLocation,
+    this.multiPaneBus,
     this.embedMode = false,
     this.onExit,
     this.onFocusModeChanged,
   });
 
   @override
-  State<EpubReaderPage> createState() => _EpubReaderPageState();
+  State<EpubReaderPage> createState() => EpubReaderPageState();
 }
 
-class _EpubReaderPageState extends State<EpubReaderPage> {
+class EpubReaderPageState extends State<EpubReaderPage> {
   final BookService _bookService = BookService();
   final DatabaseService _db = DatabaseService();
   final CardService _cardService = CardService();
@@ -170,6 +175,12 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
     _loadBook();
   }
 
+  void hideCardBoxPeek() {
+    _cardBoxVisible.value = false;
+    _cardBoxDelayTimer?.cancel();
+    _cardBoxHideTimer?.cancel();
+  }
+
   @override
   void dispose() {
     _layoutDebouncer.cancel();
@@ -198,6 +209,7 @@ if (controller == null) return;
         if (selText.isNotEmpty && selText != _webviewSelectedText) {
           _webviewSelectedText = selText;
           _selectedText = selText;
+          widget.multiPaneBus?.updateContext(text: selText);
           _startCardBoxDelayTimer(selText);
           await controller.runJavaScript('window._sel = "";');
         }
@@ -218,7 +230,7 @@ if (controller == null) return;
                    _selectedText = actionSel;
                    _showWriteThoughtDialog(actionSel, actionId);
                } else if (actionText == 'search') {
-                   _showSearch(actionSel);
+                   showSearch(actionSel);
                } else if (actionText == 'translate') {
                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🌐 翻译功能即将上线，敬请期待')));
                }
@@ -442,7 +454,7 @@ if (controller == null) return;
     } catch (_) {}
   }
 
-  void _showRatingReviewDialog() {
+  void showRatingReviewDialog() {
     showDialog(
       context: context,
       builder: (context) {
@@ -578,7 +590,7 @@ if (controller == null) return;
   Color get _appBarBgColor => Colors.grey.shade100;
   Color get _appBarFgColor => Colors.black87;
 
-  void _openSettings() {
+  void openSettings() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -882,7 +894,7 @@ if (controller == null) return;
     } catch (_) {}
   }
 
-  Future<void> _showSearch([String? initialText]) async {
+  Future<void> showSearch([String? initialText]) async {
     await showDialog(
       context: context,
       builder: (_) => ReaderHubSearchDialog(
@@ -947,7 +959,7 @@ if (controller == null) return;
 
 
 
-  void _showToc() {
+  void showToc() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -986,13 +998,13 @@ if (controller == null) return;
     );
   }
 
-  void _toggleFocusMode() {
+  void toggleFocusMode() {
     if (widget.embedMode) return;   // 批 3：embed 禁进专注
     setState(() => _isFocusMode = !_isFocusMode);
     widget.onFocusModeChanged?.call(_isFocusMode);
   }
 
-  void _exportNotes() {
+  void exportNotes() {
     final buffer = StringBuffer();
     buffer.writeln('《${_bookTitle.isEmpty ? _book?.title ?? widget.fileName : _bookTitle}》阅读笔记');
     buffer.writeln('导出时间：${DateTime.now().toString()}');
@@ -1013,7 +1025,7 @@ if (controller == null) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 已复制到剪贴板')));
   }
 
-  void _exportMindMap() {
+  void exportMindMap() {
     final buffer = StringBuffer();
     buffer.writeln('# ${_bookTitle.isEmpty ? _book?.title ?? widget.fileName : _bookTitle}');
     buffer.writeln('');
@@ -1876,7 +1888,7 @@ if (controller == null) return;
     await _loadNotes();
   }
 
-  void _showBatchCardDialog() {
+  void showBatchCardDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1919,7 +1931,7 @@ if (controller == null) return;
     }
   }
 
-  void _showReadingStats() async {
+  void showReadingStats() async {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString('reading_time_stats');
     Map<String, dynamic> stats = {};
@@ -2188,6 +2200,7 @@ if (controller == null) return;
       }
       if (myGeneration != _jumpGeneration) return;
       debugPrint('DEBUG loadChapterContent done: index=$index, contentLen=${content.length}');
+      widget.multiPaneBus?.updateContext(chapter: index);
       _saveProgress(); // 自动保存进度
     } catch (e, st) {
       debugPrint('_loadChapterContent 失败: $e\n$st');
@@ -2205,7 +2218,7 @@ if (controller == null) return;
     }
   }
 
-  void _showNotesPanel() {
+  void showNotesPanel() {
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -2302,7 +2315,7 @@ if (controller == null) return;
     );
   }
 
-  void _showMindMap() {
+  void showMindMap() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2361,7 +2374,7 @@ if (controller == null) return;
     );
   }
 
-  void _showAggregatedNotes() {
+  void showAggregatedNotes() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2522,7 +2535,8 @@ if (controller == null) return;
 
     // 非 embed：原态——Scaffold + AppBar
     if (_isLoading) {
-      return Scaffold(
+      return ReaderShell(
+        backgroundColor: _backgroundColor,
         appBar: AppBar(
           title: Text(widget.fileName),
           backgroundColor: _appBarBgColor,
@@ -2532,7 +2546,8 @@ if (controller == null) return;
       );
     }
     if (_errorMessage != null || _chapters == null || _chapters!.isEmpty) {
-      return Scaffold(
+      return ReaderShell(
+        backgroundColor: _backgroundColor,
         appBar: AppBar(
           title: Text(widget.fileName),
           backgroundColor: _appBarBgColor,
@@ -2542,12 +2557,13 @@ if (controller == null) return;
       );
     }
     if (_isFocusMode) {
-      return Scaffold(
+      return ReaderShell(
         backgroundColor: _backgroundColor,
+        isFocusMode: true,
         body: _buildFocusBody(),
       );
     }
-    return Scaffold(
+    return ReaderShell(
       backgroundColor: _backgroundColor,
       appBar: _buildNormalAppBar(context),
       body: _buildNormalBody(),
@@ -2610,10 +2626,26 @@ if (controller == null) return;
       onPointerDown: _onFocusPointerDown,
       onPointerUp: _onFocusPointerUp,
       child: Stack(
+        clipBehavior: Clip.hardEdge,
         children: [
           _buildChapterContent(_currentChapterIndex),
           _buildCardBoxPeek(),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openMultiPaneFromReader() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MultiPanePage(
+          initialLayout: 2,
+          initialReaderBookId: widget.bookId,
+          initialReaderBookTitle:
+              _bookTitle.isEmpty ? widget.fileName : _bookTitle,
+          initialReaderBookPath: widget.filePath,
+        ),
       ),
     );
   }
@@ -2633,23 +2665,29 @@ if (controller == null) return;
       foregroundColor: _appBarFgColor,
       elevation: 0,
       actions: [
-        IconButton(icon: const Icon(Icons.menu_book), onPressed: _showToc, tooltip: '目录'),
-        IconButton(icon: const Icon(Icons.search), onPressed: _showSearch, tooltip: '搜索'),
-        IconButton(icon: const Icon(Icons.format_list_bulleted), onPressed: _showNotesPanel, tooltip: '标注列表'),
+        IconButton(icon: const Icon(Icons.menu_book), onPressed: showToc, tooltip: '目录'),
+        IconButton(icon: const Icon(Icons.search), onPressed: showSearch, tooltip: '搜索'),
+        IconButton(icon: const Icon(Icons.format_list_bulleted), onPressed: showNotesPanel, tooltip: '标注列表'),
+        if (!widget.embedMode)
+          IconButton(
+            icon: const Icon(Icons.view_column),
+            tooltip: '并排阅读',
+            onPressed: _openMultiPaneFromReader,
+          ),
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           onSelected: (value) {
             switch (value) {
-              case 'focus': _toggleFocusMode(); break;
-              case 'mindmap': _showMindMap(); break;
-              case 'export_mindmap': _exportMindMap(); break;
-              case 'aggregate': _showAggregatedNotes(); break;
-              case 'rating': _showRatingReviewDialog(); break;
-              case 'stats': _showReadingStats(); break;
-              case 'batch_cards': _showBatchCardDialog(); break;
-              case 'export_notes': _exportNotes(); break;
+              case 'focus': toggleFocusMode(); break;
+              case 'mindmap': showMindMap(); break;
+              case 'export_mindmap': exportMindMap(); break;
+              case 'aggregate': showAggregatedNotes(); break;
+              case 'rating': showRatingReviewDialog(); break;
+              case 'stats': showReadingStats(); break;
+              case 'batch_cards': showBatchCardDialog(); break;
+              case 'export_notes': exportNotes(); break;
 
-              case 'settings': _openSettings(); break;
+              case 'settings': openSettings(); break;
             }
           },
           itemBuilder: (context) => [
@@ -2673,6 +2711,7 @@ if (controller == null) return;
     final total = _chapters!.length;
     final current = _currentChapterIndex;
     return Stack(
+      clipBehavior: Clip.hardEdge,
       children: [
         Column(
           children: [
