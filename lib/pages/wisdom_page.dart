@@ -457,6 +457,27 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const ClueBoardPage()));
   }
 
+  Future<void> _showBlankContextMenu(Offset globalPos) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPos.dx, globalPos.dy, 0, 0),
+        Offset.zero & overlay.size,
+      ),
+      items: const [
+        PopupMenuItem(value: 'new_note', child: Text('📝 新建笔记')),
+        PopupMenuItem(value: 'new_folder', child: Text('📁 新建文件夹')),
+      ],
+    );
+    if (action == 'new_note') {
+      await _createNote();
+    } else if (action == 'new_folder') {
+      await _createFolder();
+    }
+  }
+
   Future<void> _createFolder() async {
     _closeFab();
     final controller = TextEditingController();
@@ -957,6 +978,7 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
               onFolderTap: _navigateToFolder,
             ),
           OpenTabsBar(
+            onAdd: _createNote,
   onTabTap: () {
     // C 块 7 修：点顶部标签栏重开 —— 同改 1 —— 必须重读
     _onActiveTabChanged();
@@ -1381,18 +1403,23 @@ class WisdomPageState extends State<WisdomPage> with StateMixin {
           child: Column(
             children: [
               Expanded(
-                child: NodeTreeView(
-                  nodes: _nodes,
-                  folderOnly: true,
-                  showSystemFolders: false,
-                  currentNodeId: _currentFolderId,
-                  onTap: (node) => _navigateToFolder(node.id),
-                  onDragDrop: (draggedId, targetId) async {
-                    await _db.moveNode(draggedId, targetId);
-                    _cache.invalidate(_cacheKeyNodes);
-                    _folderStatsCache = null;
-                    await _loadData();
-                  },
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onSecondaryTapDown: (d) =>
+                      _showBlankContextMenu(d.globalPosition),
+                  child: NodeTreeView(
+                    nodes: _nodes,
+                    folderOnly: true,
+                    showSystemFolders: false,
+                    currentNodeId: _currentFolderId,
+                    onTap: (node) => _navigateToFolder(node.id),
+                    onDragDrop: (draggedId, targetId) async {
+                      await _db.moveNode(draggedId, targetId);
+                      _cache.invalidate(_cacheKeyNodes);
+                      _folderStatsCache = null;
+                      await _loadData();
+                    },
+                  ),
                 ),
               ),
               if (_systemFolders.isNotEmpty) ...[
